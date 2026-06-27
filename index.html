@@ -110,6 +110,9 @@
   .meta { min-width: 0; }
   .t { font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .a { font-size: .82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lnk { color: inherit; cursor: pointer; }
+  .lnk:hover { color: #fff; text-decoration: underline; }
+  .sep { opacity: .6; padding: 0 2px; }
   .row-like { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1.15rem;
               padding: 4px; opacity: 0; transition: opacity .15s, color .15s; }
   .row-like:hover { color: #ff4d6d; }
@@ -175,7 +178,7 @@
 
   .controls { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; }
   .now { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  .now img { width: 50px; height: 50px; border-radius: 9px; object-fit: cover; background: #1a1a20; flex: none;
+  .now img { width: 62px; height: 62px; border-radius: 10px; object-fit: cover; background: #1a1a20; flex: none;
              box-shadow: 0 6px 16px rgb(0 0 0 / .5); }
   .now .t { font-size: .95rem; } .now .a { font-size: .84rem; }
 
@@ -670,14 +673,23 @@ function render(list, v) {
     r.appendChild(songLi(s, list, i));
   });
 }
+function esc(t) { return (t == null ? "" : String(t)).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function metaHtml(s) {
+  const parts = [];
+  if (s.artists && s.artists.length) parts.push(s.artists.map(a => a.id ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", "));
+  else if (s.artist) parts.push(esc(s.artist));
+  if (s.album && s.album.id) parts.push(`<span class="lnk" data-alb="${esc(s.album.id)}">${esc(s.album.name)}</span>`);
+  else if (s.album && s.album.name) parts.push(esc(s.album.name));
+  return parts.join('<span class="sep">•</span>');
+}
 function songLi(s, list, i) {
-  const li = document.createElement("li"); li.style.setProperty("--i", i);
+  const li = document.createElement("li"); li.style.setProperty("--i", i); li.dataset.id = s.id;
   li.innerHTML = `<div class="cover-wrap"><img alt=""><div class="play-hint"><i class="ph-fill ph-play"></i></div></div>
     <div class="meta"><div class="t"></div><div class="a"></div></div>
     <button class="row-like ${isLiked(s.id) ? "on ph-fill" : "ph"} ph-heart" aria-label="Me gusta"></button>`;
   li.querySelector("img").src = s.cover;
   li.querySelector(".t").textContent = s.title;
-  li.querySelector(".a").textContent = s.artist;
+  li.querySelector(".a").innerHTML = metaHtml(s);
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
   li.onclick = () => playFromList(list, i);
@@ -791,7 +803,7 @@ function openCollection(browseId, push = true) {
 }
 function colTrackRow(t, songs, i, hasPic) {
   const s = songs[i];
-  const li = document.createElement("li"); li.className = "ctrack" + (hasPic ? " haspic" : "");
+  const li = document.createElement("li"); li.className = "ctrack" + (hasPic ? " haspic" : ""); li.dataset.id = s.id;
   let html = `<span class="cidx">${t.index || (i + 1)}</span>`;
   if (hasPic) html += '<img alt="">';
   html += `<div class="meta"><div class="ct2"></div><div class="ca"></div></div>
@@ -802,7 +814,7 @@ function colTrackRow(t, songs, i, hasPic) {
   li.innerHTML = html;
   if (hasPic) li.querySelector("img").src = s.cover;
   li.querySelector(".ct2").textContent = t.title;
-  li.querySelector(".ca").textContent = s.artist;   // artista (con fallback al del album)
+  li.querySelector(".ca").innerHTML = metaHtml(s);   // artistas + album clickeables
   li.querySelector(".cextra").textContent = t.extra || "";
   li.querySelector(".cdur").textContent = t.duration || "";
   if (current && current.id === s.id) li.classList.add("playing");
@@ -835,6 +847,13 @@ function openTrackMenu(s, songs, i, x, y, li) {
   m.style.left = Math.min(x, innerWidth - w - 8) + "px";
   m.style.top = Math.min(y, innerHeight - h - 8) + "px";
 }
+document.addEventListener("click", e => {
+  const ln = e.target.closest && e.target.closest(".lnk");
+  if (ln) { e.stopPropagation(); e.preventDefault();
+    if (ln.dataset.art) openArtist(ln.dataset.art);
+    else if (ln.dataset.alb) openCollection(ln.dataset.alb);
+  }
+}, true);
 document.addEventListener("click", e => { if (!$("ctxmenu").contains(e.target)) closeMenu(); });
 document.addEventListener("scroll", closeMenu, true);
 function renderCollection(d) {
@@ -852,12 +871,17 @@ function renderCollection(d) {
   hero.querySelector(".ct").textContent = d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist");
   hero.querySelector("h1").textContent = d.title || "";
   const cm = hero.querySelector(".cmeta");
-  if (d.creator) { const b = document.createElement("b"); b.textContent = d.creator; cm.appendChild(b); cm.appendChild(document.createTextNode(" • ")); }
+  if (d.creator) {
+    const b = document.createElement("b");
+    if (d.creatorId) { b.className = "lnk"; b.dataset.art = d.creatorId; }
+    b.textContent = d.creator; cm.appendChild(b); cm.appendChild(document.createTextNode(" • "));
+  }
   cm.appendChild(document.createTextNode(d.meta || ""));
   cv.appendChild(hero);
   if (d.description) { const p = document.createElement("p"); p.className = "col-desc"; p.textContent = d.description; cv.appendChild(p); }
   const hasPic = d.kind === "playlist";
-  const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration }));
+  const fallbackArtists = d.creator && d.creatorId ? [{ name: d.creator, id: d.creatorId }] : null;
+  const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
   d.tracks.forEach((t, i) => ul.appendChild(colTrackRow(t, songs, i, hasPic)));
   cv.appendChild(ul);
@@ -920,7 +944,6 @@ async function resolveAtv(s) {   // music video -> art track (solo para resultad
 }
 async function playSong(s) {
   const tok = ++playToken;
-  document.querySelectorAll("li.playing").forEach(x => x.classList.remove("playing"));
   try {
     await resolveAtv(s);
     if (tok !== playToken) return;
@@ -962,11 +985,10 @@ eng.onAdvance = (song) => { qIndex = (song._idx != null) ? song._idx : plannedNe
 eng.onEnded = () => playNext(true);
 eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; };
 function markPlaying() {
-  document.querySelectorAll("#r li").forEach((li, idx) => {
-    const t = li.querySelector(".t"); if (!t) return;
-    li.classList.toggle("playing", current && view !== "" && (
-      (view === "liked" ? getLiked() : view === "recientes" ? getRecents() : lastResults)[idx]?.id === current.id));
-  });
+  document.querySelectorAll("li.playing").forEach(x => x.classList.remove("playing"));
+  if (!current) return;
+  const sel = 'li[data-id="' + (window.CSS && CSS.escape ? CSS.escape(current.id) : current.id.replace(/"/g, '\\"')) + '"]';
+  document.querySelectorAll(sel).forEach(li => li.classList.add("playing"));
 }
 function togglePlay() { audio.paused ? audio.play() : audio.pause(); }
 

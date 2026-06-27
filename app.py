@@ -78,15 +78,24 @@ def _parse_item(item):
             return []
     title = "".join(r.get("text", "") for r in runs(0))
     # artistas = runs del subtitulo que enlazan a una pagina (descarta separadores/tipo/duracion)
-    artist_runs = [r["text"] for r in runs(1) if r.get("navigationEndpoint")]
-    artist = ", ".join(artist_runs) or "".join(r.get("text", "") for r in runs(1)[2:3])
+    artists, album = [], None
+    for r in runs(1):
+        bid = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+        if bid.startswith("UC"):
+            artists.append({"name": r.get("text", ""), "id": bid})
+        elif (bid.startswith("MPRE") or bid.startswith("VL")) and not album:
+            album = {"name": r.get("text", ""), "id": bid}
+    artist = ", ".join(a["name"] for a in artists) or "".join(r.get("text", "") for r in runs(1)[2:3])
     try:
         thumbs = item["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
     except (KeyError, TypeError):
         thumbs = []
     cover = thumbs[-1]["url"] if thumbs else ""
     if vid and title:
-        return {"id": vid, "title": title, "artist": artist, "cover": cover, "type": _mv_type(item)}
+        out = {"id": vid, "title": title, "artist": artist, "cover": cover, "type": _mv_type(item)}
+        if artists: out["artists"] = artists
+        if album: out["album"] = album
+        return out
     return None
 
 
@@ -339,21 +348,35 @@ def _artist_list(browse_id, params):
 # ---------- album / playlist (browse) ----------
 def _parse_col_track(it):
     cols = it.get("flexColumns", [])
-    def fx(i):
+    def col_runs(i):
         try:
-            return _runs_text(cols[i]["musicResponsiveListItemFlexColumnRenderer"]["text"])
+            return cols[i]["musicResponsiveListItemFlexColumnRenderer"]["text"].get("runs", []) or []
         except (IndexError, KeyError, TypeError):
-            return ""
+            return []
+    def fx(i):
+        return "".join(r.get("text", "") for r in col_runs(i))
     title = fx(0)
     vid = (it.get("playlistItemData", {}) or {}).get("videoId") or _find_video_id(it)
     if not (vid and title):
         return None
+    artists, album = [], None
+    for r in col_runs(1):
+        bid = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+        if bid.startswith("UC"):
+            artists.append({"name": r.get("text", ""), "id": bid})
+    for r in col_runs(2):
+        bid = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+        if (bid.startswith("MPRE") or bid.startswith("VL")) and not album:
+            album = {"name": r.get("text", ""), "id": bid}
     dur = ""
     for fc in it.get("fixedColumns", []):
         dur = _runs_text(fc.get("musicResponsiveListItemFixedColumnRenderer", {}).get("text")) or dur
     # sin "type": las pistas de album/playlist son la grabacion correcta y NO deben reemplazarse por un art track
-    return {"index": _runs_text(it.get("index")), "title": title, "artist": fx(1),
-            "extra": fx(2), "duration": dur, "id": vid, "cover": _largest_thumb(it.get("thumbnail", {}))}
+    out = {"index": _runs_text(it.get("index")), "title": title, "artist": fx(1),
+           "extra": fx(2), "duration": dur, "id": vid, "cover": _largest_thumb(it.get("thumbnail", {}))}
+    if artists: out["artists"] = artists
+    if album: out["album"] = album
+    return out
 
 
 def _use_album_audio(hdr, tracks):
@@ -402,6 +425,9 @@ def _collection(browse_id):
         "title": _runs_text(hdr.get("title")),
         "subtitle": _runs_text(hdr.get("subtitle")),       # "Album . 2013" / "Lista de reproduccion"
         "creator": _runs_text(hdr.get("straplineTextOne")),  # artista o autor
+        "creatorId": next((((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+                           for r in (hdr.get("straplineTextOne", {}) or {}).get("runs", [])
+                           if ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "").startswith("UC")), ""),
         "meta": _runs_text(hdr.get("secondSubtitle")),     # "10 canciones . 44 min"
         "description": _runs_text(hdr.get("description")),
         "cover": _largest_thumb(hdr.get("thumbnail", {})),

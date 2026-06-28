@@ -157,7 +157,7 @@
   /* "Other versions": panel que sale a la derecha al hacer hover sobre un album */
   .has-versions { position: relative; }
   .versions { position: absolute; left: calc(100% - 4px); top: 0; z-index: 9;
-    width: min(460px, 52vw); max-height: 72vh; overflow-y: auto;
+    width: max-content; max-width: min(440px, 50vw); max-height: 72vh; overflow-y: auto;
     padding: 12px; border-radius: 14px;
     background: linear-gradient(150deg, rgb(28 28 34 / .97), rgb(18 18 22 / .97));
     border: 1px solid rgb(255 255 255 / .1);
@@ -168,10 +168,10 @@
   .has-versions:hover > .versions { opacity: 1; transform: translateX(0); pointer-events: auto; }
   .versions .vhead { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
     color: var(--muted); margin: 2px 4px 10px; }
-  .versions .vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-  .versions .vitem { cursor: pointer; padding: 6px; border-radius: 10px; min-width: 0; }
+  .versions .vgrid { display: grid; gap: 10px; }
+  .versions .vitem { cursor: pointer; padding: 5px; border-radius: 10px; width: 96px; }
   .versions .vitem:hover { background: rgb(255 255 255 / .08); }
-  .versions .vitem img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 9px; background: #1a1a20;
+  .versions .vitem img { width: 86px; height: 86px; object-fit: cover; border-radius: 8px; background: #1a1a20;
     box-shadow: 0 6px 18px rgb(0 0 0 / .4); display: block; }
   .versions .vitem .vt { font-size: .82rem; font-weight: 600; margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .versions .vitem .va { font-size: .74rem; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -763,6 +763,7 @@ function attachVersions(card, browseId) {
       it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId); };
       grid.appendChild(it);
     });
+    grid.style.gridTemplateColumns = "repeat(" + Math.min(vers.length, 4) + ", 96px)";   // ventana crece con la cantidad (max 4 por fila)
     card.classList.add("has-versions");
     card.appendChild(box);
     card.addEventListener("mouseenter", () => {   // si no cabe a la derecha, abre a la izquierda

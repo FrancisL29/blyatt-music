@@ -330,7 +330,10 @@
   .artist-back:hover { color: var(--text); }
   /* portada inmersiva: foto a toda la ventana con fade hacia el fondo (tuck bajo la barra de busqueda) */
   .artist-hero2 { position: relative; margin: -76px -28px 18px; min-height: 62vh; display: flex; align-items: flex-end;
-                  padding: 0 40px 30px; background-size: cover; background-position: center 22%; }
+                  padding: 0 40px 30px; overflow: hidden; }
+  .artist-hero2 .hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center 22%;
+    transition: filter .55s ease, transform .55s ease; }
+  .artist-hero2 .hero-bg.blur { filter: blur(26px); transform: scale(1.08); }   /* baja calidad: gaussiano hasta que cargue la buena */
   .artist-hero2::after { content: ""; position: absolute; inset: 0; pointer-events: none;
     background: linear-gradient(to bottom, rgb(6 6 8 / .25) 0%, rgb(6 6 8 / .05) 38%, rgb(6 6 8 / .72) 82%, var(--bg) 100%); }
   .artist-hero2 .info { position: relative; z-index: 1; max-width: 70%; }
@@ -830,8 +833,8 @@ function openArtist(browseId, push = true, seed = null) {
 function artistSeed(seed) {   // pinta de inmediato lo que ya sabemos (portada + nombre) + esqueleto shimmer
   const av = $("artistView"); av.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "artist-hero2";
-  if (seed.cover) hero.style.backgroundImage = `url("${seed.cover}")`;
-  hero.innerHTML = '<div class="info"><h1></h1></div>';
+  hero.innerHTML = '<div class="hero-bg blur"></div><div class="info"><h1></h1></div>';
+  if (seed.cover) hero.querySelector(".hero-bg").style.backgroundImage = `url("${seed.cover}")`;
   hero.querySelector("h1").textContent = seed.title || "Artista";
   av.appendChild(hero);
   for (let s = 0; s < 2; s++) {
@@ -849,8 +852,13 @@ function artistSeed(seed) {   // pinta de inmediato lo que ya sabemos (portada +
 function renderArtist(d) {
   const av = $("artistView"); av.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "artist-hero2";
-  if (d.image) hero.style.backgroundImage = `url("${d.image}")`;
-  hero.innerHTML = '<div class="info"><h1></h1><div class="maud"></div><div class="bio"></div></div>';
+  hero.innerHTML = '<div class="hero-bg blur"></div><div class="info"><h1></h1><div class="maud"></div><div class="bio"></div></div>';
+  const heroBg = hero.querySelector(".hero-bg");
+  if (d.image) {   // arranca borroso, transiciona a nitido cuando termina de cargar la imagen de buena calidad
+    heroBg.style.backgroundImage = `url("${d.image}")`;
+    const hi = new Image(); hi.onload = () => heroBg.classList.remove("blur"); hi.src = d.image;
+    setTimeout(() => heroBg.classList.remove("blur"), 2500);   // por si onload no dispara (cache/error)
+  } else heroBg.classList.remove("blur");
   hero.querySelector("h1").textContent = d.name || "Artista";
   const maud = hero.querySelector(".maud"); maud.textContent = d.subtitle || ""; if (!d.subtitle) maud.style.display = "none";
   const bio = hero.querySelector(".bio"); bio.textContent = d.description || "";

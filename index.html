@@ -395,6 +395,8 @@
             grid-template-columns: 26px 1fr minmax(0, auto) 26px 48px 26px; }
   .ctracks.withpic .ctrack { grid-template-columns: 26px 42px 1fr minmax(0, auto) 26px 48px 26px; }
   .ctrack:hover, .ctrack.menuopen { background: rgb(255 255 255 / .05); }
+  .ctrack.skelrow { cursor: default; opacity: 0; animation: rise .4s ease forwards; animation-delay: calc(var(--i) * 45ms); }
+  .ctracks .ctrack:not(.skelrow) { animation: rise .35s ease both; animation-delay: calc(var(--i, 0) * 30ms); }
   .ctrack.playing .ct2 { color: var(--accent); }
   .cidx { color: var(--muted); font-size: .85rem; text-align: center; font-variant-numeric: tabular-nums; }
   .ctrack > img { width: 42px; height: 42px; border-radius: 6px; object-fit: cover; background: #1a1a20; }
@@ -971,10 +973,12 @@ function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + fil
   hero.querySelector("h1").textContent = seed.title || "";
   cv.appendChild(hero);
   const ul = document.createElement("ul"); ul.className = "ctracks";
-  for (let i = 0; i < 8; i++) {
-    const li = document.createElement("li"); li.className = "ctrack";
+  for (let i = 0; i < 9; i++) {
+    const li = document.createElement("li"); li.className = "ctrack skelrow"; li.style.setProperty("--i", i);
     li.style.gridTemplateColumns = "26px 1fr";
-    li.innerHTML = `<span class="cidx">${i + 1}</span><div class="meta"><div class="ln w1 shimmer"></div><div class="ln w2 shimmer" style="margin-top:8px"></div></div>`;
+    li.innerHTML = `<span class="cidx">${i + 1}</span><div class="meta">`
+      + `<div class="shimmer" style="height:12px;border-radius:6px;width:${55 - (i % 3) * 10}%"></div>`
+      + `<div class="shimmer" style="height:10px;border-radius:6px;width:${30 - (i % 2) * 8}%;margin-top:8px"></div></div>`;
     ul.appendChild(li);
   }
   cv.appendChild(ul);
@@ -982,6 +986,7 @@ function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + fil
 function colTrackRow(t, songs, i, hasPic) {
   const s = songs[i];
   const li = document.createElement("li"); li.className = "ctrack" + (hasPic ? " haspic" : ""); li.dataset.id = s.id;
+  li.style.setProperty("--i", Math.min(i, 20));   // entrada escalonada (cap para no retrasar listas largas)
   let html = `<span class="cidx">${t.index || (i + 1)}</span>`;
   if (hasPic) html += '<img alt="">';
   html += `<div class="meta"><div class="ct2"></div><div class="ca"></div></div>

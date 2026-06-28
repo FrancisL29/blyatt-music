@@ -94,8 +94,14 @@
   h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; margin: 14px 2px 16px; }
 
   ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
-  li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  li { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 14px;
        padding: 8px 12px; border-radius: 10px; cursor: pointer; transition: background .15s; }
+  li.card { grid-template-columns: auto 1fr auto; }
+  li > .cdur { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+  li > .cdots { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1.15rem;
+                padding: 4px; opacity: 0; transition: opacity .15s, color .15s; }
+  li:hover > .cdots, li.menuopen > .cdots { opacity: 1; }
+  li > .cdots:hover { color: var(--text); }
   li:hover { background: rgb(255 255 255 / .05); }
   li.playing { background: color-mix(in srgb, var(--accent) 16%, transparent); }
   li.playing .t { color: var(--accent); }
@@ -686,16 +692,22 @@ function songLi(s, list, i) {
   const li = document.createElement("li"); li.style.setProperty("--i", i); li.dataset.id = s.id;
   li.innerHTML = `<div class="cover-wrap"><img alt=""><div class="play-hint"><i class="ph-fill ph-play"></i></div></div>
     <div class="meta"><div class="t"></div><div class="a"></div></div>
-    <button class="row-like ${isLiked(s.id) ? "on ph-fill" : "ph"} ph-heart" aria-label="Me gusta"></button>`;
+    <button class="row-like ${isLiked(s.id) ? "on ph-fill" : "ph"} ph-heart" aria-label="Me gusta"></button>
+    <span class="cdur"></span>
+    <button class="cdots ph ph-dots-three-vertical" aria-label="Opciones"></button>`;
   li.querySelector("img").src = s.cover;
   li.querySelector(".t").textContent = s.title;
   li.querySelector(".a").innerHTML = metaHtml(s);
+  li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
   li.onclick = () => playFromList(list, i);
   const lk = li.querySelector(".row-like");
   lk.onclick = (e) => { e.stopPropagation(); toggleLike(s);
     lk.className = "row-like " + (isLiked(s.id) ? "on ph-fill" : "ph") + " ph-heart"; };
+  const dots = li.querySelector(".cdots");
+  dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, list, i, r.right, r.bottom, li); };
+  li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, list, i, e.clientX, e.clientY, li); };
   return li;
 }
 /* ---------- vista de artista ---------- */
@@ -827,13 +839,13 @@ function colTrackRow(t, songs, i, hasPic) {
   li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, songs, i, e.clientX, e.clientY, li); };
   return li;
 }
-function closeMenu() { const m = $("ctxmenu"); m.classList.remove("show"); document.querySelectorAll(".ctrack.menuopen").forEach(x => x.classList.remove("menuopen")); }
+function closeMenu() { const m = $("ctxmenu"); m.classList.remove("show"); document.querySelectorAll(".menuopen").forEach(x => x.classList.remove("menuopen")); }
 function openTrackMenu(s, songs, i, x, y, li) {
   const m = $("ctxmenu"); m.innerHTML = ""; closeMenu();
   const liked = isLiked(s.id);
   const opts = [
     ["ph-play", "Reproducir", () => playFromList(songs, i)],
-    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
+    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); scheduleGaplessNext(); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
     [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Liked" : "Añadir a Liked", () => toggleLike(s)],
   ];
   for (const [ic, label, fn] of opts) {
@@ -864,8 +876,13 @@ function renderCollection(d) {
     hero.querySelector("img").src = d.cover; applyAccent(d.cover);
     bg.style.backgroundImage = `url("${d.cover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
-  hero.querySelector(".covplay").onclick = () => {   // play desde inicio, o aleatorio si shuffle activo
+  const covplayBtn = hero.querySelector(".covplay");
+  const _inCol = () => current && songs.some(x => x.id === current.id);
+  const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
+  covplayBtn._sync = _syncCovplay; _syncCovplay();
+  covplayBtn.onclick = () => {
     if (!songs.length) return;
+    if (_inCol()) { togglePlay(); return; }
     playFromList(songs, shuffle ? Math.floor(Math.random() * songs.length) : 0);
   };
   hero.querySelector(".ct").textContent = d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist");
@@ -983,12 +1000,18 @@ async function scheduleGaplessNext() {       // programa la siguiente pista samp
 // avance automatico sin huecos: la siguiente ya viene sonando, solo actualizamos UI/cola
 eng.onAdvance = (song) => { qIndex = (song._idx != null) ? song._idx : plannedNextIndex(); onPlaybackStarted(song); };
 eng.onEnded = () => playNext(true);
-eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; };
+eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; syncPlayIcons(); };
+function syncPlayIcons() {
+  const cp = document.querySelector(".covplay"); if (cp && cp._sync) cp._sync();
+  document.querySelectorAll("li.playing .play-hint i").forEach(i => i.className = "ph-fill " + (audio.paused ? "ph-play" : "ph-pause"));
+  document.querySelectorAll("li:not(.playing) .play-hint i").forEach(i => i.className = "ph-fill ph-play");
+}
 function markPlaying() {
   document.querySelectorAll("li.playing").forEach(x => x.classList.remove("playing"));
   if (!current) return;
   const sel = 'li[data-id="' + (window.CSS && CSS.escape ? CSS.escape(current.id) : current.id.replace(/"/g, '\\"')) + '"]';
   document.querySelectorAll(sel).forEach(li => li.classList.add("playing"));
+  syncPlayIcons();
 }
 function togglePlay() { audio.paused ? audio.play() : audio.pause(); }
 
@@ -1040,9 +1063,15 @@ $("queueBtn").onclick = () => togglePanel($("queue"), $("queueBtn"), () => { qMo
 
 /* topbar (volver + busqueda) se oculta: scroll abajo -> ya; quieto 3s -> oculta; arriba/scroll-up -> reaparece */
 const _topbar = document.querySelector(".topbar"), _main = document.querySelector("main");
-let _topTimer, _lastY = 0;
-function showTop() { _topbar.classList.remove("hidden"); clearTimeout(_topTimer); if (view !== "buscar") _topTimer = setTimeout(() => _topbar.classList.add("hidden"), 3000); }
-function hideTop() { if (view === "buscar") return; _topbar.classList.add("hidden"); clearTimeout(_topTimer); }   // en buscar (con tabs) nunca ocultar
+let _topTimer, _lastY = 0, _topHover = false;
+function _topBusy() { return _topHover || document.activeElement === $("q"); }
+function showTop() { _topbar.classList.remove("hidden"); clearTimeout(_topTimer); if (view !== "buscar") _topTimer = setTimeout(() => { if (!_topBusy()) _topbar.classList.add("hidden"); }, 3000); }
+function hideTop() { if (view === "buscar" || _topBusy()) return; _topbar.classList.add("hidden"); clearTimeout(_topTimer); }
+_topbar.addEventListener("mouseenter", () => { _topHover = true; showTop(); });
+_topbar.addEventListener("mouseleave", () => { _topHover = false; showTop(); });
+$("q").addEventListener("focus", showTop);
+$("q").addEventListener("input", showTop);
+$("q").addEventListener("blur", showTop);
 _main.addEventListener("scroll", () => {
   const y = _main.scrollTop;
   if (y <= 4) showTop();
@@ -1100,7 +1129,7 @@ function qRow(s, idx, kind) {
   dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, listOf(), idx, r.right, r.bottom, d); };
   d.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, listOf(), idx, e.clientX, e.clientY, d); };
   const del = d.querySelector(".del");
-  if (del) del.onclick = (e) => { e.stopPropagation(); queue.splice(idx, 1); renderQueue(); };
+  if (del) del.onclick = (e) => { e.stopPropagation(); queue.splice(idx, 1); scheduleGaplessNext(); renderQueue(); };
   if (kind === "next") {   // arrastrar para reordenar (solo proximas)
     d.draggable = true;
     d.addEventListener("dragstart", ev => { d.classList.add("dragging"); ev.dataTransfer.setData("text", String(idx)); });
@@ -1112,7 +1141,7 @@ function qRow(s, idx, kind) {
       const from = +ev.dataTransfer.getData("text");
       if (from === idx || isNaN(from)) return;
       const [m] = queue.splice(from, 1); queue.splice(idx > from ? idx - 1 : idx, 0, m);
-      renderQueue();
+      scheduleGaplessNext(); renderQueue();
     });
   }
   return d;

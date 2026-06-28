@@ -91,10 +91,23 @@ def _parse_item(item):
     except (KeyError, TypeError):
         thumbs = []
     cover = thumbs[-1]["url"] if thumbs else ""
+    dur = ""
+    for fc in item.get("fixedColumns", []):
+        try:
+            r = fc["musicResponsiveListItemFixedColumnRenderer"]["text"].get("runs", []) or []
+            dur = "".join(x.get("text", "") for x in r) or dur
+        except (KeyError, TypeError):
+            pass
+    if not dur:
+        for r in runs(1):
+            t = r.get("text", "")
+            if t and t.count(":") == 1 and all(c.isdigit() or c == ":" for c in t):
+                dur = t; break
     if vid and title:
         out = {"id": vid, "title": title, "artist": artist, "cover": cover, "type": _mv_type(item)}
         if artists: out["artists"] = artists
         if album: out["album"] = album
+        if dur: out["duration"] = dur
         return out
     return None
 

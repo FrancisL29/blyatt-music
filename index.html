@@ -112,7 +112,14 @@
   li img { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: #1a1a20; display: block; }
   .play-hint { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 7px;
                background: rgb(0 0 0 / .5); color: #fff; font-size: 1.3rem; opacity: 0; transition: opacity .15s; }
-  li:hover .play-hint, li.playing .play-hint { opacity: 1; }
+  li:hover .play-hint { opacity: 1; }
+  li.playing .play-hint { opacity: 0; }   /* en reproduccion: borde brillante en vez de icono play */
+  /* caratula de la cancion actual: borde de acento que late */
+  li.playing img { outline: 2px solid var(--accent); outline-offset: 0; box-shadow: 0 0 0 0 var(--accent); animation: coverPulse 1.8s ease-in-out infinite; }
+  @keyframes coverPulse {
+    0%, 100% { box-shadow: 0 0 6px 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+    50% { box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 75%, transparent); }
+  }
   .meta { min-width: 0; }
   .t { font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .a { font-size: .82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -742,7 +749,6 @@ function renderArtist(d) {
   const bio = hero.querySelector(".bio"); bio.textContent = d.description || "";
   if (!d.description) bio.style.display = "none"; else bio.onclick = () => bio.classList.toggle("expanded");
   av.appendChild(hero);
-  if (d.image) applyAccent(d.image);
   (d.sections || []).forEach(sec => {
     const el = document.createElement("section"); el.className = "ashelf";
     const h = document.createElement("h3"); el.appendChild(h);
@@ -879,7 +885,7 @@ function renderCollection(d) {
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
   if (d.cover) {
-    hero.querySelector("img").src = d.cover; applyAccent(d.cover);
+    hero.querySelector("img").src = d.cover;
     bg.style.backgroundImage = `url("${d.cover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
   const covplayBtn = hero.querySelector(".covplay");

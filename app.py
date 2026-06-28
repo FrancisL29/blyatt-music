@@ -536,6 +536,28 @@ def _album_versions(browse_id):
     return out
 
 
+def new_releases():
+    return cached("newrel", 1800, _new_releases)
+
+
+def _new_releases():
+    # nuevos lanzamientos (albumes/singles): browse FEmusic_new_releases_albums -> carruseles de musicTwoRowItemRenderer
+    data = _yt_browse("FEmusic_new_releases_albums")
+    out, seen = [], set()
+    for sh in _find_all_renderers(data, "musicTwoRowItemRenderer", []):
+        bid = _tworow_browse_id(sh)
+        title = _runs_text(sh.get("title"))
+        if not bid or not title or bid in seen:
+            continue
+        seen.add(bid)
+        out.append({"browseId": bid, "title": title,
+                    "subtitle": _runs_text(sh.get("subtitle")),
+                    "cover": _largest_thumb(sh.get("thumbnailRenderer", {})),
+                    "kind": "albums",
+                    "explicit": _is_explicit(sh.get("subtitleBadges"))})
+    return out
+
+
 def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -656,6 +678,17 @@ class H(BaseHTTPRequestHandler):
                 payload = json.dumps({"error": str(e)}).encode()
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/newreleases":
+            try:
+                payload = json.dumps(new_releases()).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+            except Exception as e:
+                payload = json.dumps({"error": str(e)}).encode()
+                self.send_response(502); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/img":
             # proxy de caratulas: mismo origen para poder leer el color promedio en canvas sin taint de CORS.
             src = parse_qs(u.query).get("u", [""])[0]

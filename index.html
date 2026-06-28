@@ -38,14 +38,31 @@
   /* ---------- SIDEBAR ---------- */
   aside { position: relative; z-index: 2; background: var(--sidebar); border-right: 1px solid var(--line);
           display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border: none; background: none;
+    cursor: pointer; width: 100%; text-align: left; color: var(--text); }
   .brand .bolt {
-    display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
+    position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
     background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
     color: var(--accent-ink, #fff); font-size: 1.25rem; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
     transition: background .5s, box-shadow .5s;
   }
+  .brand .bolt i { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity .15s; }
+  .brand .blt-toggle { opacity: 0; }
+  .brand:hover .blt-logo { opacity: 0; }
+  .brand:hover .blt-toggle { opacity: 1; }
   .brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
+  .gh-link { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px;
+    color: var(--muted); text-decoration: none; font-size: .92rem; font-weight: 500; transition: background .15s, color .15s; }
+  .gh-link i { font-size: 1.35rem; }
+  .gh-link:hover { color: var(--text); background: rgb(255 255 255 / .04); }
+  /* barra lateral contraida: solo iconos */
+  body.sb-collapsed { --sb-w: 76px; }
+  body.sb-collapsed aside { align-items: center; }
+  body.sb-collapsed .brand span,
+  body.sb-collapsed .nav-item span,
+  body.sb-collapsed .gh-link span { display: none; }
+  body.sb-collapsed .nav-item, body.sb-collapsed .gh-link { justify-content: center; }
+  body.sb-collapsed .brand { justify-content: center; padding: 6px 0 18px; }
 
   nav { display: flex; flex-direction: column; gap: 2px; }
   .nav-item {
@@ -373,6 +390,13 @@
   .ccard .t { font-weight: 600; font-size: .9rem; margin-top: 9px; }
   .ccard .a { font-size: .8rem; color: var(--muted); margin-top: 2px; }
   #gridView { display: none; }
+  #homeView { display: none; }
+  .home-sec { margin: 8px 0 28px; }
+  .home-sec h3 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; margin: 0 0 16px; }
+  .hrow { display: flex; gap: 18px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+  .hrow::-webkit-scrollbar { height: 8px; }
+  .hrow::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .1); border-radius: 999px; }
+  .hrow .ccard { width: 170px; flex: none; scroll-snap-align: start; }
   .gridhead { font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em; margin: 4px 0 22px; }
 
   /* ---------- vista de album / playlist ---------- */
@@ -452,15 +476,18 @@
 <div id="bg"></div>
 
 <aside>
-  <div class="brand">
-    <div class="bolt"><i class="ph-fill ph-lightning"></i></div>
+  <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
+    <div class="bolt"><i class="ph-fill ph-lightning blt-logo"></i><i class="ph ph-sidebar-simple blt-toggle"></i></div>
     <span>Blyatt</span>
-  </div>
+  </button>
   <nav>
-    <button class="nav-item active" data-view="buscar"><i class="ph ph-magnifying-glass"></i> Buscar</button>
-    <button class="nav-item" data-view="liked"><i class="ph-fill ph-heart like-ico"></i> Liked</button>
+    <button class="nav-item active" data-view="home"><i class="ph ph-house"></i> <span>Inicio</span></button>
+    <button class="nav-item" data-view="buscar"><i class="ph ph-magnifying-glass"></i> <span>Buscar</span></button>
+    <button class="nav-item" data-view="liked"><i class="ph ph-heart"></i> <span>Me gusta</span></button>
   </nav>
-  <div class="foot">Blyatt v0.1</div>
+  <a class="gh-link" href="https://github.com/FrancisL29/blyatt-music" target="_blank" rel="noopener" aria-label="Repositorio en GitHub">
+    <i class="ph ph-github-logo"></i> <span>GitHub</span>
+  </a>
 </aside>
 
 <main>
@@ -484,6 +511,7 @@
   <h2 id="heading" style="display:none"></h2>
   <ul id="r"></ul>
   <div id="empty" class="empty"><i class="ph ph-magnifying-glass"></i>Busca algo para empezar.</div>
+  <div id="homeView"></div>
   <div id="artistView"></div>
   <div id="collectionView"></div>
   <div id="gridView"></div>
@@ -835,7 +863,7 @@ function openArtist(browseId, push = true, seed = null) {
   view = "artist";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none";
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.add("show");   // artista: sin blur de fondo (usa su portada), muestra volver
   const av = $("artistView"); av.style.display = "block";
   if (seed && (seed.cover || seed.title)) artistSeed(seed); else av.innerHTML = '<div class="lempty">Cargando artista...</div>';
@@ -937,7 +965,7 @@ function showGrid(title, list, push = true) {
   view = "grid";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none";
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("homeView").style.display = "none";
   $("artistView").style.display = "none"; $("collectionView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.add("show");
   const gv = $("gridView"); gv.style.display = "block"; gv.innerHTML = "";
@@ -953,7 +981,7 @@ function openCollection(browseId, push = true, seed = null) {
   view = "collection";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none";
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
   $("backBtn").classList.add("show");
   const cv = $("collectionView"); cv.style.display = "block";
   collectionSeed(seed || {});   // siempre muestra esqueleto (hero + filas) animado mientras carga
@@ -1077,18 +1105,46 @@ function renderCollection(d) {
 function setView(v, push = true) {
   if (push) pushHist({ t: "view", v });
   view = v;
-  $("artistView").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none"; $("r").style.display = "";   // sale de vistas detalle
+  $("artistView").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.remove("show");   // fondo negro por defecto, oculta volver
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === v));
   $("tabs").style.display = v === "buscar" ? "flex" : "none";   // las categorias solo aplican a la busqueda
-  const label = v === "liked" ? "Liked" : v === "recientes" ? "Reproducidos recientemente" : "";
+  const isHome = v === "home";
+  $("homeView").style.display = isHome ? "block" : "none";
+  $("r").style.display = isHome ? "none" : "";
+  $("empty").style.display = isHome ? "none" : "";
+  const label = v === "liked" ? "Me gusta" : v === "recientes" ? "Reproducidos recientemente" : "";
   $("heading").textContent = label;
-  $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar
-  render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
-  showTop();   // al cambiar de vista, reaparece topbar (y en buscar queda fija)
+  $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar/Inicio
+  if (isHome) renderHome();
+  else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
+  showTop();   // al cambiar de vista, reaparece topbar (y en buscar/inicio queda fija)
+}
+let _homeLoaded = false;
+function renderHome() {
+  const hv = $("homeView");
+  if (_homeLoaded) return;   // ya pintado: no re-fetch al volver
+  hv.innerHTML = '<section class="home-sec"><h3>Nuevos Lanzamientos</h3><div class="hrow" id="newrel"></div></section>';
+  const row = $("newrel");
+  for (let i = 0; i < 8; i++) { const c = document.createElement("div"); c.className = "ccard";
+    c.innerHTML = '<div class="sq shimmer" style="width:100%;aspect-ratio:1;border-radius:10px"></div><div class="ln w1 shimmer" style="margin-top:9px"></div><div class="ln w2 shimmer"></div>';
+    row.appendChild(c); }
+  fetch("/newreleases").then(r => r.json()).then(d => {
+    if (!Array.isArray(d) || !d.length) return;
+    row.innerHTML = "";
+    d.forEach(it => row.appendChild(itemCard(it, true)));
+    _homeLoaded = true;
+  }).catch(() => { row.innerHTML = '<div class="lempty">No se pudieron cargar los lanzamientos.</div>'; });
 }
 // guarda: re-clic en la vista activa no re-renderiza (evita repetir la animación de aparición)
 document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => { if (b.dataset.view !== view) setView(b.dataset.view); });
+
+// contraer/expandir barra lateral con click en el logo (persistente)
+if (localStorage.getItem("lightning.sbCollapsed") === "1") document.body.classList.add("sb-collapsed");
+$("sbToggle").onclick = () => {
+  const on = document.body.classList.toggle("sb-collapsed");
+  localStorage.setItem("lightning.sbCollapsed", on ? "1" : "0");
+};
 
 /* navegacion atras/adelante como una web: boton lateral del raton (via History API) + Alt+Flechas */
 function pushHist(s) { try { history.pushState(s, ""); } catch (e) {} }
@@ -1100,7 +1156,8 @@ function applyHist(s) {
 }
 $("backBtn").onclick = () => history.back();
 window.addEventListener("popstate", (e) => applyHist(e.state));
-history.replaceState({ t: "view", v: "buscar" }, "");
+history.replaceState({ t: "view", v: "home" }, "");
+setView("home", false);   // Inicio = ventana principal
 document.addEventListener("keydown", (e) => {
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); history.back(); }
   else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); history.forward(); }
@@ -1260,8 +1317,9 @@ $("queueBtn").onclick = () => togglePanel($("queue"), $("queueBtn"), () => { qMo
 const _topbar = document.querySelector(".topbar"), _main = document.querySelector("main");
 let _topTimer, _lastY = 0, _topHover = false;
 function _topBusy() { return _topHover || document.activeElement === $("q"); }
-function showTop() { _topbar.classList.remove("hidden"); clearTimeout(_topTimer); if (view !== "buscar") _topTimer = setTimeout(() => { if (!_topBusy()) _topbar.classList.add("hidden"); }, 3000); }
-function hideTop() { if (view === "buscar" || _topBusy()) return; _topbar.classList.add("hidden"); clearTimeout(_topTimer); }
+const _topFixed = () => view === "buscar" || view === "home";   // buscar + inicio: topbar siempre visible
+function showTop() { _topbar.classList.remove("hidden"); clearTimeout(_topTimer); if (!_topFixed()) _topTimer = setTimeout(() => { if (!_topBusy()) _topbar.classList.add("hidden"); }, 3000); }
+function hideTop() { if (_topFixed() || _topBusy()) return; _topbar.classList.add("hidden"); clearTimeout(_topTimer); }
 _topbar.addEventListener("mouseenter", () => { _topHover = true; showTop(); });
 _topbar.addEventListener("mouseleave", () => { _topHover = false; showTop(); });
 $("q").addEventListener("focus", showTop);

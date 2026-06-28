@@ -1157,7 +1157,6 @@ function applyHist(s) {
 $("backBtn").onclick = () => history.back();
 window.addEventListener("popstate", (e) => applyHist(e.state));
 history.replaceState({ t: "view", v: "home" }, "");
-setView("home", false);   // Inicio = ventana principal
 document.addEventListener("keydown", (e) => {
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); history.back(); }
   else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); history.forward(); }
@@ -1540,6 +1539,8 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === b));
   if ($("q").value.trim()) runSearch();
 });
+
+setView("home", false);   // Inicio = ventana principal (al final: tras definir todo)
 </script>
 </body>
 </html>

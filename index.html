@@ -42,7 +42,7 @@
   .brand .bolt {
     display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
     background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
-    color: #fff; font-size: 1.25rem; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--accent-ink, #fff); font-size: 1.25rem; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
     transition: background .5s, box-shadow .5s;
   }
   .brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
@@ -55,8 +55,8 @@
   }
   .nav-item i { font-size: 1.25rem; }
   .nav-item:hover { color: var(--text); background: rgb(255 255 255 / .04); }
-  .nav-item.active { color: #fff; background: var(--accent); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
-  .nav-item.active .liked-bolt { color: #fff; }
+  .nav-item.active { color: var(--accent-ink, #fff); background: var(--accent); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .nav-item.active .liked-bolt { color: var(--accent-ink, #fff); }
   .nav-item .like-ico { color: #ff4d6d; }
   aside .foot { margin-top: auto; font-size: .72rem; color: var(--muted); padding: 10px; }
 
@@ -140,7 +140,7 @@
          box-shadow: inset 0 1px 0 rgb(255 255 255 / .12), 0 6px 18px rgb(0 0 0 / .3);
          transition: color .15s, background .15s, border-color .15s; }
   .tab:hover { color: var(--text); }
-  .tab.active { color: #fff; background: var(--accent); border-color: transparent; }
+  .tab.active { color: var(--accent-ink, #fff); background: var(--accent); border-color: transparent; }
 
   /* cuadricula para artistas / albumes / playlists / perfiles (caratula grande) */
   ul#r.grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; align-items: start; }
@@ -203,10 +203,10 @@
   .iconbtn.on { color: var(--accent); }
   .iconbtn.like.on { color: #ff4d6d; }
   .transport .nav-btn { color: var(--text); font-size: 1.4rem; }
-  .transport .main { width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: #fff;
+  .transport .main { width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: var(--accent-ink, #fff);
                      font-size: 1.3rem; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 50%, transparent);
                      transition: background .5s, box-shadow .5s, transform .12s; }
-  .transport .main:hover { color: #fff; }
+  .transport .main:hover { color: var(--accent-ink, #fff); }
 
   .right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .right-icons { display: flex; align-items: center; gap: 6px; }
@@ -651,13 +651,34 @@ function applyAccent(cover) {
   const img = new Image(); img.crossOrigin = "anonymous";
   img.onload = () => {
     try {
-      const c = document.createElement("canvas"); c.width = c.height = 1;
-      const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, 1, 1);
-      let [r,g,b] = ctx.getImageData(0,0,1,1).data;          // 1x1 = promedio de toda la caratula
-      let [h,s,l] = rgb2hsl(r,g,b);                          // se ajusta para que el acento siga siendo legible
+      const N = 48;   // muestreo NxN: suficiente para detectar el color dominante sin coste
+      const c = document.createElement("canvas"); c.width = c.height = N;
+      const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, N, N);
+      const data = ctx.getImageData(0, 0, N, N).data;
+      const buckets = new Map();   // bucket = (R5,G5,B5) cuantizado, score pondera saturacion y vibrancia
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+        if (a < 200) continue;
+        const [h,s,l] = rgb2hsl(r,g,b);
+        if (l < .12 || l > .92) continue;       // descarta casi-negro/casi-blanco
+        if (s < .2) continue;                   // descarta grises
+        const key = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
+        const w = s * (1 - Math.abs(l - .5));   // pesa colores vibrantes (medio-tono saturado)
+        const e = buckets.get(key) || { r: 0, g: 0, b: 0, w: 0 };
+        e.r += r * w; e.g += g * w; e.b += b * w; e.w += w;
+        buckets.set(key, e);
+      }
+      let best = null;
+      for (const e of buckets.values()) if (!best || e.w > best.w) best = e;
+      if (!best) return;
+      let R = best.r / best.w, G = best.g / best.w, B = best.b / best.w;
+      let [h,s,l] = rgb2hsl(R, G, B);
       s = Math.max(s, .55); l = Math.min(Math.max(l, .42), .6);
-      const [R,G,B] = hsl2rgb(h,s,l);
-      document.documentElement.style.setProperty("--accent", `rgb(${R} ${G} ${B})`);
+      const [R2,G2,B2] = hsl2rgb(h, s, l);
+      document.documentElement.style.setProperty("--accent", `rgb(${R2} ${G2} ${B2})`);
+      // luminancia perceptual -> tinta blanco/negro para iconos sobre fondo de acento
+      const lum = (0.2126 * R2 + 0.7152 * G2 + 0.0722 * B2) / 255;
+      document.documentElement.style.setProperty("--accent-ink", lum > .6 ? "#0a0a0a" : "#ffffff");
     } catch (e) { /* taint u otro fallo: se mantiene el acento previo */ }
   };
   img.src = "/img?u=" + encodeURIComponent(cover);
@@ -974,6 +995,8 @@ async function resolveAtv(s) {   // music video -> art track (solo para resultad
 function paintNowPlaying(s) {
   $("pcover").src = s.cover; $("ptitle").textContent = s.title; $("partist").textContent = s.artist;
   player.classList.add("show");
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+  applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
 async function playSong(s) {
   const tok = ++playToken;

@@ -551,6 +551,15 @@
 const $ = id => document.getElementById(id);
 const player = $("player"), bg = $("bg");
 
+// fallback de caratulas: si una img de googleusercontent/ytimg falla (429/red), reintenta via proxy /img (cache + allowlist backend)
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || img.dataset.proxied || !img.src) return;
+  if (img.src.indexOf("/img?u=") !== -1) return;
+  img.dataset.proxied = "1";
+  img.src = "/img?u=" + encodeURIComponent(img.src);
+}, true);
+
 /* ====== motor de audio Web Audio (gapless real, sample-accurate) ====== */
 const AC = new (window.AudioContext || window.webkitAudioContext)();
 const gainNode = AC.createGain(); gainNode.connect(AC.destination);

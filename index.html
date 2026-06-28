@@ -94,9 +94,10 @@
   h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; margin: 14px 2px 16px; }
 
   ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
-  li { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 14px;
+  li { display: grid; grid-template-columns: auto 1fr auto auto auto auto; align-items: center; gap: 14px;
        padding: 8px 12px; border-radius: 10px; cursor: pointer; transition: background .15s; }
   li.card { grid-template-columns: auto 1fr auto; }
+  li > .cplays { color: var(--muted); font-size: .82rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   li > .cdur { color: var(--muted); font-size: .82rem; white-space: nowrap; }
   li > .cdots { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1.15rem;
                 padding: 4px; opacity: 0; transition: opacity .15s, color .15s; }
@@ -732,8 +733,8 @@ function render(list, v) {
       li.className = "card " + s.kind;
       li.innerHTML = `<img alt=""><div class="t"></div><div class="a"></div>`;
       li.querySelector("img").src = s.cover;
-      li.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
-      li.querySelector(".a").textContent = s.subtitle;
+      li.querySelector(".t").textContent = s.title;
+      li.querySelector(".a").innerHTML = expBadge(s) + esc(s.subtitle || "");
       li.onclick = () => s.kind === "artists" ? openArtist(s.browseId)
         : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId)
         : toast("Abrir " + (KINDS[s.kind] || "") + ": próximamente");
@@ -762,8 +763,8 @@ function attachVersions(card, browseId) {
       const it = document.createElement("div"); it.className = "vitem";
       it.innerHTML = '<img alt=""><div class="vt"></div><div class="va"></div>';
       it.querySelector("img").src = v.cover || "";
-      it.querySelector(".vt").innerHTML = esc(v.title || "") + expBadge(v);
-      it.querySelector(".va").textContent = v.subtitle || "";
+      it.querySelector(".vt").textContent = v.title || "";
+      it.querySelector(".va").innerHTML = expBadge(v) + esc(v.subtitle || "");
       it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId); };
       grid.appendChild(it);
     });
@@ -777,7 +778,7 @@ function attachVersions(card, browseId) {
   });
 }
 function esc(t) { return (t == null ? "" : String(t)).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
-const expBadge = s => s && s.explicit ? '<span class="exp" title="Explicit" style="margin-left:7px">E</span>' : "";
+const expBadge = s => s && s.explicit ? '<span class="exp" title="Explicit" style="margin-right:6px">E</span>' : "";
 function metaHtml(s) {
   const parts = [];
   if (s.artists && s.artists.length) parts.push(s.artists.map(a => a.id ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", "));
@@ -790,12 +791,14 @@ function songLi(s, list, i) {
   const li = document.createElement("li"); li.style.setProperty("--i", i); li.dataset.id = s.id;
   li.innerHTML = `<div class="cover-wrap"><img alt=""><div class="play-hint"><i class="ph-fill ph-play"></i></div></div>
     <div class="meta"><div class="t"></div><div class="a"></div></div>
+    <span class="cplays"></span>
     <button class="row-like ${isLiked(s.id) ? "on ph-fill" : "ph"} ph-heart" aria-label="Me gusta"></button>
     <span class="cdur"></span>
     <button class="cdots ph ph-dots-three-vertical" aria-label="Opciones"></button>`;
   li.querySelector("img").src = s.cover;
-  li.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
-  li.querySelector(".a").innerHTML = metaHtml(s);
+  li.querySelector(".t").textContent = s.title;
+  li.querySelector(".a").innerHTML = expBadge(s) + metaHtml(s);
+  li.querySelector(".cplays").textContent = s.plays || "";
   li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
@@ -858,8 +861,8 @@ function itemCard(it, allowVersions) {
   const c = document.createElement("div"); c.className = "ccard" + (isArtist ? " artist" : it.id ? " video" : "");
   c.innerHTML = '<img alt=""><div class="t"></div><div class="a"></div>';
   c.querySelector("img").src = it.cover;
-  c.querySelector(".t").innerHTML = esc(it.title) + expBadge(it);
-  c.querySelector(".a").textContent = it.subtitle;
+  c.querySelector(".t").textContent = it.title;
+  c.querySelector(".a").innerHTML = expBadge(it) + esc(it.subtitle || "");
   c.onclick = () => openItem(it);
   if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
   return c;
@@ -923,8 +926,8 @@ function colTrackRow(t, songs, i, hasPic) {
     <button class="cdots ph ph-dots-three-vertical" aria-label="Opciones"></button>`;
   li.innerHTML = html;
   if (hasPic) li.querySelector("img").src = s.cover;
-  li.querySelector(".ct2").innerHTML = esc(t.title) + expBadge(s);
-  li.querySelector(".ca").innerHTML = metaHtml(s);   // artistas + album clickeables
+  li.querySelector(".ct2").textContent = t.title;
+  li.querySelector(".ca").innerHTML = expBadge(s) + metaHtml(s);   // badge Explicit + artistas/album clickeables
   li.querySelector(".cextra").textContent = t.extra || "";
   li.querySelector(".cdur").textContent = t.duration || "";
   if (current && current.id === s.id) li.classList.add("playing");
@@ -975,8 +978,8 @@ function renderCollection(d) {
     bg.style.backgroundImage = `url("${d.cover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
   const covplayBtn = hero.querySelector(".covplay");
-  hero.querySelector(".ct").textContent = d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist");
-  hero.querySelector("h1").innerHTML = esc(d.title || "") + expBadge(d);
+  hero.querySelector(".ct").innerHTML = expBadge(d) + esc(d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist"));
+  hero.querySelector("h1").textContent = d.title || "";
   const cm = hero.querySelector(".cmeta");
   if (d.creator) {
     const b = document.createElement("b");
@@ -1057,10 +1060,18 @@ async function resolveAtv(s) {   // music video -> art track (solo para resultad
     s._atv = true;
   }
 }
-function paintNowPlaying(s) {
-  $("pcover").src = s.cover; $("ptitle").textContent = s.title; $("partist").textContent = s.artist;
+function paintPlayer(s) {
+  $("pcover").src = s.cover; $("ptitle").textContent = s.title;
+  // segunda linea: badge Explicit a la izquierda + artistas clickeables (-> vista de artista via delegated .lnk)
+  const arts = (s.artists && s.artists.length) ? s.artists
+    : (s.artist ? [{ name: s.artist, id: (s.artistId || null) }] : []);
+  $("partist").innerHTML = expBadge(s) + arts.map(a => a.id
+    ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", ");
   player.classList.add("show");
-  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+}
+function paintNowPlaying(s) {
+  paintPlayer(s);
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
 async function playSong(s) {
@@ -1081,9 +1092,8 @@ async function playSong(s) {
   }
 }
 function onPlaybackStarted(s) {
-  $("pcover").src = s.cover; $("ptitle").textContent = s.title; $("partist").textContent = s.artist;
-  player.classList.add("show");
-  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+  paintPlayer(s);
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
   applyAccent(s.cover); pushRecent(current); refreshLikeUI(); markPlaying();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
@@ -1222,8 +1232,8 @@ function qRow(s, idx, kind) {
       ${kind === "next" ? '<button class="qbtn del ph ph-x" aria-label="Quitar"></button>' : ''}
     </div>`;
   d.querySelector("img").src = s.cover;
-  d.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
-  d.querySelector(".a").textContent = s.artist;
+  d.querySelector(".t").textContent = s.title;
+  d.querySelector(".a").innerHTML = expBadge(s) + esc(s.artist || "");
   d.querySelector(".qdur").textContent = s.duration || "";
   const listOf = () => kind === "history" ? getRecents() : queue;
   d.onclick = () => {

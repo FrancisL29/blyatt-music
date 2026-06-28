@@ -121,11 +121,17 @@ def _parse_item(item):
                 if _re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", t.strip()):
                     dur = t.strip(); break
             if dur: break
+    plays = ""
+    for ci in range(len(cols)):
+        t = "".join(r.get("text", "") for r in runs(ci))
+        if "eproduc" in t or "lays" in t or "stream" in t.lower():   # "reproducciones" / "plays" / "streams"
+            plays = t.strip(); break
     if vid and title:
         out = {"id": vid, "title": title, "artist": artist, "cover": cover, "type": _mv_type(item)}
         if artists: out["artists"] = artists
         if album: out["album"] = album
         if dur: out["duration"] = dur
+        if plays: out["plays"] = plays
         if _is_explicit(item): out["explicit"] = True
         return out
     return None

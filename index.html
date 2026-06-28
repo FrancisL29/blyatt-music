@@ -877,14 +877,6 @@ function renderCollection(d) {
     bg.style.backgroundImage = `url("${d.cover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
   const covplayBtn = hero.querySelector(".covplay");
-  const _inCol = () => current && songs.some(x => x.id === current.id);
-  const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
-  covplayBtn._sync = _syncCovplay; _syncCovplay();
-  covplayBtn.onclick = () => {
-    if (!songs.length) return;
-    if (_inCol()) { togglePlay(); return; }
-    playFromList(songs, shuffle ? Math.floor(Math.random() * songs.length) : 0);
-  };
   hero.querySelector(".ct").textContent = d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist");
   hero.querySelector("h1").textContent = d.title || "";
   const cm = hero.querySelector(".cmeta");
@@ -902,6 +894,14 @@ function renderCollection(d) {
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
   d.tracks.forEach((t, i) => ul.appendChild(colTrackRow(t, songs, i, hasPic)));
   cv.appendChild(ul);
+  const _inCol = () => current && songs.some(x => x.id === current.id);
+  const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
+  covplayBtn._sync = _syncCovplay; _syncCovplay();
+  covplayBtn.onclick = () => {
+    if (!songs.length) return;
+    if (_inCol()) { togglePlay(); return; }
+    playFromList(songs, shuffle ? Math.floor(Math.random() * songs.length) : 0);
+  };
 }
 function setView(v, push = true) {
   if (push) pushHist({ t: "view", v });

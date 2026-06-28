@@ -735,8 +735,8 @@ function render(list, v) {
       li.querySelector("img").src = s.cover;
       li.querySelector(".t").textContent = s.title;
       li.querySelector(".a").innerHTML = expBadge(s) + esc(s.subtitle || "");
-      li.onclick = () => s.kind === "artists" ? openArtist(s.browseId)
-        : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId)
+      li.onclick = () => s.kind === "artists" ? openArtist(s.browseId, true, s)
+        : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId, true, s)
         : toast("Abrir " + (KINDS[s.kind] || "") + ": próximamente");
       if (s.kind === "albums") attachVersions(li, s.browseId);
       r.appendChild(li); return;
@@ -765,7 +765,7 @@ function attachVersions(card, browseId) {
       it.querySelector("img").src = v.cover || "";
       it.querySelector(".vt").textContent = v.title || "";
       it.querySelector(".va").innerHTML = expBadge(v) + esc(v.subtitle || "");
-      it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId); };
+      it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId, true, { kind: "album", title: v.title, subtitle: v.subtitle, cover: v.cover }); };
       grid.appendChild(it);
     });
     grid.style.gridTemplateColumns = "repeat(" + Math.min(vers.length, 4) + ", 96px)";   // ventana crece con la cantidad (max 4 por fila)
@@ -812,7 +812,7 @@ function songLi(s, list, i) {
   return li;
 }
 /* ---------- vista de artista ---------- */
-function openArtist(browseId, push = true) {
+function openArtist(browseId, push = true, seed = null) {
   if (!browseId) return;
   if (push) pushHist({ t: "artist", id: browseId });
   view = "artist";
@@ -821,11 +821,30 @@ function openArtist(browseId, push = true) {
   $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.add("show");   // artista: sin blur de fondo (usa su portada), muestra volver
   const av = $("artistView"); av.style.display = "block";
-  av.innerHTML = '<div class="lempty">Cargando artista...</div>';
+  if (seed && (seed.cover || seed.title)) artistSeed(seed); else av.innerHTML = '<div class="lempty">Cargando artista...</div>';
   fetch("/artist?id=" + encodeURIComponent(browseId)).then(r => r.json()).then(d => {
     if (d.error) throw new Error(d.error);
     renderArtist(d);
   }).catch(() => { av.innerHTML = '<div class="lempty">No se pudo cargar el artista.</div>'; });
+}
+function artistSeed(seed) {   // pinta de inmediato lo que ya sabemos (portada + nombre) + esqueleto shimmer
+  const av = $("artistView"); av.innerHTML = "";
+  const hero = document.createElement("div"); hero.className = "artist-hero2";
+  if (seed.cover) hero.style.backgroundImage = `url("${seed.cover}")`;
+  hero.innerHTML = '<div class="info"><h1></h1></div>';
+  hero.querySelector("h1").textContent = seed.title || "Artista";
+  av.appendChild(hero);
+  for (let s = 0; s < 2; s++) {
+    const el = document.createElement("section"); el.className = "ashelf";
+    const h = document.createElement("h3"); h.classList.add("static");
+    h.innerHTML = '<span class="ln shimmer" style="display:inline-block;width:160px;height:16px;border-radius:6px"></span>';
+    el.appendChild(h);
+    const row = document.createElement("div"); row.className = "arow";
+    for (let i = 0; i < 5; i++) { const c = document.createElement("div"); c.className = "ccard";
+      c.innerHTML = '<div class="sq shimmer" style="width:100%;aspect-ratio:1;border-radius:10px"></div><div class="ln w1 shimmer" style="margin-top:9px"></div><div class="ln w2 shimmer"></div>';
+      row.appendChild(c); }
+    el.appendChild(row); av.appendChild(el);
+  }
 }
 function renderArtist(d) {
   const av = $("artistView"); av.innerHTML = "";
@@ -869,8 +888,8 @@ function itemCard(it, allowVersions) {
 }
 function openItem(it) {
   if (it.id) playFromList([{ id: it.id, title: it.title, artist: it.subtitle, cover: it.cover }], 0);
-  else if (it.browseId && it.browseId.startsWith("UC")) openArtist(it.browseId);
-  else if (it.browseId) openCollection(it.browseId);
+  else if (it.browseId && it.browseId.startsWith("UC")) openArtist(it.browseId, true, it);
+  else if (it.browseId) openCollection(it.browseId, true, it);
 }
 /* ver todos los items de una seccion en cuadricula (catalogo completo via "Mas" si existe) */
 async function openArtistGrid(title, items, more) {
@@ -899,7 +918,7 @@ function showGrid(title, list, push = true) {
   gv.appendChild(grid);
 }
 /* ---------- vista de album / playlist ---------- */
-function openCollection(browseId, push = true) {
+function openCollection(browseId, push = true, seed = null) {
   if (!browseId) return;
   if (push) pushHist({ t: "collection", id: browseId });
   view = "collection";
@@ -908,11 +927,29 @@ function openCollection(browseId, push = true) {
   $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none";
   $("backBtn").classList.add("show");
   const cv = $("collectionView"); cv.style.display = "block";
-  cv.innerHTML = '<div class="lempty">Cargando...</div>';
+  if (seed && (seed.cover || seed.title)) collectionSeed(seed); else cv.innerHTML = '<div class="lempty">Cargando...</div>';
   fetch("/collection?id=" + encodeURIComponent(browseId)).then(r => r.json()).then(d => {
     if (d.error) throw new Error(d.error);
     renderCollection(d);
   }).catch(() => { cv.innerHTML = '<div class="lempty">No se pudo cargar.</div>'; });
+}
+function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + filas esqueleto al instante
+  const cv = $("collectionView"); cv.innerHTML = "";
+  const isAlb = (seed.kind === "albums" || seed.kind === "album");
+  const hero = document.createElement("div"); hero.className = "col-hero";
+  hero.innerHTML = '<div class="cov"><img alt=""></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
+  if (seed.cover) { hero.querySelector("img").src = seed.cover; bg.style.backgroundImage = `url("${seed.cover}")`; bg.classList.add("on"); }
+  hero.querySelector(".ct").textContent = seed.subtitle || (isAlb ? "Álbum" : "Playlist");
+  hero.querySelector("h1").textContent = seed.title || "";
+  cv.appendChild(hero);
+  const ul = document.createElement("ul"); ul.className = "ctracks";
+  for (let i = 0; i < 8; i++) {
+    const li = document.createElement("li"); li.className = "ctrack";
+    li.style.gridTemplateColumns = "26px 1fr";
+    li.innerHTML = `<span class="cidx">${i + 1}</span><div class="meta"><div class="ln w1 shimmer"></div><div class="ln w2 shimmer" style="margin-top:8px"></div></div>`;
+    ul.appendChild(li);
+  }
+  cv.appendChild(ul);
 }
 function colTrackRow(t, songs, i, hasPic) {
   const s = songs[i];

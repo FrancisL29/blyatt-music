@@ -213,6 +213,12 @@
     background-size: var(--fill, 0%) 100%; transition: height .12s;
   }
   #seek { flex: 1; }
+  #seek.loading {
+    background-image: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent) 70%, transparent) 50%, transparent 100%);
+    background-size: 35% 100%; background-repeat: no-repeat;
+    animation: seekLoad 1.1s linear infinite;
+  }
+  @keyframes seekLoad { 0% { background-position: -35% 0; } 100% { background-position: 135% 0; } }
   #vol { width: 96px; }
   /* thumb oculto por defecto, aparece el circulo al hacer hover (como la referencia) */
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 0; height: 0; border-radius: 50%;
@@ -959,16 +965,24 @@ async function resolveAtv(s) {   // music video -> art track (solo para resultad
     s._atv = true;
   }
 }
+function paintNowPlaying(s) {
+  $("pcover").src = s.cover; $("ptitle").textContent = s.title; $("partist").textContent = s.artist;
+  player.classList.add("show");
+}
 async function playSong(s) {
   const tok = ++playToken;
+  paintNowPlaying(s);                // pinta cover/titulo/artista al instante (sensacion de carga rapida)
+  seek.classList.add("loading");
   try {
     await resolveAtv(s);
     if (tok !== playToken) return;
     await engLoad(s.id);            // decodifica (Web Audio) y reproduce desde 0
     if (tok !== playToken) return;
+    seek.classList.remove("loading");
     onPlaybackStarted(s);
   } catch (err) {
     if (tok !== playToken) return;
+    seek.classList.remove("loading");
     toast("No se pudo reproducir: " + (err.message || err));
   }
 }

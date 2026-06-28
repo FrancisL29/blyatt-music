@@ -99,10 +99,13 @@ def _parse_item(item):
         except (KeyError, TypeError):
             pass
     if not dur:
-        for r in runs(1):
-            t = r.get("text", "")
-            if t and t.count(":") == 1 and all(c.isdigit() or c == ":" for c in t):
-                dur = t; break
+        import re as _re
+        for ci in range(len(cols)):
+            for r in runs(ci):
+                t = r.get("text", "") or ""
+                if _re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", t.strip()):
+                    dur = t.strip(); break
+            if dur: break
     if vid and title:
         out = {"id": vid, "title": title, "artist": artist, "cover": cover, "type": _mv_type(item)}
         if artists: out["artists"] = artists

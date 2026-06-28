@@ -451,6 +451,41 @@ def _collection(browse_id):
     }
 
 
+def _find_all_renderers(node, key, acc):
+    if isinstance(node, dict):
+        if isinstance(node.get(key), dict):
+            acc.append(node[key])
+        for v in node.values():
+            _find_all_renderers(v, key, acc)
+    elif isinstance(node, list):
+        for v in node:
+            _find_all_renderers(v, key, acc)
+    return acc
+
+
+def album_versions(browse_id):
+    return cached("ver:" + browse_id, 1800, lambda: _album_versions(browse_id))
+
+
+def _album_versions(browse_id):
+    # "Other versions" del album: carrusel de musicTwoRowItemRenderer cuyo header menciona "version"
+    data = _yt_browse(browse_id)
+    out, seen = [], set()
+    for sh in _find_all_renderers(data, "musicCarouselShelfRenderer", []):
+        hdr = sh.get("header", {}).get("musicCarouselShelfBasicHeaderRenderer", {})
+        if "version" not in _runs_text(hdr.get("title")).lower():
+            continue
+        for c in sh.get("contents", []):
+            it = c.get("musicTwoRowItemRenderer")
+            if not it:
+                continue
+            r = _parse_tworow(it)
+            if r and r.get("browseId", "").startswith("MPRE") and r["browseId"] != browse_id and r["browseId"] not in seen:
+                seen.add(r["browseId"])
+                out.append(r)
+    return out
+
+
 def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -623,6 +658,15 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/collection":
             try:
                 payload = json.dumps(collection(parse_qs(u.query).get("id", [""])[0])).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+            except Exception as e:
+                payload = json.dumps({"error": str(e)}).encode()
+                self.send_response(502); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/versions":
+            try:
+                payload = json.dumps(album_versions(parse_qs(u.query).get("id", [""])[0])).encode()
                 self.send_response(200); self.send_header("Content-Type", "application/json")
             except Exception as e:
                 payload = json.dumps({"error": str(e)}).encode()

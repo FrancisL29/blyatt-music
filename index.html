@@ -154,6 +154,24 @@
   .card .a { font-size: .82rem; color: var(--muted); }
   .card.artists, .card.profiles { text-align: center; align-items: center; }
   .card.artists img, .card.profiles img { border-radius: 50%; }
+  /* "Other versions": panel que sale a la derecha al hacer hover sobre un album */
+  .card.albums { position: relative; }
+  .card .versions { position: absolute; left: calc(100% - 4px); top: 0; width: 230px; z-index: 9;
+    padding: 10px; border-radius: 14px;
+    background: linear-gradient(150deg, rgb(28 28 34 / .96), rgb(18 18 22 / .96));
+    border: 1px solid rgb(255 255 255 / .1);
+    box-shadow: 0 12px 36px rgb(0 0 0 / .5); backdrop-filter: blur(14px);
+    opacity: 0; transform: translateX(-10px); pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease; }
+  .card.albums:hover .versions { opacity: 1; transform: translateX(0); pointer-events: auto; }
+  .card .versions .vhead { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); margin: 2px 4px 8px; }
+  .card .versions .vitem { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 9px; cursor: pointer; }
+  .card .versions .vitem:hover { background: rgb(255 255 255 / .08); }
+  .card .versions .vitem img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: #1a1a20; }
+  .card .versions .vitem .vt { font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .versions .vitem .va { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .versions .vmeta { min-width: 0; }
   li.loading { opacity: .5; pointer-events: none; }
 
   .empty { color: var(--muted); text-align: center; padding: 80px 20px; }
@@ -670,7 +688,11 @@ function applyAccent(cover) {
       }
       let best = null;
       for (const e of buckets.values()) if (!best || e.w > best.w) best = e;
-      if (!best) return;
+      if (!best) {   // caratula monocroma (blanco/negro/gris): acento blanco, tinta negra
+        document.documentElement.style.setProperty("--accent", "rgb(255 255 255)");
+        document.documentElement.style.setProperty("--accent-ink", "#0a0a0a");
+        return;
+      }
       let R = best.r / best.w, G = best.g / best.w, B = best.b / best.w;
       let [h,s,l] = rgb2hsl(R, G, B);
       s = Math.max(s, .55); l = Math.min(Math.max(l, .42), .6);
@@ -708,9 +730,36 @@ function render(list, v) {
       li.onclick = () => s.kind === "artists" ? openArtist(s.browseId)
         : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId)
         : toast("Abrir " + (KINDS[s.kind] || "") + ": próximamente");
+      if (s.kind === "albums") attachVersions(li, s.browseId);
       r.appendChild(li); return;
     }
     r.appendChild(songLi(s, list, i));
+  });
+}
+/* "Other versions" de albumes: prefetch al renderar la lista, flyout a la derecha en hover */
+const versionsCache = new Map();   // browseId -> Promise<array>
+function fetchVersions(browseId) {
+  if (versionsCache.has(browseId)) return versionsCache.get(browseId);
+  const p = fetch("/versions?id=" + encodeURIComponent(browseId)).then(r => r.json())
+    .then(d => Array.isArray(d) ? d : []).catch(() => []);
+  versionsCache.set(browseId, p);
+  return p;
+}
+function attachVersions(card, browseId) {
+  fetchVersions(browseId).then(vers => {
+    if (!vers.length || !card.isConnected) return;
+    const box = document.createElement("div"); box.className = "versions";
+    box.innerHTML = '<div class="vhead">Otras versiones</div>';
+    vers.forEach(v => {
+      const it = document.createElement("div"); it.className = "vitem";
+      it.innerHTML = '<img alt=""><div class="vmeta"><div class="vt"></div><div class="va"></div></div>';
+      it.querySelector("img").src = v.cover || "";
+      it.querySelector(".vt").textContent = v.title || "";
+      it.querySelector(".va").textContent = v.subtitle || "";
+      it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId); };
+      box.appendChild(it);
+    });
+    card.appendChild(box);
   });
 }
 function esc(t) { return (t == null ? "" : String(t)).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }

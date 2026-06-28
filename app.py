@@ -467,22 +467,44 @@ def album_versions(browse_id):
     return cached("ver:" + browse_id, 1800, lambda: _album_versions(browse_id))
 
 
+def _header_text(node):
+    # texto de cualquier cabecera de carrusel (estructura varia: title.runs en sub-renderers)
+    for t in _find_all_renderers(node, "musicCarouselShelfBasicHeaderRenderer", []):
+        s = _runs_text(t.get("title"))
+        if s:
+            return s
+    return ""
+
+
+def _tworow_browse_id(it):
+    # el browseId propio del item esta en su navigationEndpoint de nivel superior (no recursivo: cogeria el del artista)
+    bid = (((it.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId"))
+    if bid:
+        return bid
+    tc = (it.get("title", {}) or {}).get("runs", [{}])
+    if tc:
+        bid = (((tc[0].get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId"))
+    return bid
+
+
 def _album_versions(browse_id):
-    # "Other versions" del album: carrusel de musicTwoRowItemRenderer cuyo header menciona "version"
+    # "Other versions" del album: carrusel cuyo header menciona "version", items = musicTwoRowItemRenderer (albumes MPRE)
     data = _yt_browse(browse_id)
     out, seen = [], set()
     for sh in _find_all_renderers(data, "musicCarouselShelfRenderer", []):
-        hdr = sh.get("header", {}).get("musicCarouselShelfBasicHeaderRenderer", {})
-        if "version" not in _runs_text(hdr.get("title")).lower():
+        if "version" not in _header_text(sh).lower():
             continue
         for c in sh.get("contents", []):
             it = c.get("musicTwoRowItemRenderer")
             if not it:
                 continue
-            r = _parse_tworow(it)
-            if r and r.get("browseId", "").startswith("MPRE") and r["browseId"] != browse_id and r["browseId"] not in seen:
-                seen.add(r["browseId"])
-                out.append(r)
+            bid = _tworow_browse_id(it)
+            if not bid or not bid.startswith("MPRE") or bid == browse_id or bid in seen:
+                continue
+            seen.add(bid)
+            out.append({"browseId": bid, "title": _runs_text(it.get("title")),
+                        "subtitle": _runs_text(it.get("subtitle")),
+                        "cover": _largest_thumb(it.get("thumbnailRenderer", {}))})
     return out
 
 

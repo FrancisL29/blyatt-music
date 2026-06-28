@@ -1122,7 +1122,7 @@ let playToken = 0;
 function playFromList(list, i) {
   queue = list.slice(); qIndex = i;
   if (current && current.id === list[i].id) { togglePlay(); return; }
-  playSong(list[i]);
+  playSong(list[i], true);
 }
 async function resolveAtv(s) {   // music video -> art track (solo para resultados de busqueda)
   if (s.type === "video" && !s._atv) {
@@ -1144,10 +1144,17 @@ function paintNowPlaying(s) {
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
-async function playSong(s) {
+let _loadTimer = null;
+function playSong(s, immediate) {
   const tok = ++playToken;
   paintNowPlaying(s);                // pinta cover/titulo/artista al instante (sensacion de carga rapida)
   seek.classList.add("loading");
+  audio.pause();                     // calla la pista actual ya: evita "trocitos" de pistas saltadas
+  clearTimeout(_loadTimer);
+  // al saltar rapido solo carga la ultima: debounce de la carga real (clicks de usuario), inmediato en avance natural
+  if (immediate) _engStart(s, tok); else _loadTimer = setTimeout(() => _engStart(s, tok), 220);
+}
+async function _engStart(s, tok) {
   try {
     await resolveAtv(s);
     if (tok !== playToken) return;
@@ -1214,12 +1221,12 @@ function playNext(auto) {
   if (repeat === "one" && auto) { audio.currentTime = 0; audio.play(); return; }
   const n = nextIndex();
   if (n === -1) { if (auto) { audio.pause(); } return; }
-  qIndex = n; playSong(queue[qIndex]);
+  qIndex = n; playSong(queue[qIndex], auto);   // auto (fin natural)=inmediato; click de usuario=debounce
 }
 function playPrev() {
   if (audio.currentTime > 3 || queue.length === 0) { audio.currentTime = 0; return; }
   qIndex = qIndex - 1 >= 0 ? qIndex - 1 : (repeat === "all" ? queue.length - 1 : 0);
-  playSong(queue[qIndex]);
+  playSong(queue[qIndex], false);   // debounce: saltos rapidos cargan solo la ultima
 }
 
 $("toggle").onclick = togglePlay;
@@ -1308,7 +1315,7 @@ function qRow(s, idx, kind) {
   const listOf = () => kind === "history" ? getRecents() : queue;
   d.onclick = () => {
     if (kind === "history") { const h = getRecents(); playFromList(h, h.findIndex(x => x.id === s.id)); }
-    else { qIndex = idx; playSong(s); }
+    else { qIndex = idx; playSong(s, true); }
     renderQueue();
   };
   const lk = d.querySelector(".like");

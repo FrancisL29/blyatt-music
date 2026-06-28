@@ -68,6 +68,21 @@ def _mv_type(item):
     return "atv" if mt.endswith("ATV") else ("video" if mt else "")
 
 
+def _is_explicit(node):
+    # badge "Explicit": musicInlineBadgeRenderer con icon MUSIC_EXPLICIT_BADGE
+    if isinstance(node, dict):
+        if node.get("icon", {}).get("iconType") == "MUSIC_EXPLICIT_BADGE":
+            return True
+        for v in node.values():
+            if _is_explicit(v):
+                return True
+    elif isinstance(node, list):
+        for v in node:
+            if _is_explicit(v):
+                return True
+    return False
+
+
 def _parse_item(item):
     vid = _find_video_id(item)
     cols = item.get("flexColumns", [])
@@ -111,6 +126,7 @@ def _parse_item(item):
         if artists: out["artists"] = artists
         if album: out["album"] = album
         if dur: out["duration"] = dur
+        if _is_explicit(item): out["explicit"] = True
         return out
     return None
 
@@ -174,7 +190,9 @@ def _parse_browse_item(item, kind):
         thumbs = []
     cover = thumbs[-1]["url"] if thumbs else ""
     if bid and title:
-        return {"browseId": bid, "title": title, "subtitle": subtitle, "cover": cover, "kind": kind}
+        out = {"browseId": bid, "title": title, "subtitle": subtitle, "cover": cover, "kind": kind}
+        if _is_explicit(item): out["explicit"] = True
+        return out
     return None
 
 
@@ -257,6 +275,7 @@ def _parse_tworow(it):
     cover = _largest_thumb(it.get("thumbnailRenderer", {}))
     vid = _find_video_id(it)
     out = {"title": title, "subtitle": subtitle, "cover": cover}
+    if _is_explicit(it.get("subtitleBadges")): out["explicit"] = True
     if vid:
         out["id"] = vid
     else:
@@ -392,6 +411,7 @@ def _parse_col_track(it):
            "extra": fx(2), "duration": dur, "id": vid, "cover": _largest_thumb(it.get("thumbnail", {}))}
     if artists: out["artists"] = artists
     if album: out["album"] = album
+    if _is_explicit(it): out["explicit"] = True
     return out
 
 
@@ -447,6 +467,7 @@ def _collection(browse_id):
         "meta": _runs_text(hdr.get("secondSubtitle")),     # "10 canciones . 44 min"
         "description": _runs_text(hdr.get("description")),
         "cover": _largest_thumb(hdr.get("thumbnail", {})),
+        "explicit": _is_explicit(hdr),
         "tracks": tracks,
     }
 
@@ -504,7 +525,8 @@ def _album_versions(browse_id):
             seen.add(bid)
             out.append({"browseId": bid, "title": _runs_text(it.get("title")),
                         "subtitle": _runs_text(it.get("subtitle")),
-                        "cover": _largest_thumb(it.get("thumbnailRenderer", {}))})
+                        "cover": _largest_thumb(it.get("thumbnailRenderer", {})),
+                        "explicit": _is_explicit(it.get("subtitleBadges"))})
     return out
 
 

@@ -123,6 +123,10 @@
   .meta { min-width: 0; }
   .t { font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .a { font-size: .82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exp { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 3px;
+    background: var(--muted); color: #0a0a0a; font-size: .6rem; font-weight: 800; line-height: 1;
+    vertical-align: middle; flex: none; }
+  .t .exp { margin-left: 7px; }
   .lnk { color: inherit; cursor: pointer; }
   .lnk:hover { color: #fff; text-decoration: underline; }
   .sep { opacity: .6; padding: 0 2px; }
@@ -728,7 +732,7 @@ function render(list, v) {
       li.className = "card " + s.kind;
       li.innerHTML = `<img alt=""><div class="t"></div><div class="a"></div>`;
       li.querySelector("img").src = s.cover;
-      li.querySelector(".t").textContent = s.title;
+      li.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
       li.querySelector(".a").textContent = s.subtitle;
       li.onclick = () => s.kind === "artists" ? openArtist(s.browseId)
         : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId)
@@ -758,7 +762,7 @@ function attachVersions(card, browseId) {
       const it = document.createElement("div"); it.className = "vitem";
       it.innerHTML = '<img alt=""><div class="vt"></div><div class="va"></div>';
       it.querySelector("img").src = v.cover || "";
-      it.querySelector(".vt").textContent = v.title || "";
+      it.querySelector(".vt").innerHTML = esc(v.title || "") + expBadge(v);
       it.querySelector(".va").textContent = v.subtitle || "";
       it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId); };
       grid.appendChild(it);
@@ -773,6 +777,7 @@ function attachVersions(card, browseId) {
   });
 }
 function esc(t) { return (t == null ? "" : String(t)).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+const expBadge = s => s && s.explicit ? '<span class="exp" title="Explicit" style="margin-left:7px">E</span>' : "";
 function metaHtml(s) {
   const parts = [];
   if (s.artists && s.artists.length) parts.push(s.artists.map(a => a.id ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", "));
@@ -789,7 +794,7 @@ function songLi(s, list, i) {
     <span class="cdur"></span>
     <button class="cdots ph ph-dots-three-vertical" aria-label="Opciones"></button>`;
   li.querySelector("img").src = s.cover;
-  li.querySelector(".t").textContent = s.title;
+  li.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
   li.querySelector(".a").innerHTML = metaHtml(s);
   li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
@@ -848,15 +853,15 @@ function renderArtist(d) {
     av.appendChild(el);
   });
 }
-function itemCard(it) {
+function itemCard(it, allowVersions) {
   const isArtist = it.browseId && it.browseId.startsWith("UC");
   const c = document.createElement("div"); c.className = "ccard" + (isArtist ? " artist" : it.id ? " video" : "");
   c.innerHTML = '<img alt=""><div class="t"></div><div class="a"></div>';
   c.querySelector("img").src = it.cover;
-  c.querySelector(".t").textContent = it.title;
+  c.querySelector(".t").innerHTML = esc(it.title) + expBadge(it);
   c.querySelector(".a").textContent = it.subtitle;
   c.onclick = () => openItem(it);
-  if (it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // albumes: "Otras versiones"
+  if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
   return c;
 }
 function openItem(it) {
@@ -887,7 +892,7 @@ function showGrid(title, list, push = true) {
   const gv = $("gridView"); gv.style.display = "block"; gv.innerHTML = "";
   const h = document.createElement("div"); h.className = "gridhead"; h.textContent = title; gv.appendChild(h);
   const grid = document.createElement("div"); grid.className = "cardgrid";
-  (list || []).forEach(it => grid.appendChild(itemCard(it)));
+  (list || []).forEach(it => grid.appendChild(itemCard(it, true)));
   gv.appendChild(grid);
 }
 /* ---------- vista de album / playlist ---------- */
@@ -918,7 +923,7 @@ function colTrackRow(t, songs, i, hasPic) {
     <button class="cdots ph ph-dots-three-vertical" aria-label="Opciones"></button>`;
   li.innerHTML = html;
   if (hasPic) li.querySelector("img").src = s.cover;
-  li.querySelector(".ct2").textContent = t.title;
+  li.querySelector(".ct2").innerHTML = esc(t.title) + expBadge(s);
   li.querySelector(".ca").innerHTML = metaHtml(s);   // artistas + album clickeables
   li.querySelector(".cextra").textContent = t.extra || "";
   li.querySelector(".cdur").textContent = t.duration || "";
@@ -971,7 +976,7 @@ function renderCollection(d) {
   }
   const covplayBtn = hero.querySelector(".covplay");
   hero.querySelector(".ct").textContent = d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist");
-  hero.querySelector("h1").textContent = d.title || "";
+  hero.querySelector("h1").innerHTML = esc(d.title || "") + expBadge(d);
   const cm = hero.querySelector(".cmeta");
   if (d.creator) {
     const b = document.createElement("b");
@@ -983,7 +988,7 @@ function renderCollection(d) {
   if (d.description) { const p = document.createElement("p"); p.className = "col-desc"; p.textContent = d.description; cv.appendChild(p); }
   const hasPic = d.kind === "playlist";
   const fallbackArtists = d.creator && d.creatorId ? [{ name: d.creator, id: d.creatorId }] : null;
-  const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
+  const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, explicit: t.explicit, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
   d.tracks.forEach((t, i) => ul.appendChild(colTrackRow(t, songs, i, hasPic)));
   cv.appendChild(ul);
@@ -1217,7 +1222,7 @@ function qRow(s, idx, kind) {
       ${kind === "next" ? '<button class="qbtn del ph ph-x" aria-label="Quitar"></button>' : ''}
     </div>`;
   d.querySelector("img").src = s.cover;
-  d.querySelector(".t").textContent = s.title;
+  d.querySelector(".t").innerHTML = esc(s.title) + expBadge(s);
   d.querySelector(".a").textContent = s.artist;
   d.querySelector(".qdur").textContent = s.duration || "";
   const listOf = () => kind === "history" ? getRecents() : queue;

@@ -37,23 +37,26 @@
 
   /* ---------- SIDEBAR ---------- */
   aside { position: relative; z-index: 2; background: var(--sidebar); border-right: 1px solid var(--line);
-          display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; }
+          display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border: none; background: none;
-    cursor: pointer; width: 100%; text-align: left; color: var(--text); }
+    cursor: pointer; width: 100%; text-align: left; color: var(--text); white-space: nowrap;
+    transition: padding .22s ease; }
   .brand .bolt {
     position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
     background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
     color: var(--accent-ink, #fff); font-size: 1.25rem; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
     transition: background .5s, box-shadow .5s;
   }
-  .brand .bolt i { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity .15s; }
+  .brand .bolt i, .brand .bolt img { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity .15s; }
+  .brand .bolt img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
   .brand .blt-toggle { opacity: 0; }
   .brand:hover .blt-logo { opacity: 0; }
   .brand:hover .blt-toggle { opacity: 1; }
   .brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
   /* biblioteca: Me gusta fija + guardados (artistas/albumes/playlists) */
   .lib-head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 8px; color: var(--muted);
-    font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+    transition: padding .22s ease; }
   .lib-head i { font-size: 1.2rem; }
   .lib-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
   .lib-scroll::-webkit-scrollbar { width: 8px; }
@@ -68,29 +71,35 @@
   .lib-meta .lt2 { font-size: .87rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-meta .la2 { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nav-item.active .lib-meta .lt2, .nav-item.active .lib-meta .la2 { color: var(--accent-ink, #fff); }
-  body.sb-collapsed .lib-head span, body.sb-collapsed .lib-meta { display: none; }
-  body.sb-collapsed .lib-item { justify-content: center; padding: 7px 0; width: auto; }
-  body.sb-collapsed .lib-scroll { align-items: center; }
   .gh-link { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px;
-    color: var(--muted); text-decoration: none; font-size: .92rem; font-weight: 500; transition: background .15s, color .15s; }
+    color: var(--muted); text-decoration: none; font-size: .92rem; font-weight: 500; white-space: nowrap;
+    transition: background .15s, color .15s, padding .22s ease; }
   .gh-link i { font-size: 1.35rem; }
   .gh-link:hover { color: var(--text); background: rgb(255 255 255 / .04); }
   /* barra lateral contraida: solo iconos */
-  body { transition: grid-template-columns .22s ease; }   /* colapso de sidebar animado */
+  /* colapso de sidebar: el ancho anima (grid), los iconos ACOMPANAN via transicion de padding
+     (sin display:none ni justify-content: eso hacia saltar los iconos); textos hacen fade */
+  body { transition: grid-template-columns .22s ease; }
   body.sb-collapsed { --sb-w: 76px; }
-  body.sb-collapsed aside { align-items: center; }
+  .brand span, .nav-item > span:not(.lib-cov), .gh-link span, .lib-head span, .lib-meta { transition: opacity .15s ease; }
   body.sb-collapsed .brand span,
   body.sb-collapsed .nav-item > span:not(.lib-cov),   /* NO ocultar .lib-cov: es la caratula/corazon de los items de biblioteca */
-  body.sb-collapsed .gh-link span { display: none; }
-  body.sb-collapsed .nav-item, body.sb-collapsed .gh-link { justify-content: center; width: 48px; height: 48px; padding: 0; }
-  body.sb-collapsed .lib-item { border-radius: 10px; }   /* boton cuadrado alrededor de la caratula/corazon */
-  body.sb-collapsed .brand { justify-content: center; padding: 6px 0 18px; }
+  body.sb-collapsed .gh-link span,
+  body.sb-collapsed .lib-head span,
+  body.sb-collapsed .lib-meta { opacity: 0; }
+  /* padding-left centra el icono en la barra de 76px (interior 52px): (52 - icono) / 2 */
+  body.sb-collapsed .nav-item { padding-left: 16px; }
+  body.sb-collapsed .lib-item { padding-left: 8px; }     /* caratula 36px */
+  body.sb-collapsed .gh-link { padding-left: 15px; }
+  body.sb-collapsed .lib-head { padding-left: 16px; }
+  body.sb-collapsed .brand { padding-left: 9px; }        /* logo 34px */
 
   nav { display: flex; flex-direction: column; gap: 2px; }
   .nav-item {
     display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px;
-    color: var(--muted); cursor: pointer; font-size: .92rem; font-weight: 500;
-    border: none; background: none; width: 100%; text-align: left; transition: background .15s, color .15s;
+    color: var(--muted); cursor: pointer; font-size: .92rem; font-weight: 500; white-space: nowrap;
+    border: none; background: none; width: 100%; text-align: left;
+    transition: background .15s, color .15s, padding .22s ease;
   }
   .nav-item i { font-size: 1.25rem; }
   .nav-item:hover { color: var(--text); background: rgb(255 255 255 / .04); }
@@ -416,7 +425,6 @@
   .ccard .a { font-size: .8rem; color: var(--muted); margin-top: 2px; }
   #gridView { display: none; }
   #homeView { display: none; }
-  main.nsc { overflow-y: hidden; }   /* Inicio: sin scroll, el contenido se ajusta a la ventana (fitHome) */
   .home-sec { margin: 6px 0 20px; }
   .home-sec h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; margin: 0 0 12px; }
   /* fila unica responsiva (mismo patron que .arow): solo caben tarjetas enteras, sin scroll horizontal */
@@ -511,7 +519,7 @@
 
 <aside>
   <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
-    <div class="bolt"><i class="ph-fill ph-lightning blt-logo"></i><i class="ph ph-sidebar-simple blt-toggle"></i></div>
+    <div class="bolt"><img class="blt-logo" src="/assets/blyatt_logo.svg" alt="Blyatt"><i class="ph ph-sidebar-simple blt-toggle"></i></div>
     <span>Blyatt</span>
   </button>
   <nav>
@@ -951,7 +959,7 @@ function openArtist(browseId, push = true, seed = null) {
   view = "artist";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none"; _main.classList.remove("nsc");
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.add("show");   // artista: sin blur de fondo (usa su portada), muestra volver
   const av = $("artistView"); av.style.display = "block";
   if (seed && (seed.cover || seed.title)) artistSeed(seed); else av.innerHTML = '<div class="lempty">Cargando artista...</div>';
@@ -1057,7 +1065,7 @@ function showGrid(title, list, push = true) {
   view = "grid";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none"; $("homeView").style.display = "none"; _main.classList.remove("nsc");
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("homeView").style.display = "none";
   $("artistView").style.display = "none"; $("collectionView").style.display = "none";
   bg.classList.remove("on"); $("backBtn").classList.add("show");
   const gv = $("gridView"); gv.style.display = "block"; gv.innerHTML = "";
@@ -1075,7 +1083,7 @@ function openCollection(browseId, push = true, seed = null) {
   view = "collection";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
-  $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none"; _main.classList.remove("nsc");
+  $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
   $("backBtn").classList.add("show");
   const cv = $("collectionView"); cv.style.display = "block";
   collectionSeed(seed || {});   // siempre muestra esqueleto (hero + filas) animado mientras carga
@@ -1240,7 +1248,6 @@ function setView(v, push = true) {
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === v));
   $("tabs").style.display = v === "buscar" ? "flex" : "none";   // las categorias solo aplican a la busqueda
   const isHome = v === "home";
-  _main.classList.toggle("nsc", isHome);   // Inicio: sin scroll (contenido se ajusta con fitHome)
   $("homeView").style.display = isHome ? "block" : "none";
   $("r").style.display = isHome ? "none" : "";
   $("empty").style.display = isHome ? "none" : "";
@@ -1266,30 +1273,14 @@ function homeSec(hv, title) {
   return { sec, row };
 }
 function fillCards(sec, row, items, allowVersions, square) {
-  if (!items || !items.length) { sec.remove(); fitHome(); return; }
+  if (!items || !items.length) { sec.remove(); return; }
   row.innerHTML = "";
   items.forEach(it => {
     const c = itemCard(it, allowVersions);
     if (square) c.classList.remove("video");   // canciones: caratula cuadrada, no 16:9
     row.appendChild(c);
   });
-  fitHome();
 }
-/* Inicio sin scroll: oculta secciones desde el final hasta que el contenido cabe en la ventana */
-function fitHome() {
-  const hv = $("homeView");
-  if (view !== "home" || !hv.children.length) return;
-  const secs = [...hv.querySelectorAll(".home-sec")];
-  if (!secs.length) return;
-  secs.forEach(s => s.style.display = "");
-  const limit = _main.getBoundingClientRect().bottom - 112;   // aire para el player flotante
-  for (let i = secs.length - 1; i > 0; i--) {
-    if (hv.getBoundingClientRect().bottom <= limit) break;
-    secs[i].style.display = "none";
-  }
-}
-let _fitT;
-window.addEventListener("resize", () => { clearTimeout(_fitT); _fitT = setTimeout(fitHome, 120); });
 /* nuevos lanzamientos ordenados: artistas de la biblioteca > artistas con canciones liked > resto (orden del feed = popularidad) */
 function sortReleases(list) {
   const libArts = getLibrary().filter(x => x.kind === "artists").map(x => (x.title || "").toLowerCase()).filter(Boolean);
@@ -1325,7 +1316,6 @@ function renderHome() {
     p.textContent = "Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.";
     hv.appendChild(p);
   }
-  fitHome();   // ajusta ya los esqueletos a la ventana
   fetch("/newreleases").then(r => r.json()).then(d => {
     if (Array.isArray(d) && d.length) fillCards(nr.sec, nr.row, sortReleases(d), true); else nr.sec.remove();
   }).catch(() => nr.sec.remove());
@@ -1347,7 +1337,6 @@ if (localStorage.getItem("lightning.sbCollapsed") === "1") document.body.classLi
 $("sbToggle").onclick = () => {
   const on = document.body.classList.toggle("sb-collapsed");
   localStorage.setItem("lightning.sbCollapsed", on ? "1" : "0");
-  setTimeout(fitHome, 260);   // refit tras la animacion de ancho
 };
 
 /* navegacion atras/adelante como una web: boton lateral del raton (via History API) + Alt+Flechas */

@@ -24,6 +24,7 @@ def cached(key, ttl, producer):
 YTM_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
 YTM_URL = "https://music.youtube.com/youtubei/v1/search?key=" + YTM_KEY
 YTB_URL = "https://music.youtube.com/youtubei/v1/browse?key=" + YTM_KEY
+YTN_URL = "https://music.youtube.com/youtubei/v1/next?key=" + YTM_KEY
 CTX = {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240101.01.00", "hl": "es"}}
 
 
@@ -558,6 +559,34 @@ def _new_releases():
     return out
 
 
+def radio(video_id):
+    return cached("radio:" + video_id, 1800, lambda: _radio(video_id))
+
+
+def _radio(video_id):
+    # radio/recomendaciones de YTM (endpoint next con playlist RDAMVM<id>): canciones similares a la semilla
+    body = {"context": CTX, "videoId": video_id, "playlistId": "RDAMVM" + video_id,
+            "isAudioOnly": True, "params": "wAEB"}
+    req = urllib.request.Request(YTN_URL, data=json.dumps(body).encode(), headers={
+        "Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
+    })
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read())
+    out, seen = [], {video_id}
+    for it in _find_all_renderers(data, "playlistPanelVideoRenderer", []):
+        vid = it.get("videoId")
+        title = _runs_text(it.get("title"))
+        if not vid or not title or vid in seen:
+            continue
+        seen.add(vid)
+        artist = _runs_text(it.get("shortBylineText")) or _runs_text(it.get("longBylineText"))
+        artist = artist.split(" • ")[0].strip()
+        out.append({"id": vid, "title": title, "artist": artist,
+                    "cover": _largest_thumb(it.get("thumbnail", {})),
+                    "duration": _runs_text(it.get("lengthText"))})
+    return out
+
+
 def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -678,6 +707,15 @@ class H(BaseHTTPRequestHandler):
                 payload = json.dumps({"error": str(e)}).encode()
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/radio":
+            try:
+                payload = json.dumps(radio(parse_qs(u.query).get("id", [""])[0])).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+            except Exception as e:
+                payload = json.dumps({"error": str(e)}).encode()
+                self.send_response(502); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/newreleases":

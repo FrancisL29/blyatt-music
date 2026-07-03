@@ -51,6 +51,26 @@
   .brand:hover .blt-logo { opacity: 0; }
   .brand:hover .blt-toggle { opacity: 1; }
   .brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
+  /* biblioteca: Me gusta fija + guardados (artistas/albumes/playlists) */
+  .lib-head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 8px; color: var(--muted);
+    font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  .lib-head i { font-size: 1.2rem; }
+  .lib-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .lib-scroll::-webkit-scrollbar { width: 8px; }
+  .lib-scroll::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .1); border-radius: 999px; }
+  .lib-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
+  .lib-cov { width: 36px; height: 36px; border-radius: 7px; flex: none; object-fit: cover; background: #1a1a20;
+    display: grid; place-items: center; overflow: hidden; }
+  .lib-cov.artists { border-radius: 50%; }
+  .liked-cov { background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
+    color: var(--accent-ink, #fff); font-size: 1.05rem; transition: background .5s; }
+  .lib-meta { display: flex; flex-direction: column; min-width: 0; }
+  .lib-meta .lt2 { font-size: .87rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-meta .la2 { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav-item.active .lib-meta .lt2, .nav-item.active .lib-meta .la2 { color: var(--accent-ink, #fff); }
+  body.sb-collapsed .lib-head span, body.sb-collapsed .lib-meta { display: none; }
+  body.sb-collapsed .lib-item { justify-content: center; padding: 7px 0; width: auto; }
+  body.sb-collapsed .lib-scroll { align-items: center; }
   .gh-link { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px;
     color: var(--muted); text-decoration: none; font-size: .92rem; font-weight: 500; transition: background .15s, color .15s; }
   .gh-link i { font-size: 1.35rem; }
@@ -295,6 +315,9 @@
 
   #qlist { flex: 1; overflow-y: auto; padding: 8px 14px 150px; }
   .qsec { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin: 14px 6px 6px; }
+  .qsec.rec { color: var(--accent); display: flex; align-items: center; gap: 6px; padding-top: 10px;
+    border-top: 1px solid rgb(255 255 255 / .08); }
+  .qsec.rec i { font-size: .95rem; }
   #queue .qitem { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 12px;
                   padding: 7px 8px; border-radius: 8px; cursor: pointer; }
   #queue .qitem:hover, #queue .qitem.menuopen { background: rgb(255 255 255 / .06); }
@@ -403,6 +426,15 @@
   #collectionView { display: none; }
   .col-hero { display: flex; align-items: flex-end; gap: 26px; margin: 0 0 22px; }
   .cov { position: relative; flex: none; width: 200px; height: 200px; }
+  .col-actions { margin-top: 14px; display: flex; gap: 10px; position: relative; z-index: 1; }
+  .savebtn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px;
+    cursor: pointer; color: var(--text); font-size: .85rem; font-weight: 600;
+    border: 1px solid rgb(255 255 255 / .16);
+    background: linear-gradient(150deg, rgb(255 255 255 / .1), rgb(255 255 255 / .03));
+    backdrop-filter: blur(14px); transition: background .15s, color .15s, border-color .15s; }
+  .savebtn i { font-size: 1.15rem; }
+  .savebtn:hover { background: linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .06)); }
+  .savebtn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .covplay { position: absolute; inset: 0; display: grid; place-items: center; border: none; cursor: pointer;
              background: rgb(0 0 0 / .4); color: #fff; font-size: 3.4rem; border-radius: 12px; opacity: 0; transition: opacity .2s; }
   .cov:hover .covplay { opacity: 1; }
@@ -483,8 +515,15 @@
   <nav>
     <button class="nav-item active" data-view="home"><i class="ph ph-house"></i> <span>Inicio</span></button>
     <button class="nav-item" data-view="buscar"><i class="ph ph-magnifying-glass"></i> <span>Buscar</span></button>
-    <button class="nav-item" data-view="liked"><i class="ph ph-heart"></i> <span>Me gusta</span></button>
   </nav>
+  <div class="lib-head"><i class="ph ph-books"></i> <span>Biblioteca</span></div>
+  <div class="lib-scroll">
+    <button class="nav-item lib-item" data-view="liked">
+      <span class="lib-cov liked-cov"><i class="ph-fill ph-heart"></i></span>
+      <span class="lib-meta"><span class="lt2">Me gusta</span><span class="la2">Playlist fija</span></span>
+    </button>
+    <div id="libList"></div>
+  </div>
   <a class="gh-link" href="https://github.com/FrancisL29/blyatt-music" target="_blank" rel="noopener" aria-label="Repositorio en GitHub">
     <i class="ph ph-github-logo"></i> <span>GitHub</span>
   </a>
@@ -700,6 +739,51 @@ function pushRecent(s) {
   localStorage.setItem("lightning.recents", JSON.stringify(list.slice(0, 30)));
 }
 
+/* ---------- biblioteca (artistas/albumes/playlists guardados) ----------
+   entrada: { id: browseId, kind: "artists"|"albums"|"playlists", title, subtitle, cover } */
+const getLibrary = () => store("lightning.library", "[]");
+const inLibrary = id => getLibrary().some(x => x.id === id);
+function toggleLibrary(entry) {
+  if (!entry || !entry.id) return;
+  let list = getLibrary();
+  if (list.some(x => x.id === entry.id)) { list = list.filter(x => x.id !== entry.id); toast("Quitado de tu biblioteca"); }
+  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "" }); toast("Guardado en tu biblioteca"); }
+  localStorage.setItem("lightning.library", JSON.stringify(list));
+  renderLibrary();
+  document.querySelectorAll(".savebtn").forEach(b => { if (b._sync) b._sync(); });
+}
+function renderLibrary() {
+  const box = $("libList"); box.innerHTML = "";
+  getLibrary().forEach(e => {
+    const b = document.createElement("button"); b.className = "nav-item lib-item";
+    b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
+    const im = b.querySelector("img"); im.src = e.cover; im.classList.add(e.kind || "");
+    b.querySelector(".lt2").textContent = e.title;
+    b.querySelector(".la2").textContent = e.subtitle || (e.kind === "artists" ? "Artista" : e.kind === "albums" ? "Álbum" : "Playlist");
+    b.onclick = () => e.kind === "artists" ? openArtist(e.id, true, { title: e.title, cover: e.cover })
+      : openCollection(e.id, true, { kind: e.kind, title: e.title, subtitle: e.subtitle, cover: e.cover });
+    b.oncontextmenu = (ev) => { ev.preventDefault(); openCardMenu(e, ev.clientX, ev.clientY); };
+    box.appendChild(b);
+  });
+}
+function saveBtn(entryFn) {   // boton Guardar/En tu biblioteca (vistas de artista/album/playlist)
+  const b = document.createElement("button"); b.className = "savebtn";
+  const sync = () => {
+    const e = entryFn(); const on = e && inLibrary(e.id);
+    b.classList.toggle("on", !!on);
+    b.innerHTML = `<i class="ph ${on ? "ph-fill ph-check-circle" : "ph-plus-circle"}"></i><span>${on ? "En tu biblioteca" : "Guardar"}</span>`;
+  };
+  b._sync = sync; sync();
+  b.onclick = (ev) => { ev.stopPropagation(); const e = entryFn(); if (e) toggleLibrary(e); };
+  return b;
+}
+function libEntryFrom(it) {   // normaliza card de busqueda/carrusel/version -> entrada de biblioteca
+  const id = it.browseId; if (!id) return null;
+  const kind = it.kind === "artists" || id.startsWith("UC") ? "artists"
+    : (it.kind === "playlists" || id.startsWith("VL")) ? "playlists" : "albums";
+  return { id, kind, title: it.title, subtitle: it.subtitle, cover: it.cover };
+}
+
 /* ---------- helpers ---------- */
 const fmt = s => isFinite(s) ? Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2,"0") : "0:00";
 const setFill = (el, pct) => el.style.setProperty("--fill", pct + "%");
@@ -781,6 +865,7 @@ function render(list, v) {
       li.onclick = () => s.kind === "artists" ? openArtist(s.browseId, true, s)
         : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId, true, s)
         : toast("Abrir " + (KINDS[s.kind] || "") + ": próximamente");
+      if (s.kind !== "profiles") li.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(s, e.clientX, e.clientY, li); };
       if (s.kind === "albums") attachVersions(li, s.browseId);
       r.appendChild(li); return;
     }
@@ -809,6 +894,7 @@ function attachVersions(card, browseId) {
       it.querySelector(".vt").textContent = v.title || "";
       it.querySelector(".va").innerHTML = expBadge(v) + esc(v.subtitle || "");
       it.onclick = (e) => { e.stopPropagation(); openCollection(v.browseId, true, { kind: "album", title: v.title, subtitle: v.subtitle, cover: v.cover }); };
+      it.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); openCardMenu(Object.assign({ kind: "albums" }, v), e.clientX, e.clientY, it); };
       grid.appendChild(it);
     });
     grid.style.gridTemplateColumns = "repeat(" + Math.min(vers.length, 4) + ", 96px)";   // ventana crece con la cantidad (max 4 por fila)
@@ -855,10 +941,10 @@ function songLi(s, list, i) {
   return li;
 }
 /* ---------- vista de artista ---------- */
-let _artistSeed = null;
+let _artistSeed = null, _artistId = null;
 function openArtist(browseId, push = true, seed = null) {
   if (!browseId) return;
-  _artistSeed = seed;
+  _artistSeed = seed; _artistId = browseId;
   if (push) pushHist({ t: "artist", id: browseId });
   view = "artist";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
@@ -912,6 +998,9 @@ function renderArtist(d) {
   const maud = hero.querySelector(".maud"); maud.textContent = d.subtitle || ""; if (!d.subtitle) maud.style.display = "none";
   const bio = hero.querySelector(".bio"); bio.textContent = d.description || "";
   if (!d.description) bio.style.display = "none"; else bio.onclick = () => bio.classList.toggle("expanded");
+  const aact = document.createElement("div"); aact.className = "col-actions";
+  aact.appendChild(saveBtn(() => ({ id: _artistId, kind: "artists", title: d.name, subtitle: "Artista", cover: d.image })));
+  hero.querySelector(".info").appendChild(aact);
   av.appendChild(hero);
   (d.sections || []).forEach(sec => {
     const el = document.createElement("section"); el.className = "ashelf";
@@ -940,6 +1029,7 @@ function itemCard(it, allowVersions) {
   c.querySelector(".t").textContent = it.title;
   c.querySelector(".a").innerHTML = expBadge(it) + esc(it.subtitle || "");
   c.onclick = () => openItem(it);
+  if (it.browseId) c.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(it, e.clientX, e.clientY, c); };
   if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
   return c;
 }
@@ -975,8 +1065,10 @@ function showGrid(title, list, push = true) {
   gv.appendChild(grid);
 }
 /* ---------- vista de album / playlist ---------- */
+let _colId = null;
 function openCollection(browseId, push = true, seed = null) {
   if (!browseId) return;
+  _colId = browseId;
   if (push) pushHist({ t: "collection", id: browseId });
   view = "collection";
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
@@ -1039,14 +1131,8 @@ function colTrackRow(t, songs, i, hasPic) {
   return li;
 }
 function closeMenu() { const m = $("ctxmenu"); m.classList.remove("show"); document.querySelectorAll(".menuopen").forEach(x => x.classList.remove("menuopen")); }
-function openTrackMenu(s, songs, i, x, y, li) {
+function showMenu(opts, x, y, li) {
   const m = $("ctxmenu"); m.innerHTML = ""; closeMenu();
-  const liked = isLiked(s.id);
-  const opts = [
-    ["ph-play", "Reproducir", () => playFromList(songs, i)],
-    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); scheduleGaplessNext(); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
-    [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Liked" : "Añadir a Liked", () => toggleLike(s)],
-  ];
   for (const [ic, label, fn] of opts) {
     const b = document.createElement("button"); b.innerHTML = `<i class="ph ${ic}"></i><span></span>`;
     b.querySelector("span").textContent = label;
@@ -1057,6 +1143,39 @@ function openTrackMenu(s, songs, i, x, y, li) {
   const w = m.offsetWidth, h = m.offsetHeight;
   m.style.left = Math.min(x, innerWidth - w - 8) + "px";
   m.style.top = Math.min(y, innerHeight - h - 8) + "px";
+}
+function openTrackMenu(s, songs, i, x, y, li) {
+  const liked = isLiked(s.id);
+  showMenu([
+    ["ph-play", "Reproducir", () => playFromList(songs, i)],
+    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); scheduleGaplessNext(); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
+    [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Me gusta" : "Añadir a Me gusta", () => toggleLike(s)],
+  ], x, y, li);
+}
+/* menu contextual de tarjetas (artista/album/playlist): guardar en biblioteca + agregar a la cola */
+function openCardMenu(it, x, y, el) {
+  const entry = libEntryFrom(it); if (!entry) return;
+  const saved = inLibrary(entry.id);
+  const opts = [[saved ? "ph-fill ph-check-circle" : "ph-plus-circle",
+    saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]];
+  if (entry.kind !== "artists")
+    opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
+  showMenu(opts, x, y, el);
+}
+/* carga todas las pistas de un album/playlist y las anade a la cola (antes de las recomendaciones) */
+async function addCollectionToQueue(browseId) {
+  try {
+    const d = await (await fetch("/collection?id=" + encodeURIComponent(browseId))).json();
+    if (d.error || !d.tracks || !d.tracks.length) throw new Error();
+    const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, duration: t.duration, explicit: t.explicit }));
+    if (!current || !queue.length) { playFromList(songs, 0); toast("Reproduciendo " + (d.title || "")); return; }
+    let at = queue.length;   // insertar al final de la cola real, antes de la seccion de recomendaciones
+    for (let k = qIndex + 1; k < queue.length; k++) if (queue[k]._rec) { at = k; break; }
+    queue.splice(at, 0, ...songs);
+    scheduleGaplessNext();
+    if ($("queue").classList.contains("show")) renderQueue();
+    toast(songs.length + " canciones añadidas a la cola");
+  } catch (e) { toast("No se pudo añadir a la cola"); }
 }
 document.addEventListener("click", e => {
   const ln = e.target.closest && e.target.closest(".lnk");
@@ -1085,6 +1204,10 @@ function renderCollection(d) {
     b.textContent = d.creator; cm.appendChild(b); cm.appendChild(document.createTextNode(" • "));
   }
   cm.appendChild(document.createTextNode(d.meta || ""));
+  const act = document.createElement("div"); act.className = "col-actions";
+  act.appendChild(saveBtn(() => ({ id: _colId, kind: d.kind === "album" ? "albums" : "playlists",
+    title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover })));
+  hero.lastElementChild.appendChild(act);
   cv.appendChild(hero);
   if (d.description) { const p = document.createElement("p"); p.className = "col-desc"; p.textContent = d.description; cv.appendChild(p); }
   const hasPic = d.kind === "playlist";
@@ -1231,6 +1354,28 @@ function onPlaybackStarted(s) {
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
+  maybeExtendQueue();
+}
+/* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
+let _recBusy = false;
+async function maybeExtendQueue() {
+  if (repeat !== "off" || _recBusy || !current || !queue.length) return;   // con repeat la cola es un bucle: no extender
+  if (queue.length - 1 - qIndex > 5) return;
+  _recBusy = true;
+  try {
+    const seedId = (queue[qIndex] || current).id;
+    const d = await (await fetch("/radio?id=" + encodeURIComponent(seedId))).json();
+    if (!Array.isArray(d)) return;
+    const have = new Set(queue.map(x => x.id));
+    const add = d.filter(x => !have.has(x.id)).slice(0, 20);
+    add.forEach(x => { x._rec = true; });
+    if (add.length) {
+      queue.push(...add);
+      scheduleGaplessNext();   // por si estabamos en la ultima pista sin siguiente programada
+      if ($("queue").classList.contains("show")) renderQueue();
+    }
+  } catch (e) { /* sin red o sin radio: la cola termina normal */ }
+  finally { _recBusy = false; }
 }
 function plannedNextIndex() {
   if (shuffle || !queue.length) return -1;   // aleatorio: el siguiente no es deterministico
@@ -1413,8 +1558,14 @@ function renderQueue() {
   ql.appendChild(qRow(queue[qIndex] || current, qIndex, "current"));
   const up = queue.slice(qIndex + 1);
   if (up.length) {
-    const h2 = document.createElement("div"); h2.className = "qsec"; h2.textContent = "A continuación"; ql.appendChild(h2);
-    up.forEach((s, k) => ql.appendChild(qRow(s, qIndex + 1 + k, "next")));
+    let recHdr = false, nextHdr = false;
+    up.forEach((s, k) => {
+      if (s._rec && !recHdr) { recHdr = true;
+        const h3 = document.createElement("div"); h3.className = "qsec rec"; h3.innerHTML = '<i class="ph ph-sparkle"></i> Recomendaciones'; ql.appendChild(h3); }
+      else if (!s._rec && !nextHdr) { nextHdr = true;
+        const h2 = document.createElement("div"); h2.className = "qsec"; h2.textContent = "A continuación"; ql.appendChild(h2); }
+      ql.appendChild(qRow(s, qIndex + 1 + k, "next"));
+    });
   }
 }
 $("histBtn").onclick = () => { qMode = qMode === "history" ? "queue" : "history"; renderQueue(); };
@@ -1540,6 +1691,7 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   if ($("q").value.trim()) runSearch();
 });
 
+renderLibrary();
 setView("home", false);   // Inicio = ventana principal (al final: tras definir todo)
 </script>
 </body>

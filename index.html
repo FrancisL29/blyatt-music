@@ -76,10 +76,11 @@
   .gh-link i { font-size: 1.35rem; }
   .gh-link:hover { color: var(--text); background: rgb(255 255 255 / .04); }
   /* barra lateral contraida: solo iconos */
+  body { transition: grid-template-columns .22s ease; }   /* colapso de sidebar animado */
   body.sb-collapsed { --sb-w: 76px; }
   body.sb-collapsed aside { align-items: center; }
   body.sb-collapsed .brand span,
-  body.sb-collapsed .nav-item span,
+  body.sb-collapsed .nav-item > span:not(.lib-cov),   /* NO ocultar .lib-cov: es la caratula/corazon de los items de biblioteca */
   body.sb-collapsed .gh-link span { display: none; }
   body.sb-collapsed .nav-item, body.sb-collapsed .gh-link { justify-content: center; }
   body.sb-collapsed .brand { justify-content: center; padding: 6px 0 18px; }
@@ -242,7 +243,7 @@
     border: 1px solid rgb(255 255 255 / .12); background: var(--glass);
     backdrop-filter: blur(28px) saturate(170%); -webkit-backdrop-filter: blur(28px) saturate(170%);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 20px 55px rgb(0 0 0 / .6);
-    opacity: 0; translate: 0 30px; pointer-events: none; transition: opacity .35s, translate .35s;
+    opacity: 0; translate: 0 30px; pointer-events: none; transition: opacity .35s, translate .35s, left .22s ease;
   }
   #player.show { opacity: 1; translate: 0 0; pointer-events: auto; }
 
@@ -1182,6 +1183,11 @@ document.addEventListener("click", e => {
   if (ln) { e.stopPropagation(); e.preventDefault();
     if (ln.dataset.art) openArtist(ln.dataset.art);
     else if (ln.dataset.alb) openCollection(ln.dataset.alb);
+    else if (ln.dataset.artq) {   // nombre sin browseId: primer resultado de busqueda de artistas
+      fetch("/search?q=" + encodeURIComponent(ln.dataset.artq) + "&filter=artists").then(r => r.json())
+        .then(d => { if (Array.isArray(d) && d[0] && d[0].browseId) openArtist(d[0].browseId, true, d[0]); })
+        .catch(() => {});
+    }
   }
 }, true);
 document.addEventListener("click", e => { if (!$("ctxmenu").contains(e.target)) closeMenu(); });
@@ -1243,21 +1249,76 @@ function setView(v, push = true) {
   else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
   showTop();   // al cambiar de vista, reaparece topbar (y en buscar/inicio queda fija)
 }
-let _homeLoaded = false;
+/* ---------- Inicio: Recientes + Para ti + Nuevos Lanzamientos + recomendados ---------- */
+let _homeSeedId = null;
+function skelCards(row, n, circle) {
+  for (let i = 0; i < n; i++) { const c = document.createElement("div"); c.className = "ccard";
+    c.innerHTML = `<div class="sq shimmer" style="width:100%;aspect-ratio:1;border-radius:${circle ? "50%" : "10px"}"></div><div class="ln w1 shimmer" style="margin-top:9px"></div><div class="ln w2 shimmer"></div>`;
+    row.appendChild(c); }
+}
+function homeSec(hv, title) {
+  const sec = document.createElement("section"); sec.className = "home-sec";
+  const h = document.createElement("h3"); h.textContent = title; sec.appendChild(h);
+  const row = document.createElement("div"); row.className = "hrow"; sec.appendChild(row);
+  hv.appendChild(sec);
+  return { sec, row };
+}
+function fillCards(sec, row, items, allowVersions, square) {
+  if (!items || !items.length) { sec.remove(); return; }
+  row.innerHTML = "";
+  items.forEach(it => {
+    const c = itemCard(it, allowVersions);
+    if (square) c.classList.remove("video");   // canciones: caratula cuadrada, no 16:9
+    row.appendChild(c);
+  });
+}
+/* nuevos lanzamientos ordenados: artistas de la biblioteca > artistas con canciones liked > resto (orden del feed = popularidad) */
+function sortReleases(list) {
+  const libArts = getLibrary().filter(x => x.kind === "artists").map(x => (x.title || "").toLowerCase()).filter(Boolean);
+  const likedArts = [...new Set(getLiked().map(x => (x.artist || "").toLowerCase()).filter(Boolean))];
+  const score = it => {
+    const sub = (it.subtitle || "").toLowerCase();
+    if (libArts.some(a => sub.includes(a))) return 0;
+    if (likedArts.some(a => sub.includes(a))) return 1;
+    return 2;
+  };
+  return list.map((it, i) => [score(it), i, it]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+}
 function renderHome() {
   const hv = $("homeView");
-  if (_homeLoaded) return;   // ya pintado: no re-fetch al volver
-  hv.innerHTML = '<section class="home-sec"><h3>Nuevos Lanzamientos</h3><div class="hrow" id="newrel"></div></section>';
-  const row = $("newrel");
-  for (let i = 0; i < 8; i++) { const c = document.createElement("div"); c.className = "ccard";
-    c.innerHTML = '<div class="sq shimmer" style="width:100%;aspect-ratio:1;border-radius:10px"></div><div class="ln w1 shimmer" style="margin-top:9px"></div><div class="ln w2 shimmer"></div>';
-    row.appendChild(c); }
+  const seed = getRecents()[0] || getLiked()[0] || null;
+  const seedId = seed ? seed.id : "";
+  if (_homeSeedId === seedId && hv.children.length) return;   // mismo contexto: no re-render
+  _homeSeedId = seedId;
+  hv.innerHTML = "";
+  const recents = getRecents();
+  if (recents.length) {
+    const r = homeSec(hv, "Recientes");
+    fillCards(r.sec, r.row, recents.slice(0, 12).map(s => ({ id: s.id, title: s.title, subtitle: s.artist, cover: s.cover })), false, true);
+  }
+  let pt = null, ra = null, rb = null;
+  if (seedId) { pt = homeSec(hv, "Para ti"); skelCards(pt.row, 8); }
+  const nr = homeSec(hv, "Nuevos Lanzamientos"); skelCards(nr.row, 8);
+  if (seedId) {
+    ra = homeSec(hv, "Artistas recomendados"); skelCards(ra.row, 8, true);
+    rb = homeSec(hv, "Álbumes recomendados"); skelCards(rb.row, 8);
+  } else {
+    const p = document.createElement("div"); p.className = "lempty";
+    p.textContent = "Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.";
+    hv.appendChild(p);
+  }
   fetch("/newreleases").then(r => r.json()).then(d => {
-    if (!Array.isArray(d) || !d.length) return;
-    row.innerHTML = "";
-    d.forEach(it => row.appendChild(itemCard(it, true)));
-    _homeLoaded = true;
-  }).catch(() => { row.innerHTML = '<div class="lempty">No se pudieron cargar los lanzamientos.</div>'; });
+    if (Array.isArray(d) && d.length) fillCards(nr.sec, nr.row, sortReleases(d), true); else nr.sec.remove();
+  }).catch(() => nr.sec.remove());
+  if (!seedId) return;
+  fetch("/radio?id=" + encodeURIComponent(seedId)).then(r => r.json()).then(d => {
+    if (!Array.isArray(d)) { pt.sec.remove(); return; }
+    fillCards(pt.sec, pt.row, d.slice(0, 12).map(s => ({ id: s.id, title: s.title, subtitle: s.artist, cover: s.cover })), false, true);
+  }).catch(() => pt.sec.remove());
+  fetch("/related?id=" + encodeURIComponent(seedId)).then(r => r.json()).then(d => {
+    fillCards(ra.sec, ra.row, (d.artists || []).slice(0, 12));
+    fillCards(rb.sec, rb.row, (d.albums || []).slice(0, 12), true);
+  }).catch(() => { ra.sec.remove(); rb.sec.remove(); });
 }
 // guarda: re-clic en la vista activa no re-renderiza (evita repetir la animación de aparición)
 document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => { if (b.dataset.view !== view) setView(b.dataset.view); });
@@ -1315,7 +1376,8 @@ function paintPlayer(s) {
   const arts = (s.artists && s.artists.length) ? s.artists
     : (s.artist ? [{ name: s.artist, id: (s.artistId || null) }] : []);
   $("partist").innerHTML = expBadge(s) + arts.map(a => a.id
-    ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", ");
+    ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>`
+    : `<span class="lnk" data-artq="${esc(a.name)}">${esc(a.name)}</span>`).join(", ");   // sin id: resuelve via busqueda al click
   player.classList.add("show");
 }
 function paintNowPlaying(s) {
@@ -1355,6 +1417,7 @@ function onPlaybackStarted(s) {
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
   maybeExtendQueue();
+  if (view === "home") renderHome();   // Inicio se llena/actualiza con lo recien escuchado
 }
 /* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
 let _recBusy = false;

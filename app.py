@@ -581,10 +581,68 @@ def _radio(video_id):
         seen.add(vid)
         artist = _runs_text(it.get("shortBylineText")) or _runs_text(it.get("longBylineText"))
         artist = artist.split(" • ")[0].strip()
-        out.append({"id": vid, "title": title, "artist": artist,
-                    "cover": _largest_thumb(it.get("thumbnail", {})),
-                    "duration": _runs_text(it.get("lengthText"))})
+        song = {"id": vid, "title": title, "artist": artist,
+                "cover": _largest_thumb(it.get("thumbnail", {})),
+                "duration": _runs_text(it.get("lengthText"))}
+        arts = []
+        for r in (it.get("longBylineText") or {}).get("runs", []):
+            b = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+            if b.startswith("UC"):
+                arts.append({"name": r.get("text", ""), "id": b})
+        if arts:
+            song["artists"] = arts
+        out.append(song)
     return out
+
+
+def _find_browse_prefix(node, prefix):
+    if isinstance(node, dict):
+        be = node.get("browseEndpoint")
+        if isinstance(be, dict) and str(be.get("browseId", "")).startswith(prefix):
+            return be["browseId"]
+        for v in node.values():
+            r = _find_browse_prefix(v, prefix)
+            if r:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_browse_prefix(v, prefix)
+            if r:
+                return r
+    return None
+
+
+def related(video_id):
+    return cached("rel:" + video_id, 1800, lambda: _related(video_id))
+
+
+def _related(video_id):
+    # pestana "Relacionado" del next (browseId MPTRt...): artistas similares + albumes/playlists recomendados
+    body = {"context": CTX, "videoId": video_id, "isAudioOnly": True}
+    req = urllib.request.Request(YTN_URL, data=json.dumps(body).encode(), headers={
+        "Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
+    })
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read())
+    bid = _find_browse_prefix(data, "MPTRt")
+    if not bid:
+        return {"artists": [], "albums": []}
+    rdata = _yt_browse(bid)
+    artists, albums, seen = [], [], set()
+    for it in _find_all_renderers(rdata, "musicTwoRowItemRenderer", []):
+        b = _tworow_browse_id(it)
+        if not b or b in seen:
+            continue
+        seen.add(b)
+        item = {"browseId": b, "title": _runs_text(it.get("title")),
+                "subtitle": _runs_text(it.get("subtitle")),
+                "cover": _largest_thumb(it.get("thumbnailRenderer", {})),
+                "explicit": _is_explicit(it.get("subtitleBadges"))}
+        if b.startswith("UC"):
+            item["kind"] = "artists"; artists.append(item)
+        elif b.startswith("MPRE"):
+            item["kind"] = "albums"; albums.append(item)
+    return {"artists": artists, "albums": albums}
 
 
 def _get_json(url):
@@ -707,6 +765,15 @@ class H(BaseHTTPRequestHandler):
                 payload = json.dumps({"error": str(e)}).encode()
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/related":
+            try:
+                payload = json.dumps(related(parse_qs(u.query).get("id", [""])[0])).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+            except Exception as e:
+                payload = json.dumps({"error": str(e)}).encode()
+                self.send_response(502); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/radio":

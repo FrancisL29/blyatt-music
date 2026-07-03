@@ -879,7 +879,7 @@ function render(list, v) {
       if (s.kind === "albums") attachVersions(li, s.browseId);
       r.appendChild(li); return;
     }
-    r.appendChild(songLi(s, list, i));
+    r.appendChild(songLi(s, list, i, v === "buscar"));   // busqueda: reproduce solo esa cancion (la cola se llena con recomendaciones)
   });
 }
 /* "Other versions" de albumes: prefetch al renderar la lista, flyout a la derecha en hover */
@@ -926,7 +926,8 @@ function metaHtml(s) {
   else if (s.album && s.album.name) parts.push(esc(s.album.name));
   return parts.join('<span class="sep">•</span>');
 }
-function songLi(s, list, i) {
+function songLi(s, list, i, solo) {
+  const plist = solo ? [s] : list, pidx = solo ? 0 : i;   // solo: cola = esa cancion, recomendaciones la extienden
   const li = document.createElement("li"); li.style.setProperty("--i", i); li.dataset.id = s.id;
   li.innerHTML = `<div class="cover-wrap"><img alt=""><div class="play-hint"><i class="ph-fill ph-play"></i></div></div>
     <div class="meta"><div class="t"></div><div class="a"></div></div>
@@ -941,13 +942,13 @@ function songLi(s, list, i) {
   li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
-  li.onclick = () => playFromList(list, i);
+  li.onclick = () => playFromList(plist, pidx);
   const lk = li.querySelector(".row-like");
   lk.onclick = (e) => { e.stopPropagation(); toggleLike(s);
     lk.className = "row-like " + (isLiked(s.id) ? "on ph-fill" : "ph") + " ph-heart"; };
   const dots = li.querySelector(".cdots");
-  dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, list, i, r.right, r.bottom, li); };
-  li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, list, i, e.clientX, e.clientY, li); };
+  dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, plist, pidx, r.right, r.bottom, li); };
+  li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, plist, pidx, e.clientX, e.clientY, li); };
   return li;
 }
 /* ---------- vista de artista ---------- */
@@ -1040,6 +1041,11 @@ function itemCard(it, allowVersions) {
   c.querySelector(".a").innerHTML = expBadge(it) + esc(it.subtitle || "");
   c.onclick = () => openItem(it);
   if (it.browseId) c.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(it, e.clientX, e.clientY, c); };
+  else if (it.id) c.oncontextmenu = (e) => {   // cancion (Inicio: Recientes / Para ti): menu de pista
+    e.preventDefault();
+    const s = { id: it.id, title: it.title, artist: it.subtitle, cover: it.cover };
+    openTrackMenu(s, [s], 0, e.clientX, e.clientY, c);
+  };
   if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
   return c;
 }

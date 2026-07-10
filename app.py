@@ -1010,6 +1010,73 @@ def audio_url(video_id, fresh=False):
 AUTH_DIR = os.path.join(BASE, "auth")
 BROWSER_FILE = os.path.join(AUTH_DIR, "browser.json")
 _ytm_inst = None
+WEBLOGIN = None   # main.py (pywebview) inyecta aqui el launcher de la ventana de login de Google
+
+
+def _probe_session(cookie_header, user_agent):
+    # browse crudo con SAPISIDHASH propio: devuelve (logged_in, visitorData reales de la sesion)
+    import hashlib
+    try:
+        sapisid = next(p.split("=", 1)[1] for p in cookie_header.split("; ") if p.startswith("SAPISID="))
+    except StopIteration:
+        return False, ""
+    origin = "https://music.youtube.com"
+    ts = str(int(time.time()))
+    sash = hashlib.sha1((ts + " " + sapisid + " " + origin).encode()).hexdigest()
+    body = {"context": CTX, "browseId": "FEmusic_liked_playlists"}
+    req = urllib.request.Request(
+        "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "Cookie": cookie_header, "Origin": origin,
+                 "X-Origin": origin, "X-Goog-AuthUser": "0",
+                 "Authorization": "SAPISIDHASH %s_%s" % (ts, sash), "User-Agent": user_agent})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return False, ""
+    rc = d.get("responseContext", {})
+    logged = any(p.get("key") == "logged_in" and p.get("value") == "1"
+                 for s in rc.get("serviceTrackingParams", []) for p in s.get("params", []))
+    return logged, rc.get("visitorData", "")
+
+
+def save_browser_cookie(cookie_header, user_agent=None):
+    # cookies frescas extraidas del perfil WebView2 -> browser.json; devuelve True si la sesion vale.
+    # CRITICO: guardar x-goog-visitor-id REAL de la sesion; si falta, ytmusicapi inyecta uno anonimo
+    # (get_visitor_id sin auth) y YouTube trata todo como deslogueado (logged_in=0).
+    global _ytm_inst
+    ua = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    logged = visitor = None
+    for _ in range(3):   # YT responde logged_in=0 esporadicamente para cookies validas: reintentar
+        logged, visitor = _probe_session(cookie_header, ua)
+        if logged:
+            break
+        time.sleep(1.5)
+    if not logged:
+        return False
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    hdrs = {
+        # "authorization" DEBE existir: ytmusicapi.is_browser exige {authorization, cookie} o trata
+        # el archivo como oauth. El valor real (SAPISIDHASH) lo recalcula en cada request; este placeholder solo marca el tipo.
+        "authorization": "SAPISIDHASH",
+        "cookie": cookie_header,
+        "user-agent": ua,
+        "origin": "https://music.youtube.com",
+        "x-origin": "https://music.youtube.com",
+        "x-goog-authuser": "0",
+        "accept": "*/*",
+        "accept-language": "es-419,es;q=0.9",
+        "content-type": "application/json",
+    }
+    if visitor:
+        hdrs["x-goog-visitor-id"] = visitor
+    with open(BROWSER_FILE, "w", encoding="utf8") as f:
+        json.dump(hdrs, f, indent=1)
+    _ytm_inst = None
+    _CACHE.pop("sess_alive", None)
+    _CACHE.pop("ytlib", None)
+    return _session_alive()
 
 
 def ytm():
@@ -1041,10 +1108,22 @@ def _session_alive():
     return False
 
 
+def _account_info():
+    y = ytm()
+    try:
+        i = y.get_account_info()
+        return {"name": i.get("accountName", ""), "photo": i.get("accountPhotoUrl", "")}
+    except Exception:   # el parser de account_menu se rompe a veces con cuentas sin canal
+        return {"name": "", "photo": ""}
+
+
 def auth_status():
     has_file = os.path.exists(BROWSER_FILE)
     alive = bool(has_file and cached("sess_alive", 300, _session_alive))
-    return {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None}
+    st = {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None}
+    if alive:
+        st.update(cached("acct", 3600, _account_info))
+    return st
 
 
 def _headers_from_any(raw):
@@ -1096,6 +1175,7 @@ def auth_logout():
     _ytm_inst = None
     _CACHE.pop("ytlib", None)
     _CACHE.pop("sess_alive", None)
+    _CACHE.pop("acct", None)
     try:
         os.remove(BROWSER_FILE)
     except OSError:
@@ -1212,7 +1292,14 @@ class H(BaseHTTPRequestHandler):
         if u.path.startswith("/auth/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
+                    if parse_qs(u.query).get("fresh"):
+                        _CACHE.pop("sess_alive", None)   # el poll post-login necesita el estado real, no el cacheado
                     return self._json(auth_status())
+                if u.path == "/auth/weblogin":
+                    if not WEBLOGIN:
+                        return self._json({"error": "Solo disponible en la app de escritorio (Blyatt.bat / py main.py)"})
+                    WEBLOGIN(parse_qs(u.query).get("silent", ["0"])[0] == "1")
+                    return self._json({"ok": True})
                 if u.path == "/auth/logout":
                     return self._json(auth_logout())
                 if u.path == "/ytlib":

@@ -85,7 +85,7 @@
   .brand span, .nav-item > span:not(.lib-cov), .gh-link span, .lib-head span, .lib-meta { transition: opacity .15s ease; }
   body.sb-collapsed .brand span,
   body.sb-collapsed .nav-item > span:not(.lib-cov),   /* NO ocultar .lib-cov: es la caratula/corazon de los items de biblioteca */
-  body.sb-collapsed .gh-link span,
+  body.sb-collapsed .gh-link span:not(.ucov),   /* .ucov = avatar del user-chip, visible colapsado */
   body.sb-collapsed .lib-head span,
   body.sb-collapsed .lib-meta { opacity: 0; }
   /* padding-left centra el icono en la barra de 76px (interior 52px): (52 - icono) / 2 */
@@ -161,6 +161,11 @@
   li.toprow .cover-wrap, li.toprow .cover-wrap img { width: 76px; height: 76px; }
   li.toprow .meta .t { font-size: 1.25rem; font-weight: 700; }
   button.gh-link { background: none; border: none; font: inherit; width: 100%; text-align: left; cursor: pointer; }
+  .user-chip .ucov { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center;
+                     justify-content: center; background: rgb(255 255 255 / .08); overflow: hidden; position: relative; }
+  .user-chip .ucov img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.sb-collapsed .user-chip { padding-left: 11px; }
   #gmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
   #gmodal[hidden] { display: none; }
   .gbox { position: relative; width: min(460px, 92vw); padding: 26px 28px; border-radius: 18px;
@@ -565,12 +570,10 @@
     </button>
     <div id="libList"></div>
   </div>
-  <button class="gh-link" id="gLogin" aria-label="Conectar con Google" style="margin-top:auto">
-    <i class="ph ph-google-logo"></i> <span>Conectar Google</span>
+  <button class="gh-link user-chip" id="userBtn" aria-label="Cuenta" style="margin-top:auto">
+    <span class="ucov"><i class="ph ph-user" id="uico"></i><img id="uimg" alt="" hidden></span>
+    <span id="uname">Invitado</span>
   </button>
-  <a class="gh-link" href="https://github.com/FrancisL29/blyatt-music" target="_blank" rel="noopener" aria-label="Repositorio en GitHub" style="margin-top:0">
-    <i class="ph ph-github-logo"></i> <span>GitHub</span>
-  </a>
 </aside>
 
 <main>
@@ -1452,12 +1455,42 @@ document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
 /* ---------- login con Google + biblioteca de YouTube Music ---------- */
 const jget = (u) => fetch(u).then(r => r.json());
 let _authSt = { logged_in: false, has_client: false, available: false };
+function paintUserChip() {
+  const img = $("uimg"), ico = $("uico");
+  $("uname").textContent = _authSt.logged_in ? (_authSt.name || "Tu cuenta")
+    : _authSt.stale ? "Reconectar" : "Invitado";
+  const ph = _authSt.logged_in && _authSt.photo;
+  img.hidden = !ph; ico.style.display = ph ? "none" : "";
+  if (ph) img.src = _authSt.photo;
+}
 async function refreshAuth() {
   try { _authSt = await jget("/auth/status"); } catch (e) {}
-  $("gLogin").querySelector("span").textContent = _authSt.logged_in ? "Cerrar sesión Google"
-    : _authSt.stale ? "Reconectar Google" : "Conectar Google";
-  if (_authSt.stale) toast("Sesión de YouTube caducada: vuelve a conectar");
+  paintUserChip();
   if (_authSt.logged_in) syncYtLibrary();
+  else if (_authSt.stale) {   // cookies rotadas: intenta refresco silencioso desde el perfil WebView2
+    try {
+      const r = await jget("/auth/weblogin?silent=1");
+      if (r.ok) pollAuth(25, true);
+      else toast("Sesión de YouTube caducada: vuelve a conectar");
+    } catch (e) {}
+  }
+}
+let _pollT = null;
+function pollAuth(tries, quiet) {
+  clearInterval(_pollT);
+  _pollT = setInterval(async () => {
+    if (--tries < 0) { clearInterval(_pollT); if (!quiet) toast("No se completó el login"); return; }
+    try {
+      const st = await jget("/auth/status?fresh=1");
+      if (st.logged_in) {
+        clearInterval(_pollT);
+        _authSt = st; _ytSynced = false;
+        paintUserChip();
+        toast(quiet ? "Sesión de Google renovada" : "Sesión de Google iniciada");
+        syncYtLibrary();
+      }
+    } catch (e) {}
+  }, 3000);
 }
 let _ytSynced = false;
 async function syncYtLibrary() {
@@ -1502,7 +1535,7 @@ async function syncYtLibrary() {
   } catch (e) { _ytSynced = false; }
 }
 function closeGModal() { $("gmodal").hidden = true; }
-$("gLogin").onclick = async () => {
+async function toggleGoogleSession() {
   if (!_authSt.available) { toast("Instala ytmusicapi: py -m pip install ytmusicapi"); return; }
   if (_authSt.logged_in) {
     await jget("/auth/logout"); toast("Sesión de Google cerrada");
@@ -1510,8 +1543,27 @@ $("gLogin").onclick = async () => {
     await refreshAuth();
     return;
   }
+  // app de escritorio: ventana nativa con el login real de Google (perfil persistente, sin reconectar)
+  try {
+    const r = await jget("/auth/weblogin");
+    if (r.ok) { toast("Inicia sesión en la ventana de Google"); pollAuth(200, false); return; }
+  } catch (e) {}
+  // modo navegador (py app.py): fallback al modal de headers
   $("gwait").hidden = true; $("ghdrs").value = "";
   $("gmodal").hidden = false;
+}
+$("userBtn").onclick = (e) => {
+  e.stopPropagation();
+  const r = $("userBtn").getBoundingClientRect();
+  showMenu([
+    ["ph-gear", "Configuración", () => toast("Configuración: próximamente")],
+    ["ph-translate", "Idioma", () => toast("Idioma: próximamente")],
+    ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
+    [_authSt.logged_in ? "ph-sign-out" : "ph-google-logo",
+     _authSt.logged_in ? "Cerrar sesión" : "Iniciar sesión con Google",
+     toggleGoogleSession],
+  ], r.left, r.top - 8, $("userBtn"));
+  // el menu abre hacia arriba desde el chip (esta abajo del sidebar): showMenu ya lo reancla si no cabe
 };
 $("gsave").onclick = async () => {
   const raw = $("ghdrs").value.trim();

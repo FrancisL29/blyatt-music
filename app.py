@@ -1025,8 +1025,26 @@ def ytm():
     return _ytm_inst
 
 
+def _session_alive():
+    # las cookies pueden morir cuando Google las rota: el flag logged_in del responseContext no miente
+    y = ytm()
+    if not y:
+        return False
+    try:
+        r = y._send_request("browse", {"browseId": "FEmusic_liked_playlists"})
+        for s in r.get("responseContext", {}).get("serviceTrackingParams", []):
+            for p in s.get("params", []):
+                if p.get("key") == "logged_in":
+                    return p.get("value") == "1"
+    except Exception:
+        pass
+    return False
+
+
 def auth_status():
-    return {"logged_in": ytm() is not None, "available": YTMusic is not None}
+    has_file = os.path.exists(BROWSER_FILE)
+    alive = bool(has_file and cached("sess_alive", 300, _session_alive))
+    return {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None}
 
 
 def _headers_from_any(raw):
@@ -1059,8 +1077,9 @@ def auth_set_headers(raw):
     try:
         ytmusicapi.setup(filepath=BROWSER_FILE, headers_raw=_headers_from_any(raw))
         _ytm_inst = None
-        y = ytm()
-        y.get_library_playlists(limit=1)   # valida la sesion de verdad (setup no hace red)
+        _CACHE.pop("sess_alive", None)
+        if not _session_alive():   # valida contra el flag logged_in real, no solo formato
+            raise ValueError("YouTube no reconoce la sesión (headers viejos o de una petición sin login)")
         _CACHE.pop("ytlib", None)
         return {"ok": True}
     except Exception as e:
@@ -1076,10 +1095,29 @@ def auth_logout():
     global _ytm_inst
     _ytm_inst = None
     _CACHE.pop("ytlib", None)
+    _CACHE.pop("sess_alive", None)
     try:
         os.remove(BROWSER_FILE)
     except OSError:
         pass
+    return {"ok": True}
+
+
+def lib_save(bid, kind, save):
+    # guardar/quitar album, playlist o artista en la biblioteca de YT Music del usuario
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    if kind == "artists":
+        (y.subscribe_artists if save else y.unsubscribe_artists)([bid])
+    elif kind == "albums":
+        pid = (y.get_album(bid) or {}).get("audioPlaylistId")   # rate_playlist necesita la lista OLAK5uy_, no el MPRE
+        if not pid:
+            return {"error": "Álbum sin audioPlaylistId"}
+        y.rate_playlist(pid, "LIKE" if save else "INDIFFERENT")
+    else:
+        y.rate_playlist(bid[2:] if bid.startswith("VL") else bid, "LIKE" if save else "INDIFFERENT")
+    _CACHE.pop("ytlib", None)
     return {"ok": True}
 
 
@@ -1171,7 +1209,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path.startswith("/auth/") or u.path in ("/ytlib", "/rate"):
+        if u.path.startswith("/auth/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
                     return self._json(auth_status())
@@ -1183,6 +1221,11 @@ class H(BaseHTTPRequestHandler):
                     qs = parse_qs(u.query)
                     return self._json(rate_song(qs.get("id", [""])[0],
                                                 qs.get("like", ["1"])[0] == "1"))
+                if u.path == "/libsave":
+                    qs = parse_qs(u.query)
+                    return self._json(lib_save(qs.get("id", [""])[0],
+                                               qs.get("kind", [""])[0],
+                                               qs.get("save", ["1"])[0] == "1"))
             except Exception as e:
                 return self._json({"error": str(e)}, 502)
         if u.path == "/search":

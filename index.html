@@ -816,15 +816,31 @@ const inLibrary = id => getLibrary().some(x => x.id === id);
 function toggleLibrary(entry) {
   if (!entry || !entry.id) return;
   let list = getLibrary();
-  if (list.some(x => x.id === entry.id)) { list = list.filter(x => x.id !== entry.id); toast("Quitado de tu biblioteca"); }
-  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "" }); toast("Guardado en tu biblioteca"); }
+  const saving = !list.some(x => x.id === entry.id);
+  if (!saving) { list = list.filter(x => x.id !== entry.id); toast("Quitado de tu biblioteca"); }
+  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "", ts: Date.now() }); toast("Guardado en tu biblioteca"); }
   localStorage.setItem("lightning.library", JSON.stringify(list));
   renderLibrary();
   document.querySelectorAll(".savebtn").forEach(b => { if (b._sync) b._sync(); });
+  // con sesion de Google: espeja el guardado en la biblioteca de YT Music (fire-and-forget)
+  if (_authSt.logged_in && entry.kind) fetch("/libsave?id=" + encodeURIComponent(entry.id) + "&kind=" + entry.kind + "&save=" + (saving ? 1 : 0)).catch(() => {});
+}
+function bumpLibrary(s) {
+  // escuchar una cancion sube su artista/album (y la coleccion abierta) al principio de la biblioteca
+  const ids = new Set();
+  (s.artists || []).forEach(a => { if (a.id) ids.add(a.id); });
+  if (s.album && s.album.id) ids.add(s.album.id);
+  if (view === "collection" && _colId) ids.add(_colId);   // en vista album los tracks llevan album:null (invariante 12)
+  if (view === "artist" && _artistId) ids.add(_artistId);
+  if (!ids.size) return;
+  const list = getLibrary();
+  let hit = false;
+  list.forEach(e => { if (ids.has(e.id)) { e.ts = Date.now(); hit = true; } });
+  if (hit) { localStorage.setItem("lightning.library", JSON.stringify(list)); renderLibrary(); }
 }
 function renderLibrary() {
   const box = $("libList"); box.innerHTML = "";
-  getLibrary().forEach(e => {
+  getLibrary().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).forEach(e => {
     const b = document.createElement("button"); b.className = "nav-item lib-item";
     b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
     const im = b.querySelector("img"); im.src = e.cover; im.classList.add(e.kind || "");
@@ -1438,7 +1454,9 @@ const jget = (u) => fetch(u).then(r => r.json());
 let _authSt = { logged_in: false, has_client: false, available: false };
 async function refreshAuth() {
   try { _authSt = await jget("/auth/status"); } catch (e) {}
-  $("gLogin").querySelector("span").textContent = _authSt.logged_in ? "Cerrar sesión Google" : "Conectar Google";
+  $("gLogin").querySelector("span").textContent = _authSt.logged_in ? "Cerrar sesión Google"
+    : _authSt.stale ? "Reconectar Google" : "Conectar Google";
+  if (_authSt.stale) toast("Sesión de YouTube caducada: vuelve a conectar");
   if (_authSt.logged_in) syncYtLibrary();
 }
 let _ytSynced = false;
@@ -1611,6 +1629,7 @@ function onPlaybackStarted(s) {
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
   maybeExtendQueue();
+  bumpLibrary(s);
 }
 /* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
 let _recBusy = false;

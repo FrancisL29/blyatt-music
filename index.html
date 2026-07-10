@@ -58,9 +58,10 @@
     font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
     transition: padding .22s ease; }
   .lib-head i { font-size: 1.2rem; }
-  .lib-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-  .lib-scroll::-webkit-scrollbar { width: 8px; }
-  .lib-scroll::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .1); border-radius: 999px; }
+  /* scrollbars invisibles: sigue haciendo scroll con rueda/trackpad, sin romper la estetica */
+  .lib-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px;
+                scrollbar-width: none; }
+  .lib-scroll::-webkit-scrollbar { display: none; }
   .lib-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
   .lib-cov { width: 36px; height: 36px; border-radius: 7px; flex: none; object-fit: cover; background: #1a1a20;
     display: grid; place-items: center; overflow: hidden; }
@@ -152,6 +153,36 @@
   li:hover > .cdots, li.menuopen > .cdots { opacity: 1; }
   li > .cdots:hover { color: var(--text); }
   li:hover { background: rgb(255 255 255 / .05); }
+  li.ssec { display: block; cursor: default; padding: 18px 12px 4px; font-size: .78rem; text-transform: uppercase;
+            letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+  li.ssec:hover { background: none; }
+  li.ssec:first-child { padding-top: 4px; }
+  li.brow.artists .cover-wrap img { border-radius: 50%; }
+  li.toprow .cover-wrap, li.toprow .cover-wrap img { width: 76px; height: 76px; }
+  li.toprow .meta .t { font-size: 1.25rem; font-weight: 700; }
+  button.gh-link { background: none; border: none; font: inherit; width: 100%; text-align: left; cursor: pointer; }
+  #gmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #gmodal[hidden] { display: none; }
+  .gbox { position: relative; width: min(460px, 92vw); padding: 26px 28px; border-radius: 18px;
+          background: rgb(20 20 28 / .92); border: 1px solid rgb(255 255 255 / .09);
+          box-shadow: 0 24px 70px rgb(0 0 0 / .6); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); }
+  .gbox h3 { margin: 0 0 14px; display: flex; gap: 10px; align-items: center; font-size: 1.05rem; }
+  .ghint { color: var(--muted); font-size: .88rem; line-height: 1.55; }
+  .ghint a { color: var(--accent); }
+  .gbox input { width: 100%; margin-top: 10px; padding: 10px 12px; border-radius: 10px; box-sizing: border-box;
+                border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .05); color: var(--text); font: inherit; }
+  .gbtn { margin-top: 14px; width: 100%; padding: 11px; border: none; border-radius: 10px;
+          background: var(--accent); color: var(--accent-ink, #fff); font: inherit; font-weight: 700; cursor: pointer; }
+  .gsteps { margin: 10px 0 0; padding-left: 20px; }
+  .gsteps li { display: list-item; padding: 0; margin-bottom: 5px; cursor: default; }
+  .gsteps li:hover { background: none; }
+  .gbox textarea { width: 100%; margin-top: 10px; padding: 10px 12px; border-radius: 10px; box-sizing: border-box; resize: vertical;
+                   border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .05); color: var(--text);
+                   font-family: ui-monospace, monospace; font-size: .78rem; }
+  .gclose { position: absolute; top: 12px; right: 12px; background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+  .gclose:hover { color: var(--text); }
+  #gwait i { animation: gspin 1s linear infinite; display: inline-block; }
+  @keyframes gspin { to { transform: rotate(360deg); } }
   li.playing { background: color-mix(in srgb, var(--accent) 16%, transparent); }
   li.playing .t { color: var(--accent); }
   .cover-wrap { position: relative; width: 44px; height: 44px; flex: none; }
@@ -534,7 +565,10 @@
     </button>
     <div id="libList"></div>
   </div>
-  <a class="gh-link" href="https://github.com/FrancisL29/blyatt-music" target="_blank" rel="noopener" aria-label="Repositorio en GitHub">
+  <button class="gh-link" id="gLogin" aria-label="Conectar con Google" style="margin-top:auto">
+    <i class="ph ph-google-logo"></i> <span>Conectar Google</span>
+  </button>
+  <a class="gh-link" href="https://github.com/FrancisL29/blyatt-music" target="_blank" rel="noopener" aria-label="Repositorio en GitHub" style="margin-top:0">
     <i class="ph ph-github-logo"></i> <span>GitHub</span>
   </a>
 </aside>
@@ -587,6 +621,26 @@
 
 <div id="toast"></div>
 <div id="ctxmenu"></div>
+
+<div id="gmodal" hidden>
+  <div class="gbox">
+    <button class="gclose" id="gclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <h3><i class="ph ph-google-logo"></i> Conectar con Google</h3>
+    <div id="gsteps">
+      <p class="ghint">Conecta tu cuenta copiando los headers de tu sesión (una sola vez, la sesión dura años):</p>
+      <ol class="ghint gsteps">
+        <li>Abre <a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> con tu sesión iniciada.</li>
+        <li>Pulsa <b>F12</b> &rarr; pestaña <b>Red</b> (Network) y recarga la página (F5).</li>
+        <li>En el filtro escribe <b>browse</b> y localiza una petición <b>browse?...</b> (método POST).</li>
+        <li>Clic derecho sobre ella &rarr; <b>Copiar</b> &rarr; <b>Copiar como cURL (cmd)</b>. También vale "Copy as cURL (bash)" o, en Firefox, "Copiar encabezados de solicitud".</li>
+        <li>Pega aquí abajo:</li>
+      </ol>
+      <textarea id="ghdrs" rows="6" placeholder="POST /youtubei/v1/browse HTTP/2&#10;Host: music.youtube.com&#10;Cookie: ..." spellcheck="false"></textarea>
+      <button class="gbtn" id="gsave">Conectar</button>
+      <p class="ghint" id="gwait" hidden></p>
+    </div>
+  </div>
+</div>
 
 <div id="player" role="region" aria-label="Reproductor">
   <div class="controls">
@@ -737,11 +791,17 @@ const getRecents = () => store("lightning.recents", "[]");
 const isLiked = id => getLiked().some(x => x.id === id);
 function toggleLike(s) {
   let list = getLiked();
-  if (list.some(x => x.id === s.id)) { list = list.filter(x => x.id !== s.id); toast("Quitado de Liked"); }
-  else { list.unshift({ id: s.id, title: s.title, artist: s.artist, cover: s.cover }); toast("Añadido a Liked"); }
+  const nowLiked = !list.some(x => x.id === s.id);
+  if (!nowLiked) { list = list.filter(x => x.id !== s.id); toast("Quitado de Liked"); }
+  else { const e = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+    if (s.duration) e.duration = s.duration;
+    if (s.artists) e.artists = s.artists;
+    list.unshift(e); toast("Añadido a Liked"); }
   localStorage.setItem("lightning.liked", JSON.stringify(list));
   refreshLikeUI();
   if (view === "liked") render(getLiked(), "liked");
+  // con sesion de Google: espeja el like en la cuenta de YT Music (fire-and-forget)
+  if (_authSt.logged_in) fetch("/rate?id=" + encodeURIComponent(s.id) + "&like=" + (nowLiked ? 1 : 0)).catch(() => {});
 }
 function pushRecent(s) {
   let list = getRecents().filter(x => x.id !== s.id);
@@ -853,6 +913,7 @@ function applyAccent(cover) {
 
 /* ---------- render listas ---------- */
 function render(list, v) {
+  if (list && list.sections) { renderSections(list.sections); return; }   // busqueda "Todo": secciones priorizadas
   const r = $("r"), empty = $("empty");
   r.innerHTML = ""; r.classList.remove("grid"); empty.style.display = list.length ? "none" : "block";
   if (!list.length) {
@@ -880,6 +941,36 @@ function render(list, v) {
       r.appendChild(li); return;
     }
     r.appendChild(songLi(s, list, i, v === "buscar"));   // busqueda: reproduce solo esa cancion (la cola se llena con recomendaciones)
+  });
+}
+const BKINDS = { artists: "Artista", albums: "Álbum", playlists: "Playlist", profiles: "Perfil" };
+function browseRow(s, i) {
+  const li = document.createElement("li"); li.className = "brow " + (s.kind || ""); li.style.setProperty("--i", i);
+  li.innerHTML = `<div class="cover-wrap"><img alt=""></div><div class="meta"><div class="t"></div><div class="a"></div></div>`;
+  li.querySelector("img").src = s.cover || "";
+  li.querySelector(".t").textContent = s.title;
+  li.querySelector(".a").innerHTML = expBadge(s) + esc(s.subtitle || BKINDS[s.kind] || "");
+  li.onclick = () => s.kind === "artists" ? openArtist(s.browseId, true, s)
+    : (s.kind === "albums" || s.kind === "playlists") ? openCollection(s.browseId, true, s)
+    : toast("Abrir " + (BKINDS[s.kind] || "") + ": próximamente");
+  if (s.kind !== "profiles") li.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(s, e.clientX, e.clientY, li); };
+  return li;
+}
+function renderSections(secs) {
+  const r = $("r"), empty = $("empty");
+  r.innerHTML = ""; r.classList.remove("grid");
+  const has = secs && secs.length;
+  empty.style.display = has ? "none" : "block";
+  if (!has) { empty.innerHTML = '<i class="ph ph-magnifying-glass"></i>Sin resultados.'; return; }
+  let n = 0;
+  secs.forEach((sec, si) => {
+    const h = document.createElement("li"); h.className = "ssec"; h.textContent = sec.title; r.appendChild(h);
+    sec.items.forEach((s, k) => {
+      const li = s.browseId ? browseRow(s, Math.min(n, 20)) : songLi(s, sec.items, Math.min(n, 20), true);
+      if (si === 0 && k === 0) li.classList.add("toprow");   // primer item del "Mejor resultado", grande
+      n++;
+      r.appendChild(li);
+    });
   });
 }
 /* "Other versions" de albumes: prefetch al renderar la lista, flyout a la derecha en hover */
@@ -920,8 +1011,8 @@ function esc(t) { return (t == null ? "" : String(t)).replace(/[&<>"']/g, c => (
 const expBadge = s => s && s.explicit ? '<span class="exp" title="Explicit" style="margin-right:6px">E</span>' : "";
 function metaHtml(s) {
   const parts = [];
-  if (s.artists && s.artists.length) parts.push(s.artists.map(a => a.id ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : esc(a.name)).join(", "));
-  else if (s.artist) parts.push(esc(s.artist));
+  if (s.artists && s.artists.length) parts.push(s.artists.map(a => a.id ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>` : `<span class="lnk" data-artq="${esc(a.name)}">${esc(a.name)}</span>`).join(", "));
+  else if (s.artist) parts.push(splitArtists(s.artist).map(n => `<span class="lnk" data-artq="${esc(n)}">${esc(n)}</span>`).join(", "));
   if (s.album && s.album.id) parts.push(`<span class="lnk" data-alb="${esc(s.album.id)}">${esc(s.album.name)}</span>`);
   else if (s.album && s.album.name) parts.push(esc(s.album.name));
   return parts.join('<span class="sep">•</span>');
@@ -942,7 +1033,7 @@ function songLi(s, list, i, solo) {
   li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
-  li.onclick = () => playFromList(plist, pidx);
+  li.onclick = (e) => { if (e.target.closest(".lnk")) return; playFromList(plist, pidx); };   // click en artista navega, no reproduce
   const lk = li.querySelector(".row-like");
   lk.onclick = (e) => { e.stopPropagation(); toggleLike(s);
     lk.className = "row-like " + (isLiked(s.id) ? "on ph-fill" : "ph") + " ph-heart"; };
@@ -1299,11 +1390,11 @@ function sortReleases(list) {
   };
   return list.map((it, i) => [score(it), i, it]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
-function renderHome() {
+function renderHome(force) {
   const hv = $("homeView");
+  if (!force && hv.children.length) return;   // solo pinta al entrar a la app o refresco manual (Inicio x2)
   const seed = getRecents()[0] || getLiked()[0] || null;
   const seedId = seed ? seed.id : "";
-  if (_homeSeedId === seedId && hv.children.length) return;   // mismo contexto: no re-render
   _homeSeedId = seedId;
   hv.innerHTML = "";
   const recents = getRecents();
@@ -1313,11 +1404,12 @@ function renderHome() {
   }
   let pt = null, ra = null, rb = null;
   if (seedId) { pt = homeSec(hv, "Para ti"); skelCards(pt.row, 8); }
-  const nr = homeSec(hv, "Nuevos Lanzamientos"); skelCards(nr.row, 8);
   if (seedId) {
     ra = homeSec(hv, "Artistas recomendados"); skelCards(ra.row, 8, true);
     rb = homeSec(hv, "Álbumes recomendados"); skelCards(rb.row, 8);
-  } else {
+  }
+  const nr = homeSec(hv, "Nuevos Lanzamientos"); skelCards(nr.row, 8);   // siempre la ultima seccion
+  if (!seedId) {
     const p = document.createElement("div"); p.className = "lempty";
     p.textContent = "Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.";
     hv.appendChild(p);
@@ -1335,8 +1427,92 @@ function renderHome() {
     fillCards(rb.sec, rb.row, (d.albums || []).slice(0, 12), true);
   }).catch(() => { ra.sec.remove(); rb.sec.remove(); });
 }
-// guarda: re-clic en la vista activa no re-renderiza (evita repetir la animación de aparición)
-document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => { if (b.dataset.view !== view) setView(b.dataset.view); });
+// re-clic en Inicio = refresco manual; en otras vistas el re-clic no re-renderiza
+document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
+  if (b.dataset.view !== view) setView(b.dataset.view);
+  else if (view === "home") renderHome(true);
+});
+
+/* ---------- login con Google + biblioteca de YouTube Music ---------- */
+const jget = (u) => fetch(u).then(r => r.json());
+let _authSt = { logged_in: false, has_client: false, available: false };
+async function refreshAuth() {
+  try { _authSt = await jget("/auth/status"); } catch (e) {}
+  $("gLogin").querySelector("span").textContent = _authSt.logged_in ? "Cerrar sesión Google" : "Conectar Google";
+  if (_authSt.logged_in) syncYtLibrary();
+}
+let _ytSynced = false;
+async function syncYtLibrary() {
+  // fusiona la biblioteca de YT Music en las estructuras locales: likes -> lightning.liked,
+  // playlists/albumes/artistas -> lightning.library (sidebar). Aditivo, sin duplicados.
+  if (_ytSynced) return;
+  _ytSynced = true;
+  try {
+    const d = await jget("/ytlib");
+    if (d.error) { _ytSynced = false; return; }
+    let liked = getLiked();
+    const ytMap = new Map((d.liked || []).map(s => [s.id, s]));
+    let changed = false;
+    liked = liked.map(x => {   // backfill: likes viejos sin duracion/artistas los completan desde YT
+      const yts = ytMap.get(x.id);
+      if (yts && ((!x.duration && yts.duration) || (!x.artists && yts.artists))) {
+        changed = true;
+        return Object.assign({}, x, { duration: x.duration || yts.duration, artists: x.artists || yts.artists });
+      }
+      return x;
+    });
+    const haveL = new Set(liked.map(x => x.id));
+    const addL = (d.liked || []).filter(s => s.id && !haveL.has(s.id))
+      .map(s => ({ id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration, artists: s.artists }));
+    if (addL.length) { liked = liked.concat(addL); changed = true; }   // los likes locales (mas recientes) quedan arriba
+    if (changed) {
+      localStorage.setItem("lightning.liked", JSON.stringify(liked));
+      if (view === "liked") render(getLiked(), "liked");
+      refreshLikeUI();
+    }
+    const lib = getLibrary();
+    const haveB = new Set(lib.map(x => x.id));
+    let nB = 0;
+    [].concat(d.playlists || [], d.albums || [], d.artists || []).forEach(it => {
+      if (it.browseId && !haveB.has(it.browseId)) {
+        lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "" });
+        haveB.add(it.browseId); nB++;
+      }
+    });
+    if (nB) { localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+    if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
+  } catch (e) { _ytSynced = false; }
+}
+function closeGModal() { $("gmodal").hidden = true; }
+$("gLogin").onclick = async () => {
+  if (!_authSt.available) { toast("Instala ytmusicapi: py -m pip install ytmusicapi"); return; }
+  if (_authSt.logged_in) {
+    await jget("/auth/logout"); toast("Sesión de Google cerrada");
+    _ytSynced = false;
+    await refreshAuth();
+    return;
+  }
+  $("gwait").hidden = true; $("ghdrs").value = "";
+  $("gmodal").hidden = false;
+};
+$("gsave").onclick = async () => {
+  const raw = $("ghdrs").value.trim();
+  if (!raw) { toast("Pega los headers primero"); return; }
+  const w = $("gwait"); w.hidden = false;
+  w.innerHTML = '<i class="ph ph-circle-notch" style="display:inline-block;animation:gspin 1s linear infinite"></i> Verificando sesión…';
+  let d;
+  try {
+    d = await (await fetch("/auth/headers", { method: "POST", body: raw })).json();
+  } catch (e) { d = { error: "No se pudo conectar con el servidor" }; }
+  if (d.ok) {
+    closeGModal(); toast("Sesión de Google iniciada");
+    _ytSynced = false;
+    await refreshAuth();   // refreshAuth dispara syncYtLibrary (likes + sidebar)
+  } else w.textContent = d.error || "Error desconocido";
+};
+$("gclose").onclick = closeGModal;
+$("gmodal").onclick = (e) => { if (e.target === $("gmodal")) closeGModal(); };
+refreshAuth();
 
 // contraer/expandir barra lateral con click en el logo (persistente)
 if (localStorage.getItem("lightning.sbCollapsed") === "1") document.body.classList.add("sb-collapsed");
@@ -1435,7 +1611,6 @@ function onPlaybackStarted(s) {
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
   maybeExtendQueue();
-  if (view === "home") renderHome();   // Inicio se llena/actualiza con lo recien escuchado
 }
 /* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
 let _recBusy = false;
@@ -1618,7 +1793,10 @@ function qRow(s, idx, kind) {
       ev.preventDefault(); d.classList.remove("drop-target");
       const from = +ev.dataTransfer.getData("text");
       if (from === idx || isNaN(from)) return;
+      const target = queue[idx];
       const [m] = queue.splice(from, 1); queue.splice(idx > from ? idx - 1 : idx, 0, m);
+      // la pista adopta la seccion donde cae (rec <-> a continuacion); headers no se intercambian
+      if (target && target._rec) m._rec = true; else delete m._rec;
       scheduleGaplessNext(); renderQueue();
     });
   }

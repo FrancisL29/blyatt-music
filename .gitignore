@@ -9,3 +9,6 @@ Thumbs.db
 # privado
 CONTEXT.md
 .claude/
+
+# credenciales de Google (NUNCA commitear)
+auth/

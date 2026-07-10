@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Buscador de YouTube Music sin API key. Proxy + estaticos en stdlib."""
+import concurrent.futures
+import difflib
 import json
 import os
+import re
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from yt_dlp import YoutubeDL
+
+try:
+    import ytmusicapi
+    from ytmusicapi import YTMusic
+except ImportError:   # login con Google opcional: la app funciona sin ytmusicapi
+    YTMusic = None
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -232,22 +241,148 @@ def search(query, filt=""):
     if hit and time.time() - hit[0] < 300:
         return hit[1]
     val = _search(query, filt)
-    if val:
+    if val and (not isinstance(val, dict) or val.get("sections")):
         _CACHE[key] = (time.time(), val)
     return val
 
 
-def _search(query, filt):
+def _ytm_search_raw(query, params=None):
     body = {"context": CTX, "query": query}
-    if filt in _FILTERS:
-        body["params"] = _FILTERS[filt]
+    if params:
+        body["params"] = params
     req = urllib.request.Request(YTM_URL, data=json.dumps(body).encode(), headers={
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0",
     })
     with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.loads(r.read())
+        return json.loads(r.read())
+
+
+def _search(query, filt):
+    if not filt:
+        return search_all(query)   # "Todo": secciones priorizadas por coincidencia
+    data = _ytm_search_raw(query, _FILTERS.get(filt))
     return parse_browse(data, filt) if filt in _BROWSE_KINDS else parse_results(data)
+
+
+def _kind_of_browse(bid):
+    if bid.startswith("UC"):
+        return "artists"
+    if bid.startswith("MPRE"):
+        return "albums"
+    if bid.startswith("VL") or bid.startswith("PL"):
+        return "playlists"
+    return ""
+
+
+def _parse_any(item):
+    # fila de shelf sin filtro: cancion (videoId) o artista/album/playlist (browseId)
+    if _find_video_id(item):
+        return _parse_item(item)
+    bid = item.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId") or ""
+    kind = _kind_of_browse(bid)
+    return _parse_browse_item(item, kind) if kind else None
+
+
+def _parse_card(cs):
+    # musicCardShelfRenderer = "Mejor resultado" (el propio YT decide si es artista/cancion/album)
+    title = _runs_text(cs.get("title"))
+    if not title:
+        return None
+    out = {"title": title, "subtitle": _runs_text(cs.get("subtitle")),
+           "cover": _largest_thumb(cs.get("thumbnail", {}))}
+    if _is_explicit(cs.get("subtitle")) or _is_explicit(cs.get("subtitleBadges")):
+        out["explicit"] = True
+    nav = cs.get("title", {}).get("runs", [{}])[0].get("navigationEndpoint", {}) or cs.get("onTap", {})
+    vid = nav.get("watchEndpoint", {}).get("videoId")
+    bid = nav.get("browseEndpoint", {}).get("browseId", "")
+    if vid:
+        out["id"] = vid
+        # subtitle tipo "Cancion • The Weeknd • 4:23": artista = segmentos sin tipo ni duracion
+        parts = [p.strip() for p in out["subtitle"].split("•")]
+        skip = {"cancion", "canción", "song", "video", "vídeo"}
+        stats = ("visualizac", "views", "reproducc", "streams", "suscriptor", "subscriber")
+        arts = [p for p in parts if p and p.lower() not in skip
+                and not any(w in p.lower() for w in stats)
+                and not re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", p)]
+        out["artist"] = ", ".join(arts)
+        dur = next((p for p in parts if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", p)), "")
+        if dur:
+            out["duration"] = dur
+        return out
+    kind = _kind_of_browse(bid)
+    if kind:
+        out["browseId"] = bid
+        out["kind"] = kind
+        return out
+    return None
+
+
+def _find_card(node):
+    if isinstance(node, dict):
+        cs = node.get("musicCardShelfRenderer")
+        if cs:
+            return cs
+        for v in node.values():
+            r = _find_card(v)
+            if r:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_card(v)
+            if r:
+                return r
+    return None
+
+
+def search_all(query):
+    # "Todo": card "Mejor resultado" (relevancia de YT) + songs/artists/albums/playlists en paralelo.
+    # La busqueda de canciones de YT Music tambien matchea por LETRA (query = frase de la letra funciona).
+    def top_card():
+        try:
+            cs = _find_card(_ytm_search_raw(query))
+            if not cs:
+                return None
+            items = []
+            c = _parse_card(cs)
+            if c:
+                items.append(c)
+            extra = []
+            _collect_items(cs.get("contents"), extra)
+            items += [x for x in (_parse_any(i) for i in extra) if x]
+            return {"title": "Mejor resultado", "items": items} if items else None
+        except Exception:
+            return None
+
+    kinds = ("songs", "artists", "albums", "playlists")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+        f_card = ex.submit(top_card)
+        futs = {k: ex.submit(search, query, k) for k in kinds}
+        card = f_card.result()
+        res = {}
+        for k in kinds:
+            try:
+                res[k] = futs[k].result() or []
+            except Exception:
+                res[k] = []
+
+    nq = _norm_title(query)
+
+    def score(items):
+        # mejor coincidencia query<->titulo entre los primeros 3 (asi "blinding lights" pone Canciones arriba)
+        return max((difflib.SequenceMatcher(None, nq, _norm_title(x.get("title"))).ratio()
+                    for x in items[:3]), default=0)
+
+    titles = {"songs": "Canciones", "artists": "Artistas", "albums": "Álbumes", "playlists": "Playlists"}
+    secs = []
+    if card:
+        secs.append(card)
+    top_ids = {x.get("id") or x.get("browseId") for x in (card["items"] if card else [])}
+    filtered = {k: [x for x in res[k] if (x.get("id") or x.get("browseId")) not in top_ids][:8] for k in kinds}
+    for k in sorted(kinds, key=lambda k: -score(filtered[k])):
+        if filtered[k]:
+            secs.append({"title": titles[k], "items": filtered[k]})
+    return {"sections": secs}
 
 
 # ---------- pagina de artista (browse) ----------
@@ -704,15 +839,25 @@ def _lyrics(title, artist):
     return {"type": "Static", "lines": [], "source": None}
 
 
+class _SilentLogger:
+    # los fallos ya viajan como excepciones; sin esto yt-dlp spamea ERROR en consola por cada intento
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+
 _YDL_OPTS = {
     "format": "bestaudio[ext=m4a]/bestaudio/best", "quiet": True, "no_warnings": True, "skip_download": True,
+    "logger": _SilentLogger(),
     # el cliente android es el que devuelve audio de forma fiable (web exige PO token actualmente)
     "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
 
 
-def _extract_with(video_id, cookies_browser=None):
+def _extract_with(video_id, cookies_browser=None, clients=None):
     opts = dict(_YDL_OPTS)
+    if clients:
+        opts["extractor_args"] = {"youtube": {"player_client": list(clients)}}
     if cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)   # cookies del navegador para sortear el age-gate
     with YoutubeDL(opts) as y:
@@ -721,13 +866,121 @@ def _extract_with(video_id, cookies_browser=None):
             or info["formats"][-1]["url"])
 
 
+def _norm_title(t):
+    # sin parentesis/corchetes (Official Video, Audio...) ni signos; minusculas alfanumericas
+    t = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", (t or "").lower())
+    return re.sub(r"[^a-z0-9]+", "", t)
+
+
+_ALT_BAD = ("slowed", "sped", "reverb", "8d", "live", "cover", "remix", "mashup",
+            "instrumental", "karaoke", "nightcore", "loop", "hour", "fanmade", "concert")
+
+
+def _dur_secs(s):
+    try:
+        out = 0
+        for v in str(s).split(":"):
+            out = out * 60 + int(v)
+        return out or None
+    except Exception:
+        return None
+
+
+def _alt_ids(video_id):
+    # age-gated: busca el MISMO tema en subida alternativa NO restringida (Art Track / audio/lyrics de YouTube)
+    try:
+        req = urllib.request.Request(
+            "https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D" + video_id + "&format=json",
+            headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode())
+        title = d.get("title", "")
+        author = d.get("author_name", "").replace(" - Topic", "").strip()
+        if not title:
+            return []
+        want = _norm_title(title)
+        na = _norm_title(author)
+
+        def sim(t):
+            nt = _norm_title(t)
+            if na:
+                if nt.startswith(na):
+                    nt = nt[len(na):]
+                elif nt.endswith(na):
+                    nt = nt[:-len(na)]
+            return difflib.SequenceMatcher(None, want, nt).ratio()
+
+        base = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", title).strip()
+
+        def _ytsearch():
+            with YoutubeDL({"quiet": True, "no_warnings": True, "logger": _SilentLogger(),
+                            "extract_flat": True, "skip_download": True}) as y:
+                return y.extract_info("ytsearch12:" + (author + " " + base).strip(), download=False)
+
+        # YT Music (songs) y YouTube normal en paralelo
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            f_res = ex.submit(search, (base + " " + author).strip(), "songs")
+            f_yd = ex.submit(_ytsearch)
+            res = f_res.result()
+            try:
+                yd = f_yd.result()
+            except Exception:
+                yd = {}
+        exp = None   # duracion esperada segun YT Music (el propio id restringido aparece en songs)
+        for x in res:
+            if x.get("id") == video_id:
+                exp = _dur_secs(x.get("duration"))
+                break
+        cand = [(sim(x.get("title")), x["id"]) for x in res[:8]
+                if x.get("id") and x["id"] != video_id and sim(x.get("title")) >= 0.85]
+        # YouTube normal: canales lyric/audio suelen tener el tema sin restriccion
+        try:
+            for e in yd.get("entries") or []:
+                t = e.get("title") or ""
+                if not e.get("id") or e["id"] == video_id or any(b in t.lower() for b in _ALT_BAD):
+                    continue
+                s = sim(t)
+                dur = e.get("duration")
+                if s >= 0.85 and not (exp and dur and abs(dur - exp) > 5):
+                    cand.append((s, e["id"]))
+        except Exception:
+            pass
+        seen, out = set(), []
+        for s, i in sorted(cand, key=lambda z: -z[0]):
+            if i not in seen:
+                seen.add(i)
+                out.append(i)
+        return out[:5]
+    except Exception:
+        return []
+
+
 def _extract(video_id):
+    # id ya conocido como age-gated: directo al alt que funciono (evita ~5s del intento fallido)
+    hit = _CACHE.get("alt:" + video_id)
+    if hit and time.time() - hit[0] < 86400:
+        try:
+            return _extract_with(hit[1])
+        except Exception:
+            _CACHE.pop("alt:" + video_id, None)
     try:
         return _extract_with(video_id)
     except Exception as e:
         if "age" not in str(e).lower() and "sign in" not in str(e).lower():
             raise
-        # restriccion de edad: reintenta con la sesion de YouTube del navegador del usuario
+        # subidas alternativas del mismo tema: extrae en paralelo, gana la de mayor similitud que funcione
+        alts = _alt_ids(video_id)
+        if alts:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(alts))) as ex:
+                futs = [(a, ex.submit(_extract_with, a)) for a in alts[:4]]
+                for a, f in futs:
+                    try:
+                        url = f.result()
+                        _CACHE["alt:" + video_id] = (time.time(), a)
+                        return url
+                    except Exception:
+                        continue
+        # ultimo recurso: sesion de YouTube del navegador del usuario
         for br in ("edge", "chrome", "firefox", "brave"):
             try:
                 return _extract_with(video_id, br)
@@ -750,9 +1003,188 @@ def audio_url(video_id, fresh=False):
     return cached("a:" + video_id, 10800, lambda: _extract(video_id))
 
 
+# ---------- login con Google (headers de music.youtube.com via ytmusicapi) ----------
+# OAuth device-flow descartado: YouTube rechaza tokens de cliente TV en la API interna de
+# YT Music (HTTP 400 en todos los endpoints desde finales de 2024). Los headers del navegador
+# son la via soportada por ytmusicapi y la cookie dura anios.
+AUTH_DIR = os.path.join(BASE, "auth")
+BROWSER_FILE = os.path.join(AUTH_DIR, "browser.json")
+_ytm_inst = None
+
+
+def ytm():
+    global _ytm_inst
+    if _ytm_inst:
+        return _ytm_inst
+    if not (YTMusic and os.path.exists(BROWSER_FILE)):
+        return None
+    try:
+        _ytm_inst = YTMusic(BROWSER_FILE, language="es")
+    except Exception:
+        _ytm_inst = None
+    return _ytm_inst
+
+
+def auth_status():
+    return {"logged_in": ytm() is not None, "available": YTMusic is not None}
+
+
+def _headers_from_any(raw):
+    # acepta: headers crudos (Firefox), "Copy as cURL" cmd/bash (Chromium) y "Copy as fetch"
+    t = raw.strip()
+    if t.lower().startswith("curl") or re.search(r"-H\s+['\"]", t):
+        s = re.sub(r"\^\s*\n", "\n", t).replace("^", "")   # des-escapa la variante cmd (^ de continuacion/escape)
+        hdrs = [m[1] for m in re.findall(r"-H\s+(['\"])(.*?)\1", s, re.S)]
+        mb = re.search(r"(?:-b|--cookie)\s+(['\"])(.*?)\1", s, re.S)
+        if mb and not any(h.lower().startswith("cookie:") for h in hdrs):
+            hdrs.append("cookie: " + mb.group(2))
+        if hdrs:
+            return "\n".join(hdrs)
+    if "fetch(" in t and '"headers"' in t:
+        m = re.search(r'"headers"\s*:\s*(\{.*?\})', t, re.S)
+        if m:
+            try:
+                h = json.loads(m.group(1))
+                return "\n".join("%s: %s" % (k, v) for k, v in h.items())
+            except Exception:
+                pass
+    return t
+
+
+def auth_set_headers(raw):
+    global _ytm_inst
+    if not YTMusic:
+        return {"error": "ytmusicapi no instalado"}
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    try:
+        ytmusicapi.setup(filepath=BROWSER_FILE, headers_raw=_headers_from_any(raw))
+        _ytm_inst = None
+        y = ytm()
+        y.get_library_playlists(limit=1)   # valida la sesion de verdad (setup no hace red)
+        _CACHE.pop("ytlib", None)
+        return {"ok": True}
+    except Exception as e:
+        _ytm_inst = None
+        try:
+            os.remove(BROWSER_FILE)
+        except OSError:
+            pass
+        return {"error": "Headers inválidos o sesión caducada: " + str(e)[:120]}
+
+
+def auth_logout():
+    global _ytm_inst
+    _ytm_inst = None
+    _CACHE.pop("ytlib", None)
+    try:
+        os.remove(BROWSER_FILE)
+    except OSError:
+        pass
+    return {"ok": True}
+
+
+def rate_song(video_id, like):
+    # like en la app -> me gusta en la cuenta de YT Music del usuario
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    y.rate_song(video_id, "LIKE" if like else "INDIFFERENT")
+    _CACHE.pop("ytlib", None)   # la biblioteca cambio: proximo /ytlib re-fetch
+    return {"ok": True}
+
+
+def _yt_thumb(x):
+    th = x.get("thumbnails") or []
+    return th[-1]["url"] if th else ""
+
+
+def _yt_artists(x):
+    return ", ".join(a.get("name", "") for a in (x.get("artists") or []) if a.get("name"))
+
+
+def yt_library():
+    # biblioteca real de YT Music del usuario: me gusta + playlists + artistas + albumes (4 fetch en paralelo)
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+
+    def liked():
+        d = y.get_liked_songs(limit=200)
+        out = []
+        for t in d.get("tracks") or []:
+            if not t.get("videoId"):
+                continue
+            s = {"id": t["videoId"], "title": t.get("title", ""), "artist": _yt_artists(t),
+                 "cover": _yt_thumb(t), "duration": t.get("duration") or ""}
+            arts = [{"name": a.get("name", ""), "id": a.get("id")}
+                    for a in (t.get("artists") or []) if a.get("name")]
+            if arts:
+                s["artists"] = arts
+            if t.get("album") and t["album"].get("id"):
+                s["album"] = {"name": t["album"].get("name", ""), "id": t["album"]["id"]}
+            if t.get("isExplicit"):
+                s["explicit"] = True
+            out.append(s)
+        return out
+
+    def playlists():
+        out = []
+        for p in y.get_library_playlists(limit=50):
+            pid = p.get("playlistId", "")
+            if not pid or pid in ("LM", "SE"):   # LM = me gusta (seccion propia), SE = episodios
+                continue
+            n = p.get("count")
+            out.append({"browseId": "VL" + pid, "kind": "playlists", "title": p.get("title", ""),
+                        "subtitle": ("%s canciones" % n) if n else "Playlist", "cover": _yt_thumb(p)})
+        return out
+
+    def artists():
+        return [{"browseId": a["browseId"], "kind": "artists", "title": a.get("artist", ""),
+                 "subtitle": a.get("subscribers", "") or "Artista", "cover": _yt_thumb(a)}
+                for a in y.get_library_subscriptions(limit=50) if a.get("browseId")]
+
+    def albums():
+        return [{"browseId": a["browseId"], "kind": "albums", "title": a.get("title", ""),
+                 "subtitle": _yt_artists(a) or str(a.get("year", "")), "cover": _yt_thumb(a)}
+                for a in y.get_library_albums(limit=50) if a.get("browseId")]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {k: ex.submit(f) for k, f in
+                (("liked", liked), ("playlists", playlists), ("artists", artists), ("albums", albums))}
+        out = {}
+        for k, f in futs.items():
+            try:
+                out[k] = f.result()
+            except Exception:
+                out[k] = []
+    return out
+
+
 class H(BaseHTTPRequestHandler):
+    def _json(self, obj, status=200):
+        payload = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path.startswith("/auth/") or u.path in ("/ytlib", "/rate"):
+            try:
+                if u.path == "/auth/status":
+                    return self._json(auth_status())
+                if u.path == "/auth/logout":
+                    return self._json(auth_logout())
+                if u.path == "/ytlib":
+                    return self._json(cached("ytlib", 300, yt_library))
+                if u.path == "/rate":
+                    qs = parse_qs(u.query)
+                    return self._json(rate_song(qs.get("id", [""])[0],
+                                                qs.get("like", ["1"])[0] == "1"))
+            except Exception as e:
+                return self._json({"error": str(e)}, 502)
         if u.path == "/search":
             qs = parse_qs(u.query)
             q = qs.get("q", [""])[0]
@@ -921,6 +1353,15 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path == "/auth/headers":
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n).decode("utf-8", "replace")
+            return self._json(auth_set_headers(raw))
+        self.send_response(404)
+        self.end_headers()
 
     def log_message(self, *a):
         pass

@@ -1328,6 +1328,7 @@ function openCardMenu(it, x, y, el) {
   if (entry.kind === "playlists" && _authSt.logged_in) {
     // solo funcionan en playlists propias: YT rechaza editar/borrar ajenas (toast de error)
     opts.push(["ph-pencil-simple", "Editar playlist", () => openPlModal(entry)]);
+    opts.push(["ph-users-three", "Colaboración", () => openCollabMenu(entry, x, y)]);
     opts.push(["ph-trash", "Eliminar playlist (YT Music)", () => deletePl(entry)]);
   }
   showMenu(opts, x, y, el);
@@ -1645,7 +1646,14 @@ function openPlModal(entry) {
   $("plmodal").hidden = false; $("plname").focus();
 }
 $("plpriv").onclick = (e) => { const b = e.target.closest("button"); if (b) setPriv(b.dataset.p); };
-$("plNew").onclick = () => openPlModal();
+$("plNew").onclick = (e) => {
+  e.stopPropagation();
+  const r = $("plNew").getBoundingClientRect();
+  showMenu([
+    ["ph-plus", "Nueva playlist", () => openPlModal()],
+    ["ph-user-plus", "Unirse con enlace de invitación", joinCollabPl],
+  ], r.left, r.bottom + 6);
+};
 $("plclose").onclick = () => { $("plmodal").hidden = true; };
 $("plmodal").onclick = (e) => { if (e.target === $("plmodal")) $("plmodal").hidden = true; };
 $("plname").onkeydown = (e) => { if (e.key === "Enter") $("plgo").click(); };
@@ -1688,6 +1696,43 @@ async function addToPl(p, s) {
     const d = await (await fetch("/pladd?id=" + encodeURIComponent(p.id.replace(/^VL/, "")) + "&vid=" + encodeURIComponent(s.id))).json();
     if (d.error) throw d.error;
     toast("Añadida a " + p.title);
+    if (d.cover) setLibCover(p.id, d.cover);   // YT regenero la portada: reflejala en la biblioteca
+  } catch (e) { toast("" + e); }
+}
+function setLibCover(id, cover) {
+  const lib = getLibrary(); const hit = lib.find(x => x.id === id);
+  if (hit && hit.cover !== cover) { hit.cover = cover; localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+}
+function openCollabMenu(entry, x, y) {
+  showMenu([
+    ["ph-users-three", "Activar y copiar enlace de invitación", async () => {
+      try {
+        const d = await (await fetch("/plcollab?id=" + encodeURIComponent(entry.id.replace(/^VL/, "")) + "&on=1")).json();
+        if (d.error) throw d.error;
+        await navigator.clipboard.writeText(d.link);
+        toast("Colaboración activada: enlace copiado");
+      } catch (e) { toast("" + e); }
+    }],
+    ["ph-prohibit", "Desactivar colaboración", async () => {
+      try {
+        const d = await (await fetch("/plcollab?id=" + encodeURIComponent(entry.id.replace(/^VL/, "")) + "&on=0")).json();
+        if (d.error) throw d.error;
+        toast("Colaboración desactivada");
+      } catch (e) { toast("No estaba activada o no es tuya"); }
+    }],
+  ], x, y);
+}
+async function joinCollabPl() {
+  const link = prompt("Pega el enlace de invitación (music.youtube.com/playlist?list=...&jct=...):");
+  if (!link) return;
+  try {
+    const d = await (await fetch("/pljoin?link=" + encodeURIComponent(link))).json();
+    if (d.error) throw d.error;
+    const entry = { id: "VL" + d.id, kind: "playlists", title: d.title, subtitle: "Playlist colaborativa", cover: d.cover || "", ts: Date.now() };
+    const lib = getLibrary().filter(x => x.id !== entry.id); lib.unshift(entry);
+    localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
+    toast("Te uniste a " + d.title);
+    openCollection(entry.id, true, entry);
   } catch (e) { toast("" + e); }
 }
 async function removeFromPl(s) {

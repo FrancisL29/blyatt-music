@@ -1243,7 +1243,68 @@ def pl_add(pid, vid):
         return {"error": "Ya está en la playlist" if "FAILED" in str(st) else "No se pudo añadir"}
     _CACHE.pop("ytlib", None)
     _CACHE.pop("col:VL" + pid, None)
-    return {"ok": True}
+    out = {"ok": True}
+    try:   # cover fresca (YT la regenera con las caratulas): el frontend actualiza la biblioteca
+        th = (y.get_playlist(pid, limit=1) or {}).get("thumbnails") or []
+        if th:
+            out["cover"] = th[-1]["url"]
+    except Exception:
+        pass
+    return out
+
+
+def _find_key(node, key):
+    # busqueda recursiva en respuestas innertube (shape no documentado)
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for v in node.values():
+            r = _find_key(v, key)
+            if r is not None:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_key(v, key)
+            if r is not None:
+                return r
+    return None
+
+
+def pl_collab(pid, on):
+    # activa/desactiva colaboracion; al activar YT devuelve joinCollaborationToken -> enlace de invitacion
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    r = y.edit_playlist(pid, collaboration=on)
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    if not on:
+        return {"ok": True}
+    tok = _find_key(r, "joinCollaborationToken") if isinstance(r, (dict, list)) else None
+    if not tok:
+        return {"error": "YT no devolvió token de invitación (¿playlist privada? Colaboración requiere No listada o Pública)"}
+    return {"ok": True, "link": "https://music.youtube.com/playlist?list=%s&jct=%s" % (pid, tok)}
+
+
+def pl_join(link):
+    # unirse a playlist colaborativa con enlace de invitacion (list=<pid>&jct=<token>)
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    qs = parse_qs(urlparse(link).query)
+    pid, tok = qs.get("list", [""])[0], qs.get("jct", [""])[0]
+    if not pid or not tok:
+        return {"error": "Enlace inválido: falta list= o jct="}
+    y.join_collaborative_playlist(pid, tok)
+    _CACHE.pop("ytlib", None)
+    d = {}
+    try:
+        d = y.get_playlist(pid, limit=1) or {}
+    except Exception:
+        pass
+    th = d.get("thumbnails") or []
+    return {"ok": True, "id": pid, "title": d.get("title", "Playlist colaborativa"),
+            "cover": th[-1]["url"] if th else ""}
 
 
 def pl_remove(pid, vid):
@@ -1387,6 +1448,10 @@ class H(BaseHTTPRequestHandler):
                         return self._json(pl_add(g("id"), g("vid")))
                     if u.path == "/plremove":
                         return self._json(pl_remove(g("id"), g("vid")))
+                    if u.path == "/plcollab":
+                        return self._json(pl_collab(g("id"), g("on") == "1"))
+                    if u.path == "/pljoin":
+                        return self._json(pl_join(g("link")))
             except Exception as e:
                 return self._json({"error": str(e)}, 502)
         if u.path == "/search":

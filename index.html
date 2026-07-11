@@ -496,6 +496,7 @@
   .savebtn i { font-size: 1.15rem; }
   .savebtn:hover { background: linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .06)); }
   .savebtn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .morebtn { padding: 8px 12px; }
   .covplay { position: absolute; inset: 0; display: grid; place-items: center; border: none; cursor: pointer;
              background: rgb(0 0 0 / .4); color: #fff; font-size: 3.4rem; border-radius: 12px; opacity: 0; transition: opacity .2s; }
   .cov:hover .covplay { opacity: 1; }
@@ -880,7 +881,7 @@ function renderLibrary() {
   getLibrary().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).forEach(e => {
     const b = document.createElement("button"); b.className = "nav-item lib-item";
     b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
-    const im = b.querySelector("img"); im.src = e.cover; im.classList.add(e.kind || "");
+    const im = b.querySelector("img"); im.src = e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : ""); im.classList.add(e.kind || "");
     b.querySelector(".lt2").textContent = e.title;
     b.querySelector(".la2").textContent = e.subtitle || (e.kind === "artists" ? "Artista" : e.kind === "albums" ? "Álbum" : "Playlist");
     b.onclick = () => e.kind === "artists" ? openArtist(e.id, true, { title: e.title, cover: e.cover })
@@ -1364,12 +1365,14 @@ document.addEventListener("click", e => { if (!$("ctxmenu").contains(e.target)) 
 document.addEventListener("scroll", closeMenu, true);
 function renderCollection(d) {
   _colKind = d.kind;
+  if (d.kind === "playlist" && d.cover && _colId) setLibCover(_colId, d.cover);   // sidebar refleja la cover real al abrir
   const cv = $("collectionView"); cv.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
-  if (d.cover) {
-    hero.querySelector("img").src = d.cover;
-    bg.style.backgroundImage = `url("${d.cover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
+  const heroCover = d.cover || (d.kind === "playlist" ? PL_EMPTY_COVER : "");
+  if (heroCover) {
+    hero.querySelector("img").src = heroCover;
+    bg.style.backgroundImage = `url("${heroCover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
   const covplayBtn = hero.querySelector(".covplay");
   hero.querySelector(".ct").innerHTML = expBadge(d) + esc(d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist"));
@@ -1384,12 +1387,26 @@ function renderCollection(d) {
   const act = document.createElement("div"); act.className = "col-actions";
   act.appendChild(saveBtn(() => ({ id: _colId, kind: d.kind === "album" ? "albums" : "playlists",
     title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover })));
+  const more = document.createElement("button"); more.className = "savebtn morebtn"; more.setAttribute("aria-label", "Opciones");
+  more.innerHTML = '<i class="ph ph-dots-three-outline"></i>';
+  more.onclick = (e) => {
+    e.stopPropagation();
+    const r = more.getBoundingClientRect();
+    openCardMenu({ browseId: _colId, kind: d.kind === "album" ? "albums" : "playlists",
+      title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover }, r.left, r.bottom + 6, more);
+  };
+  act.appendChild(more);
   hero.lastElementChild.appendChild(act);
   cv.appendChild(hero);
   if (d.description) { const p = document.createElement("p"); p.className = "col-desc"; p.textContent = d.description; cv.appendChild(p); }
   const hasPic = d.kind === "playlist";
   const fallbackArtists = d.creator && d.creatorId ? [{ name: d.creator, id: d.creatorId }] : null;
   const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, explicit: t.explicit, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
+  if (!d.tracks.length && d.kind === "playlist") {
+    const p = document.createElement("div"); p.className = "lempty";
+    p.textContent = "Esta playlist está vacía. Haz click derecho en cualquier canción y elige \"Añadir a playlist\".";
+    cv.appendChild(p);
+  }
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
   d.tracks.forEach((t, i) => ul.appendChild(colTrackRow(t, songs, i, hasPic)));
   cv.appendChild(ul);
@@ -1633,6 +1650,7 @@ $("gmodal").onclick = (e) => { if (e.target === $("gmodal")) closeGModal(); };
 
 /* ---------- playlists propias (creadas/gestionadas en la cuenta REAL de YT Music) ---------- */
 let _plEdit = null;   // entrada de biblioteca cuando el modal edita; null = crear
+const PL_EMPTY_COVER = "https://www.gstatic.com/youtube/media/ytm/images/pbg/playlist-empty-state-@576.png";   // arte oficial de playlist vacia de YT Music
 function setPriv(p) { document.querySelectorAll("#plpriv button").forEach(b => b.classList.toggle("on", b.dataset.p === p)); }
 const getPriv = () => document.querySelector("#plpriv button.on").dataset.p;
 function openPlModal(entry) {
@@ -1674,7 +1692,7 @@ $("plgo").onclick = async () => {
     } else {
       const d = await (await fetch("/plcreate?title=" + encodeURIComponent(title) + "&desc=" + encodeURIComponent(desc) + "&privacy=" + getPriv())).json();
       if (d.error || !d.id) throw d.error || "YT Music no devolvió id";
-      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: "", ts: Date.now() };
+      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now() };
       const lib = getLibrary(); lib.unshift(entry);
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       toast("Playlist creada en tu cuenta");

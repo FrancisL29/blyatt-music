@@ -584,9 +584,46 @@ def collection(browse_id):
     return cached("col:" + browse_id, 600, lambda: _collection(browse_id))
 
 
+def _collection_auth(pid):
+    # playlists con sesion: get_playlist autenticado (las PRIVADAS son invisibles al browse anonimo)
+    y = ytm()
+    if not y:
+        return None
+    d = y.get_playlist(pid, limit=500)
+    tracks = []
+    for t in d.get("tracks") or []:
+        if not t.get("videoId"):
+            continue
+        tr = {"index": "", "title": t.get("title", ""), "artist": _yt_artists(t),
+              "extra": (t.get("album") or {}).get("name", ""), "duration": t.get("duration") or "",
+              "id": t["videoId"], "cover": _yt_thumb(t)}
+        arts = [{"name": a.get("name", ""), "id": a.get("id")} for a in (t.get("artists") or []) if a.get("name")]
+        if arts:
+            tr["artists"] = arts
+        if t.get("album") and t["album"].get("id"):
+            tr["album"] = {"name": t["album"].get("name", ""), "id": t["album"]["id"]}
+        if t.get("isExplicit"):
+            tr["explicit"] = True
+        tracks.append(tr)
+    priv = {"PRIVATE": "Playlist privada", "UNLISTED": "Playlist no listada", "PUBLIC": "Playlist pública"}
+    n = d.get("trackCount")
+    meta = " • ".join(x for x in [("%s canciones" % n) if n else "", d.get("duration") or ""] if x)
+    au = d.get("author") or {}
+    return {"kind": "playlist", "title": d.get("title", ""), "subtitle": priv.get(d.get("privacy"), "Playlist"),
+            "creator": au.get("name", ""), "creatorId": au.get("id"), "meta": meta,
+            "description": d.get("description") or "", "cover": _yt_thumb(d), "tracks": tracks}
+
+
 def _collection(browse_id):
-    data = _yt_browse(browse_id)
     kind = "album" if browse_id.startswith("MPRE") else "playlist"
+    if kind == "playlist":
+        try:
+            r = _collection_auth(browse_id[2:] if browse_id.startswith("VL") else browse_id)
+            if r is not None:
+                return r
+        except Exception:
+            pass   # sin sesion o fallo: cae al browse anonimo (playlists publicas)
+    data = _yt_browse(browse_id)
     hdr = _find_renderer(data, "musicResponsiveHeaderRenderer") or {}
     items = []
     _collect_items(data, items)
@@ -1244,10 +1281,17 @@ def pl_add(pid, vid):
     _CACHE.pop("ytlib", None)
     _CACHE.pop("col:VL" + pid, None)
     out = {"ok": True}
-    try:   # cover fresca (YT la regenera con las caratulas): el frontend actualiza la biblioteca
-        th = (y.get_playlist(pid, limit=1) or {}).get("thumbnails") or []
+    try:
+        # consistencia eventual de YT (~1-3s): espera a que la pista aparezca antes de leer la cover fresca
+        for _ in range(4):
+            d = y.get_playlist(pid, limit=50) or {}
+            if any(t.get("videoId") == vid for t in d.get("tracks") or []):
+                break
+            time.sleep(1)
+        th = d.get("thumbnails") or []
         if th:
             out["cover"] = th[-1]["url"]
+        _CACHE.pop("col:VL" + pid, None)   # re-purga: el fetch de arriba pudo repoblar via /collection concurrente
     except Exception:
         pass
     return out

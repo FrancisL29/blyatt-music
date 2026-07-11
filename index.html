@@ -161,13 +161,28 @@
   li.toprow .cover-wrap, li.toprow .cover-wrap img { width: 76px; height: 76px; }
   li.toprow .meta .t { font-size: 1.25rem; font-weight: 700; }
   button.gh-link { background: none; border: none; font: inherit; width: 100%; text-align: left; cursor: pointer; }
-  .user-chip .ucov { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center;
+  .user-chip { padding: 7px 10px; gap: 9px; }
+  .user-chip .ucaret { margin-left: auto; flex: none; display: flex; opacity: .55; }
+  .user-chip .ucaret i { font-size: .95rem; }
+  body.sb-collapsed .user-chip .ucaret { opacity: 0; }
+  .user-chip .ucov { width: 26px; height: 26px; border-radius: 50%; flex: none; display: flex; align-items: center;
                      justify-content: center; background: rgb(255 255 255 / .08); overflow: hidden; position: relative; }
   .user-chip .ucov img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  body.sb-collapsed .user-chip { padding-left: 11px; }
-  #gmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
-  #gmodal[hidden] { display: none; }
+  body.sb-collapsed .user-chip { padding-left: 13px; }
+  #gmodal, #plmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #gmodal[hidden], #plmodal[hidden] { display: none; }
+  #plmodal textarea { font-family: inherit; font-size: .88rem; }
+  .plpriv { display: flex; gap: 8px; margin-top: 12px; }
+  .plpriv button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px;
+                   border-radius: 10px; border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .04);
+                   color: var(--muted); font: inherit; font-size: .82rem; cursor: pointer; }
+  .plpriv button i { font-size: 1.15rem; }
+  .plpriv button.on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .lib-head .libadd { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer;
+                      font-size: 1.1rem; padding: 2px; border-radius: 6px; display: flex; }
+  .lib-head .libadd:hover { color: var(--text); background: rgb(255 255 255 / .07); }
+  body.sb-collapsed .lib-head .libadd { display: none; }
   .gbox { position: relative; width: min(460px, 92vw); padding: 26px 28px; border-radius: 18px;
           background: rgb(20 20 28 / .92); border: 1px solid rgb(255 255 255 / .09);
           box-shadow: 0 24px 70px rgb(0 0 0 / .6); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); }
@@ -562,7 +577,9 @@
     <button class="nav-item active" data-view="home"><i class="ph ph-house"></i> <span>Inicio</span></button>
     <button class="nav-item" data-view="buscar"><i class="ph ph-magnifying-glass"></i> <span>Buscar</span></button>
   </nav>
-  <div class="lib-head"><i class="ph ph-books"></i> <span>Biblioteca</span></div>
+  <div class="lib-head"><i class="ph ph-books"></i> <span>Biblioteca</span>
+    <button class="libadd" id="plNew" aria-label="Nueva playlist" title="Nueva playlist"><i class="ph ph-plus"></i></button>
+  </div>
   <div class="lib-scroll">
     <button class="nav-item lib-item" data-view="liked">
       <span class="lib-cov liked-cov"><i class="ph-fill ph-heart"></i></span>
@@ -573,6 +590,7 @@
   <button class="gh-link user-chip" id="userBtn" aria-label="Cuenta" style="margin-top:auto">
     <span class="ucov"><i class="ph ph-user" id="uico"></i><img id="uimg" alt="" hidden></span>
     <span id="uname">Invitado</span>
+    <span class="ucaret"><i class="ph ph-caret-up"></i></span>
   </button>
 </aside>
 
@@ -642,6 +660,22 @@
       <button class="gbtn" id="gsave">Conectar</button>
       <p class="ghint" id="gwait" hidden></p>
     </div>
+  </div>
+</div>
+
+<div id="plmodal" hidden>
+  <div class="gbox">
+    <button class="gclose" id="plclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <h3><i class="ph ph-playlist"></i> <span id="pltit">Nueva playlist</span></h3>
+    <input id="plname" placeholder="Nombre" maxlength="150" autocomplete="off">
+    <textarea id="pldesc" rows="3" placeholder="Descripción (opcional)"></textarea>
+    <div class="plpriv" id="plpriv">
+      <button data-p="PRIVATE" class="on"><i class="ph ph-lock-simple"></i>Privada</button>
+      <button data-p="UNLISTED"><i class="ph ph-link-simple"></i>No listada</button>
+      <button data-p="PUBLIC"><i class="ph ph-globe-hemisphere-west"></i>Pública</button>
+    </div>
+    <p class="ghint" style="margin:12px 0 0">Se crea en tu cuenta de YouTube Music: la verás en todas tus sesiones. La portada la genera YT Music con las carátulas de sus canciones.</p>
+    <button class="gbtn" id="plgo">Crear</button>
   </div>
 </div>
 
@@ -1191,7 +1225,7 @@ function showGrid(title, list, push = true) {
   gv.appendChild(grid);
 }
 /* ---------- vista de album / playlist ---------- */
-let _colId = null;
+let _colId = null, _colKind = null;
 function openCollection(browseId, push = true, seed = null) {
   if (!browseId) return;
   _colId = browseId;
@@ -1262,7 +1296,7 @@ function showMenu(opts, x, y, li) {
   for (const [ic, label, fn] of opts) {
     const b = document.createElement("button"); b.innerHTML = `<i class="ph ${ic}"></i><span></span>`;
     b.querySelector("span").textContent = label;
-    b.onclick = (e) => { e.stopPropagation(); fn(); closeMenu(); };
+    b.onclick = (e) => { e.stopPropagation(); closeMenu(); fn(); };   // closeMenu ANTES: fn puede abrir un submenu (openPlPicker) que no debe cerrarse
     m.appendChild(b);
   }
   m.classList.add("show"); if (li) li.classList.add("menuopen");
@@ -1272,11 +1306,16 @@ function showMenu(opts, x, y, li) {
 }
 function openTrackMenu(s, songs, i, x, y, li) {
   const liked = isLiked(s.id);
-  showMenu([
+  const opts = [
     ["ph-play", "Reproducir", () => playFromList(songs, i)],
     ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); scheduleGaplessNext(); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
+    ["ph-playlist", "Añadir a playlist", () => openPlPicker(s, x, y, li)],
     [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Me gusta" : "Añadir a Me gusta", () => toggleLike(s)],
-  ], x, y, li);
+  ];
+  // en vista playlist con sesion: quitar pista de la playlist real (solo funciona en propias)
+  if (view === "collection" && _colKind === "playlist" && _authSt.logged_in && _colId)
+    opts.push(["ph-minus-circle", "Quitar de esta playlist", () => removeFromPl(s)]);
+  showMenu(opts, x, y, li);
 }
 /* menu contextual de tarjetas (artista/album/playlist): guardar en biblioteca + agregar a la cola */
 function openCardMenu(it, x, y, el) {
@@ -1286,6 +1325,11 @@ function openCardMenu(it, x, y, el) {
     saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]];
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
+  if (entry.kind === "playlists" && _authSt.logged_in) {
+    // solo funcionan en playlists propias: YT rechaza editar/borrar ajenas (toast de error)
+    opts.push(["ph-pencil-simple", "Editar playlist", () => openPlModal(entry)]);
+    opts.push(["ph-trash", "Eliminar playlist (YT Music)", () => deletePl(entry)]);
+  }
   showMenu(opts, x, y, el);
 }
 /* carga todas las pistas de un album/playlist y las anade a la cola (antes de las recomendaciones) */
@@ -1318,6 +1362,7 @@ document.addEventListener("click", e => {
 document.addEventListener("click", e => { if (!$("ctxmenu").contains(e.target)) closeMenu(); });
 document.addEventListener("scroll", closeMenu, true);
 function renderCollection(d) {
+  _colKind = d.kind;
   const cv = $("collectionView"); cv.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
@@ -1563,7 +1608,9 @@ $("userBtn").onclick = (e) => {
      _authSt.logged_in ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],
   ], r.left, r.top - 8, $("userBtn"));
-  // el menu abre hacia arriba desde el chip (esta abajo del sidebar): showMenu ya lo reancla si no cabe
+  // el menu SIEMPRE arriba del chip: reancla tras medir (showMenu solo clampa hacia abajo)
+  const m = $("ctxmenu");
+  m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";
 };
 $("gsave").onclick = async () => {
   const raw = $("ghdrs").value.trim();
@@ -1582,6 +1629,86 @@ $("gsave").onclick = async () => {
 };
 $("gclose").onclick = closeGModal;
 $("gmodal").onclick = (e) => { if (e.target === $("gmodal")) closeGModal(); };
+
+/* ---------- playlists propias (creadas/gestionadas en la cuenta REAL de YT Music) ---------- */
+let _plEdit = null;   // entrada de biblioteca cuando el modal edita; null = crear
+function setPriv(p) { document.querySelectorAll("#plpriv button").forEach(b => b.classList.toggle("on", b.dataset.p === p)); }
+const getPriv = () => document.querySelector("#plpriv button.on").dataset.p;
+function openPlModal(entry) {
+  if (!_authSt.logged_in) { toast("Inicia sesión con Google para crear playlists"); return; }
+  _plEdit = entry || null;
+  $("pltit").textContent = entry ? "Editar playlist" : "Nueva playlist";
+  $("plgo").textContent = entry ? "Guardar" : "Crear";
+  $("plname").value = entry ? entry.title : "";
+  $("pldesc").value = "";
+  setPriv("PRIVATE");
+  $("plmodal").hidden = false; $("plname").focus();
+}
+$("plpriv").onclick = (e) => { const b = e.target.closest("button"); if (b) setPriv(b.dataset.p); };
+$("plNew").onclick = () => openPlModal();
+$("plclose").onclick = () => { $("plmodal").hidden = true; };
+$("plmodal").onclick = (e) => { if (e.target === $("plmodal")) $("plmodal").hidden = true; };
+$("plname").onkeydown = (e) => { if (e.key === "Enter") $("plgo").click(); };
+$("plgo").onclick = async () => {
+  const title = $("plname").value.trim();
+  if (!title) { toast("Ponle un nombre a la playlist"); return; }
+  const desc = $("pldesc").value.trim();
+  $("plgo").disabled = true;
+  try {
+    if (_plEdit) {
+      let q = "id=" + encodeURIComponent(_plEdit.id.replace(/^VL/, "")) + "&title=" + encodeURIComponent(title) + "&privacy=" + getPriv();
+      if (desc) q += "&desc=" + encodeURIComponent(desc);   // desc vacia no viaja: no pisa la existente
+      const d = await (await fetch("/pledit?" + q)).json();
+      if (d.error) throw d.error;
+      const lib = getLibrary(); const hit = lib.find(x => x.id === _plEdit.id);
+      if (hit) { hit.title = title; localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+      toast("Playlist actualizada");
+    } else {
+      const d = await (await fetch("/plcreate?title=" + encodeURIComponent(title) + "&desc=" + encodeURIComponent(desc) + "&privacy=" + getPriv())).json();
+      if (d.error || !d.id) throw d.error || "YT Music no devolvió id";
+      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: "", ts: Date.now() };
+      const lib = getLibrary(); lib.unshift(entry);
+      localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
+      toast("Playlist creada en tu cuenta");
+      openCollection(entry.id, true, entry);
+    }
+    $("plmodal").hidden = true;
+  } catch (e) { toast("Error: " + e); }
+  $("plgo").disabled = false;
+};
+function openPlPicker(s, x, y, li) {
+  if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }
+  const opts = [["ph-plus", "Nueva playlist…", () => openPlModal()]];
+  getLibrary().filter(e => e.kind === "playlists").slice(0, 12)
+    .forEach(p => opts.push(["ph-playlist", p.title, () => addToPl(p, s)]));
+  showMenu(opts, x, y, li);
+}
+async function addToPl(p, s) {
+  try {
+    const d = await (await fetch("/pladd?id=" + encodeURIComponent(p.id.replace(/^VL/, "")) + "&vid=" + encodeURIComponent(s.id))).json();
+    if (d.error) throw d.error;
+    toast("Añadida a " + p.title);
+  } catch (e) { toast("" + e); }
+}
+async function removeFromPl(s) {
+  const colId = _colId;
+  try {
+    const d = await (await fetch("/plremove?id=" + encodeURIComponent(colId.replace(/^VL/, "")) + "&vid=" + encodeURIComponent(s.id))).json();
+    if (d.error) throw d.error;
+    toast("Quitada de la playlist");
+    if (view === "collection" && _colId === colId) openCollection(colId, false);   // refresca la vista
+  } catch (e) { toast("" + e); }
+}
+async function deletePl(entry) {
+  if (!confirm('Eliminar "' + entry.title + '" de tu cuenta de YT Music? No se puede deshacer.')) return;
+  try {
+    const d = await (await fetch("/pldelete?id=" + encodeURIComponent(entry.id.replace(/^VL/, "")))).json();
+    if (d.error) throw d.error;
+    localStorage.setItem("lightning.library", JSON.stringify(getLibrary().filter(x => x.id !== entry.id)));
+    renderLibrary();
+    toast("Playlist eliminada");
+  } catch (e) { toast("" + e); }
+}
 refreshAuth();
 
 // contraer/expandir barra lateral con click en el logo (persistente)

@@ -1201,6 +1201,66 @@ def lib_save(bid, kind, save):
     return {"ok": True}
 
 
+def pl_create(title, desc, privacy):
+    # crea playlist REAL en la cuenta de YT Music (privacy: PRIVATE|UNLISTED|PUBLIC)
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    pid = y.create_playlist(title, desc or "", privacy_status=privacy or "PRIVATE")
+    if not isinstance(pid, str):
+        return {"error": "YT Music rechazó la creación"}
+    _CACHE.pop("ytlib", None)
+    return {"id": pid}
+
+
+def pl_edit(pid, title, desc, privacy):
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    y.edit_playlist(pid, title=title or None, description=desc if desc is not None else None,
+                    privacyStatus=privacy or None)
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    return {"ok": True}
+
+
+def pl_delete(pid):
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    y.delete_playlist(pid)
+    _CACHE.pop("ytlib", None)
+    return {"ok": True}
+
+
+def pl_add(pid, vid):
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    r = y.add_playlist_items(pid, [vid], duplicates=False)
+    st = (r or {}).get("status", "")
+    if "SUCCEEDED" not in str(st):
+        return {"error": "Ya está en la playlist" if "FAILED" in str(st) else "No se pudo añadir"}
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    return {"ok": True}
+
+
+def pl_remove(pid, vid):
+    # remove necesita setVideoId: lo buscamos en la playlist
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    d = y.get_playlist(pid, limit=None)
+    hit = next((t for t in d.get("tracks") or [] if t.get("videoId") == vid and t.get("setVideoId")), None)
+    if not hit:
+        return {"error": "Pista no encontrada en la playlist"}
+    y.remove_playlist_items(pid, [{"videoId": vid, "setVideoId": hit["setVideoId"]}])
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    return {"ok": True}
+
+
 def rate_song(video_id, like):
     # like en la app -> me gusta en la cuenta de YT Music del usuario
     y = ytm()
@@ -1289,7 +1349,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path.startswith("/auth/") or u.path in ("/ytlib", "/rate", "/libsave"):
+        if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
                     if parse_qs(u.query).get("fresh"):
@@ -1313,6 +1373,20 @@ class H(BaseHTTPRequestHandler):
                     return self._json(lib_save(qs.get("id", [""])[0],
                                                qs.get("kind", [""])[0],
                                                qs.get("save", ["1"])[0] == "1"))
+                if u.path.startswith("/pl"):
+                    qs = parse_qs(u.query)
+                    g = lambda k: qs.get(k, [""])[0]
+                    if u.path == "/plcreate":
+                        return self._json(pl_create(g("title"), g("desc"), g("privacy")))
+                    if u.path == "/pledit":
+                        return self._json(pl_edit(g("id"), g("title"),
+                                                  qs.get("desc", [None])[0], g("privacy")))
+                    if u.path == "/pldelete":
+                        return self._json(pl_delete(g("id")))
+                    if u.path == "/pladd":
+                        return self._json(pl_add(g("id"), g("vid")))
+                    if u.path == "/plremove":
+                        return self._json(pl_remove(g("id"), g("vid")))
             except Exception as e:
                 return self._json({"error": str(e)}, 502)
         if u.path == "/search":

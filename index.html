@@ -185,8 +185,14 @@
   .user-chip .ucov img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   body.sb-collapsed .user-chip { padding-left: 13px; }
-  #gmodal, #plmodal, #askmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
-  #gmodal[hidden], #plmodal[hidden], #askmodal[hidden] { display: none; }
+  #gmodal, #plmodal, #askmodal, #impmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #gmodal[hidden], #plmodal[hidden], #askmodal[hidden], #impmodal[hidden] { display: none; }
+  .impgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .impgrid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px;
+    border-radius: 12px; border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .04);
+    color: var(--text); font: inherit; font-size: .84rem; cursor: pointer; transition: background .15s, border-color .15s; }
+  .impgrid button:hover { background: rgb(255 255 255 / .09); border-color: rgb(255 255 255 / .22); }
+  .impgrid button i { font-size: 1.7rem; }
   .askrow { display: flex; gap: 10px; }
   .askrow .gbtn { flex: 1; }
   .gbtn.ghost { background: rgb(255 255 255 / .07); color: var(--text); border: 1px solid rgb(255 255 255 / .12); }
@@ -691,6 +697,23 @@
       <button class="gbtn ghost" id="askcancel">Cancelar</button>
       <button class="gbtn" id="askok">Aceptar</button>
     </div>
+  </div>
+</div>
+
+<div id="impmodal" hidden>
+  <div class="gbox">
+    <button class="gclose" id="impclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <h3><i class="ph ph-download-simple"></i> Importar biblioteca</h3>
+    <p class="ghint" style="margin:0 0 12px">Trae tus playlists y me gusta desde otra plataforma. Elige el origen:</p>
+    <div class="impgrid">
+      <button data-platform="spotify"><i class="ph ph-spotify-logo"></i>Spotify</button>
+      <button data-platform="apple"><i class="ph ph-apple-logo"></i>Apple Music</button>
+      <button data-platform="amazon"><i class="ph ph-amazon-logo"></i>Amazon Music</button>
+      <button data-platform="tidal"><i class="ph ph-wave-sine"></i>Tidal</button>
+      <button data-platform="deezer"><i class="ph ph-music-notes"></i>Deezer</button>
+      <button data-platform="csv"><i class="ph ph-file-csv"></i>Archivo CSV</button>
+    </div>
+    <p class="ghint" style="margin:12px 0 0">Las canciones se buscarán en YouTube Music y se añadirán a tu cuenta.</p>
   </div>
 </div>
 
@@ -1731,6 +1754,7 @@ $("plNew").onclick = (e) => {
   showMenu([
     ["ph-plus", "Nueva playlist", () => openPlModal()],
     ["ph-user-plus", "Unirse con enlace de invitación", joinCollabPl],
+    ["ph-download-simple", "Importar de otra plataforma", openImportModal],
   ], r.left, r.bottom + 6);
 };
 $("plclose").onclick = () => { $("plmodal").hidden = true; };
@@ -1787,6 +1811,23 @@ $("askcancel").onclick = () => _askEnd(null);
 $("askclose").onclick = () => _askEnd(null);
 $("askmodal").onclick = (e) => { if (e.target === $("askmodal")) _askEnd(null); };
 $("askinput").onkeydown = (e) => { if (e.key === "Enter") $("askok").click(); };
+
+/* importar biblioteca desde otras plataformas: estructura lista, la logica de cada origen se implementa despues.
+   plan: exportar del origen (CSV/API) -> buscar cada pista en YT Music (/search) -> pladd a playlist nueva */
+const IMP_NAMES = { spotify: "Spotify", apple: "Apple Music", amazon: "Amazon Music", tidal: "Tidal", deezer: "Deezer", csv: "CSV" };
+function openImportModal() {
+  if (!_authSt.logged_in) { toast("Inicia sesión con Google para importar"); return; }
+  $("impmodal").hidden = false;
+}
+$("impclose").onclick = () => { $("impmodal").hidden = true; };
+$("impmodal").onclick = (e) => { if (e.target === $("impmodal")) $("impmodal").hidden = true; };
+document.querySelectorAll(".impgrid button").forEach(b => {
+  b.onclick = () => importFrom(b.dataset.platform);
+});
+function importFrom(platform) {
+  // TODO: implementacion por plataforma (CSV parse / scraping de playlist publica / API)
+  toast("Importar desde " + (IMP_NAMES[platform] || platform) + ": próximamente");
+}
 
 function openPlPicker(s, x, y, li) {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }
@@ -2192,10 +2233,13 @@ $("sleep").onclick = () => {
   if (sleepMin > 0) { toast(`Pausa en ${sleepMin} min`); sleepTimer = setTimeout(() => { audio.pause(); $("sleep").classList.remove("on"); sleepMin = 0; }, sleepMin * 60000); }
   else toast("Temporizador desactivado");
 };
-$("addpl").onclick = () => {
+$("addpl").onclick = (e) => {
+  e.stopPropagation();   // sin esto el click llega a document y closeMenu() mata el menu recien abierto
   if (!current) { toast("Nada en reproducción"); return; }
   const r = $("addpl").getBoundingClientRect();
   openPlPicker(current, r.left, r.top - 8, null);
+  const m = $("ctxmenu");
+  m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";   // siempre ARRIBA del player
 };
 /* ---------- letra (karaoke, LRCLIB vía /lyrics) ---------- */
 let lyricsLines = [], lyricActive = -1, lyricsFor = null, lyricRAF = null;

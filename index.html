@@ -35,11 +35,24 @@
   }
   #bg.on { opacity: .5; }
 
+  /* vista artista: la foto ocupa TODA la ventana (tambien detras de la tarjeta del sidebar, que es glass) */
+  #abg { position: fixed; inset: 0; z-index: 0; opacity: 0; transition: opacity .45s; pointer-events: none; }
+  #abg.on { opacity: 1; }
+  #abg .lo, #abg .hi { position: absolute; inset: 0; background-size: cover; background-position: center 22%; }
+  #abg .lo { filter: blur(26px); transform: scale(1.08); }
+  #abg .hi { opacity: 0; transition: opacity .6s ease; }
+  #abg .hi.show { opacity: 1; }
+  #abg::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to bottom, rgb(6 6 8 / .25) 0%, rgb(6 6 8 / .05) 38%, rgb(6 6 8 / .72) 82%, var(--bg) 100%); }
+
   /* ---------- SIDEBAR ---------- */
   /* tarjeta flotante: margen 10px por lado ya compensado en --sb-w (interior identico al layout previo) */
-  aside { position: relative; z-index: 2; background: var(--sidebar); margin: 10px; border-radius: 16px;
+  aside { position: relative; z-index: 2; background: rgb(11 11 15 / .62); margin: 10px; border-radius: 16px;
+          backdrop-filter: blur(28px) saturate(140%); -webkit-backdrop-filter: blur(28px) saturate(140%);
           border: 1px solid var(--line); box-shadow: 0 10px 34px rgb(0 0 0 / .35);
           display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; overflow: hidden; }
+  @media (prefers-reduced-transparency: reduce) { aside { background: var(--sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+  .lib-sep { margin-top: auto; height: 1px; flex: none; background: rgb(255 255 255 / .08); }
   .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border: none; background: none;
     cursor: pointer; width: 100%; text-align: left; color: var(--text); white-space: nowrap;
     transition: padding .22s ease; }
@@ -439,12 +452,8 @@
   /* portada inmersiva: foto a toda la ventana con fade hacia el fondo (tuck bajo la barra de busqueda) */
   .artist-hero2 { position: relative; margin: -76px -28px 18px; min-height: 62vh; display: flex; align-items: flex-end;
                   padding: 0 40px 30px; overflow: hidden; }
-  .artist-hero2 .hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center 22%; }
-  .artist-hero2 .hero-bg.lo { filter: blur(26px); transform: scale(1.08); }   /* baja calidad: gaussiano, siempre debajo (evita parpadeo a negro) */
-  .artist-hero2 .hero-bg.hi { opacity: 0; transition: opacity .6s ease; }
-  .artist-hero2 .hero-bg.hi.show { opacity: 1; }   /* alta calidad: aparece encima al cargar */
-  .artist-hero2::after { content: ""; position: absolute; inset: 0; pointer-events: none;
-    background: linear-gradient(to bottom, rgb(6 6 8 / .25) 0%, rgb(6 6 8 / .05) 38%, rgb(6 6 8 / .72) 82%, var(--bg) 100%); }
+  /* las capas de imagen y el gradiente viven ahora en #abg (fixed, toda la ventana); el hero solo posiciona el texto */
+  .artist-hero2 .hero-bg { display: none; }
   .artist-hero2 .info { position: relative; z-index: 1; max-width: 70%; }
   .artist-hero2 h1 { font-size: 4rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; margin: 0;
                      text-shadow: 0 2px 24px rgb(0 0 0 / .5); }
@@ -574,6 +583,7 @@
 </head>
 <body>
 <div id="bg"></div>
+<div id="abg"><div class="lo"></div><div class="hi"></div></div>
 
 <aside>
   <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
@@ -594,7 +604,8 @@
     </button>
     <div id="libList"></div>
   </div>
-  <button class="gh-link user-chip" id="userBtn" aria-label="Cuenta" style="margin-top:auto">
+  <div class="lib-sep"></div>
+  <button class="gh-link user-chip" id="userBtn" aria-label="Cuenta">
     <span class="ucov"><i class="ph ph-user" id="uico"></i><img id="uimg" alt="" hidden></span>
     <span id="uname">Invitado</span>
     <span class="ucaret"><i class="ph ph-caret-up"></i></span>
@@ -1117,6 +1128,30 @@ function songLi(s, list, i, solo) {
 }
 /* ---------- vista de artista ---------- */
 let _artistSeed = null, _artistId = null;
+/* imagen del artista a toda la ventana (#abg fixed, detras del sidebar glass); lo=placeholder borroso, hi=alta calidad */
+function setArtistBg(loUrl, hiUrl) {
+  const a = $("abg");
+  a.querySelector(".lo").style.backgroundImage = loUrl ? `url("${loUrl}")` : "";
+  const h = a.querySelector(".hi");
+  h.classList.remove("show");
+  h.style.backgroundImage = hiUrl ? `url("${hiUrl}")` : "";
+  if (hiUrl) {
+    const im = new Image();
+    im.onload = () => requestAnimationFrame(() => h.classList.add("show"));
+    im.src = hiUrl;
+    if (im.complete) requestAnimationFrame(() => h.classList.add("show"));
+  }
+  a.style.opacity = "";
+  a.classList.toggle("on", !!(loUrl || hiUrl));
+}
+function clearArtistBg() { const a = $("abg"); a.classList.remove("on"); a.style.opacity = ""; }
+// al hacer scroll en la vista de artista la foto se desvanece (el contenido pasa por encima legible)
+document.querySelector("main").addEventListener("scroll", (e) => {
+  if (view !== "artist") return;
+  const a = $("abg");
+  if (!a.classList.contains("on")) return;
+  a.style.opacity = Math.max(0, 1 - e.target.scrollTop / (innerHeight * .55)).toFixed(3);
+}, { passive: true });
 function openArtist(browseId, push = true, seed = null) {
   if (!browseId) return;
   _artistSeed = seed; _artistId = browseId;
@@ -1137,7 +1172,7 @@ function artistSeed(seed) {   // pinta de inmediato lo que ya sabemos (portada +
   const av = $("artistView"); av.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "artist-hero2";
   hero.innerHTML = '<div class="hero-bg lo"></div><div class="info"><h1></h1></div>';
-  if (seed.cover) hero.querySelector(".hero-bg").style.backgroundImage = `url("${seed.cover}")`;
+  setArtistBg(seed.cover || "", null);
   hero.querySelector("h1").textContent = seed.title || "Artista";
   av.appendChild(hero);
   for (let s = 0; s < 2; s++) {
@@ -1158,17 +1193,8 @@ function renderArtist(d) {
   // dos capas: lo (baja calidad, borrosa, instantanea desde la card cacheada) + hi (alta calidad, aparece encima al cargar)
   // la lo siempre queda debajo => sin parpadeo a negro durante el swap
   hero.innerHTML = '<div class="hero-bg lo"></div><div class="hero-bg hi"></div><div class="info"><h1></h1><div class="maud"></div><div class="bio"></div></div>';
-  const lo = hero.querySelector(".lo"), hi = hero.querySelector(".hi");
   const seedCover = _artistSeed && _artistSeed.cover;
-  if (seedCover) lo.style.backgroundImage = `url("${seedCover}")`;
-  else if (d.image) lo.style.backgroundImage = `url("${d.image}")`;   // sin seed: usa la propia como placeholder borroso
-  if (d.image) {
-    hi.style.backgroundImage = `url("${d.image}")`;
-    const im = new Image();
-    im.onload = () => requestAnimationFrame(() => hi.classList.add("show"));
-    im.src = d.image;
-    if (im.complete) requestAnimationFrame(() => hi.classList.add("show"));
-  }
+  setArtistBg(seedCover || d.image || "", d.image || null);
   hero.querySelector("h1").textContent = d.name || "Artista";
   const maud = hero.querySelector(".maud"); maud.textContent = d.subtitle || ""; if (!d.subtitle) maud.style.display = "none";
   const bio = hero.querySelector(".bio"); bio.textContent = d.description || "";
@@ -1237,7 +1263,7 @@ function showGrid(title, list, push = true) {
   $("tabs").style.display = "none"; $("heading").style.display = "none";
   $("r").style.display = "none"; $("empty").style.display = "none"; $("homeView").style.display = "none";
   $("artistView").style.display = "none"; $("collectionView").style.display = "none";
-  bg.classList.remove("on"); $("backBtn").classList.add("show");
+  bg.classList.remove("on"); clearArtistBg(); $("backBtn").classList.add("show");
   const gv = $("gridView"); gv.style.display = "block"; gv.innerHTML = "";
   const h = document.createElement("div"); h.className = "gridhead"; h.textContent = title; gv.appendChild(h);
   const grid = document.createElement("div"); grid.className = "cardgrid";
@@ -1254,7 +1280,7 @@ function openCollection(browseId, push = true, seed = null) {
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
   $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
-  $("backBtn").classList.add("show");
+  clearArtistBg(); $("backBtn").classList.add("show");
   const cv = $("collectionView"); cv.style.display = "block";
   collectionSeed(seed || {});   // siempre muestra esqueleto (hero + filas) animado mientras carga
   fetch("/collection?id=" + encodeURIComponent(browseId)).then(r => r.json()).then(d => {
@@ -1344,11 +1370,11 @@ function openCardMenu(it, x, y, el) {
   const libE = getLibrary().find(e => e.id === entry.id);
   // editable = propia o colaborativa unida; ajenas solo-guardadas NO exponen editar/quitar/borrar
   const editable = !!((libE && libE.editable) || it.editable);
-  const opts = [["ph-arrow-square-out", "Abrir", () => entry.kind === "artists"
-    ? openArtist(entry.id, true, { title: entry.title, cover: entry.cover })
-    : openCollection(entry.id, true, { kind: entry.kind, title: entry.title, subtitle: entry.subtitle, cover: entry.cover })]];
-  opts.push([saved ? "ph-fill ph-check-circle" : "ph-plus-circle",
-    saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
+  const opts = [];
+  // playlists propias no se "quitan de la biblioteca": se borran (opcion Eliminar mas abajo)
+  if (!(entry.kind === "playlists" && editable))
+    opts.push([saved ? "ph-fill ph-check-circle" : "ph-plus-circle",
+      saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
   if (entry.kind === "playlists" && _authSt.logged_in && editable) {
@@ -1449,7 +1475,7 @@ function setView(v, push = true) {
   if (push) pushHist({ t: "view", v });
   view = v;
   $("artistView").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none";
-  bg.classList.remove("on"); $("backBtn").classList.remove("show");   // fondo negro por defecto, oculta volver
+  bg.classList.remove("on"); clearArtistBg(); $("backBtn").classList.remove("show");   // fondo negro por defecto, oculta volver
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === v));
   $("tabs").style.display = v === "buscar" ? "flex" : "none";   // las categorias solo aplican a la busqueda
   const isHome = v === "home";
@@ -2158,7 +2184,11 @@ $("sleep").onclick = () => {
   if (sleepMin > 0) { toast(`Pausa en ${sleepMin} min`); sleepTimer = setTimeout(() => { audio.pause(); $("sleep").classList.remove("on"); sleepMin = 0; }, sleepMin * 60000); }
   else toast("Temporizador desactivado");
 };
-$("addpl").onclick = () => toast("Playlists personalizadas: próximamente");
+$("addpl").onclick = () => {
+  if (!current) { toast("Nada en reproducción"); return; }
+  const r = $("addpl").getBoundingClientRect();
+  openPlPicker(current, r.left, r.top - 8, null);
+};
 /* ---------- letra (karaoke, LRCLIB vía /lyrics) ---------- */
 let lyricsLines = [], lyricActive = -1, lyricsFor = null, lyricRAF = null;
 function renderLyrics(d) {

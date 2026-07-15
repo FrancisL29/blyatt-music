@@ -611,7 +611,8 @@ def _collection_auth(pid):
     au = d.get("author") or {}
     return {"kind": "playlist", "title": d.get("title", ""), "subtitle": priv.get(d.get("privacy"), "Playlist"),
             "creator": au.get("name", ""), "creatorId": au.get("id"), "meta": meta,
-            "description": d.get("description") or "", "cover": _yt_thumb(d), "tracks": tracks}
+            "description": d.get("description") or "", "cover": _yt_thumb(d), "tracks": tracks,
+            "editable": bool(d.get("owned"))}
 
 
 def _collection(browse_id):
@@ -1411,14 +1412,25 @@ def yt_library():
         return out
 
     def playlists():
+        acct = ""
+        try:
+            acct = (cached("acct", 3600, _account_info) or {}).get("name", "")
+        except Exception:
+            pass
         out = []
         for p in y.get_library_playlists(limit=50):
             pid = p.get("playlistId", "")
             if not pid or pid in ("LM", "SE"):   # LM = me gusta (seccion propia), SE = episodios
                 continue
             n = p.get("count")
+            aus = p.get("author") or []
+            if isinstance(aus, dict):
+                aus = [aus]
+            # propia si no expone autor o el autor es la cuenta; ajenas guardadas -> editable False
+            own = not aus or any((a.get("name") or "") == acct for a in aus if isinstance(a, dict))
             out.append({"browseId": "VL" + pid, "kind": "playlists", "title": p.get("title", ""),
-                        "subtitle": ("%s canciones" % n) if n else "Playlist", "cover": _yt_thumb(p)})
+                        "subtitle": ("%s canciones" % n) if n else "Playlist", "cover": _yt_thumb(p),
+                        "editable": own})
         return out
 
     def artists():

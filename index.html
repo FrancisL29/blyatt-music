@@ -16,7 +16,7 @@
     --muted: #8b8c95;
     --line: rgb(255 255 255 / .07);
     --glass: linear-gradient(150deg, rgb(255 255 255 / .09), rgb(255 255 255 / .02));
-    --sb-w: 240px;
+    --sb-w: 260px;   /* columna = tarjeta (240 interior) + 10px de margen por lado */
     --lyrics-w: min(560px, 42%);
   }
   * { box-sizing: border-box; }
@@ -36,7 +36,9 @@
   #bg.on { opacity: .5; }
 
   /* ---------- SIDEBAR ---------- */
-  aside { position: relative; z-index: 2; background: var(--sidebar); border-right: 1px solid var(--line);
+  /* tarjeta flotante: margen 10px por lado ya compensado en --sb-w (interior identico al layout previo) */
+  aside { position: relative; z-index: 2; background: var(--sidebar); margin: 10px; border-radius: 16px;
+          border: 1px solid var(--line); box-shadow: 0 10px 34px rgb(0 0 0 / .35);
           display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border: none; background: none;
     cursor: pointer; width: 100%; text-align: left; color: var(--text); white-space: nowrap;
@@ -81,7 +83,7 @@
   /* colapso de sidebar: el ancho anima (grid), los iconos ACOMPANAN via transicion de padding
      (sin display:none ni justify-content: eso hacia saltar los iconos); textos hacen fade */
   body { transition: grid-template-columns .22s ease; }
-  body.sb-collapsed { --sb-w: 76px; }
+  body.sb-collapsed { --sb-w: 96px; }   /* 76 de tarjeta + 20 de margenes */
   .brand span, .nav-item > span:not(.lib-cov), .gh-link span, .lib-head span, .lib-meta { transition: opacity .15s ease; }
   body.sb-collapsed .brand span,
   body.sb-collapsed .nav-item > span:not(.lib-cov),   /* NO ocultar .lib-cov: es la caratula/corazon de los items de biblioteca */
@@ -170,8 +172,12 @@
   .user-chip .ucov img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   body.sb-collapsed .user-chip { padding-left: 13px; }
-  #gmodal, #plmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
-  #gmodal[hidden], #plmodal[hidden] { display: none; }
+  #gmodal, #plmodal, #askmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #gmodal[hidden], #plmodal[hidden], #askmodal[hidden] { display: none; }
+  .askrow { display: flex; gap: 10px; }
+  .askrow .gbtn { flex: 1; }
+  .gbtn.ghost { background: rgb(255 255 255 / .07); color: var(--text); border: 1px solid rgb(255 255 255 / .12); }
+  .gbtn.danger { background: #c0392b; color: #fff; }
   #plmodal textarea { font-family: inherit; font-size: .88rem; }
   .plpriv { display: flex; gap: 8px; margin-top: 12px; }
   .plpriv button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px;
@@ -664,6 +670,19 @@
   </div>
 </div>
 
+<div id="askmodal" hidden>
+  <div class="gbox">
+    <button class="gclose" id="askclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <h3><i class="ph" id="askico"></i> <span id="asktit"></span></h3>
+    <p class="ghint" id="askmsg" style="margin:0 0 4px"></p>
+    <input id="askinput" autocomplete="off" spellcheck="false">
+    <div class="askrow">
+      <button class="gbtn ghost" id="askcancel">Cancelar</button>
+      <button class="gbtn" id="askok">Aceptar</button>
+    </div>
+  </div>
+</div>
+
 <div id="plmodal" hidden>
   <div class="gbox">
     <button class="gclose" id="plclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
@@ -901,8 +920,8 @@ function saveBtn(entryFn) {   // boton Guardar/En tu biblioteca (vistas de artis
   b.onclick = (ev) => { ev.stopPropagation(); const e = entryFn(); if (e) toggleLibrary(e); };
   return b;
 }
-function libEntryFrom(it) {   // normaliza card de busqueda/carrusel/version -> entrada de biblioteca
-  const id = it.browseId; if (!id) return null;
+function libEntryFrom(it) {   // normaliza card de busqueda/carrusel/version O entrada de biblioteca (id)
+  const id = it.browseId || it.id; if (!id) return null;
   const kind = it.kind === "artists" || id.startsWith("UC") ? "artists"
     : (it.kind === "playlists" || id.startsWith("VL")) ? "playlists" : "albums";
   return { id, kind, title: it.title, subtitle: it.subtitle, cover: it.cover };
@@ -1226,7 +1245,7 @@ function showGrid(title, list, push = true) {
   gv.appendChild(grid);
 }
 /* ---------- vista de album / playlist ---------- */
-let _colId = null, _colKind = null;
+let _colId = null, _colKind = null, _colEditable = false;
 function openCollection(browseId, push = true, seed = null) {
   if (!browseId) return;
   _colId = browseId;
@@ -1313,8 +1332,8 @@ function openTrackMenu(s, songs, i, x, y, li) {
     ["ph-playlist", "Añadir a playlist", () => openPlPicker(s, x, y, li)],
     [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Me gusta" : "Añadir a Me gusta", () => toggleLike(s)],
   ];
-  // en vista playlist con sesion: quitar pista de la playlist real (solo funciona en propias)
-  if (view === "collection" && _colKind === "playlist" && _authSt.logged_in && _colId)
+  // en vista playlist con sesion: quitar pista de la playlist real (solo propias/colaborativas)
+  if (view === "collection" && _colKind === "playlist" && _authSt.logged_in && _colId && _colEditable)
     opts.push(["ph-minus-circle", "Quitar de esta playlist", () => removeFromPl(s)]);
   showMenu(opts, x, y, li);
 }
@@ -1322,13 +1341,18 @@ function openTrackMenu(s, songs, i, x, y, li) {
 function openCardMenu(it, x, y, el) {
   const entry = libEntryFrom(it); if (!entry) return;
   const saved = inLibrary(entry.id);
-  const opts = [[saved ? "ph-fill ph-check-circle" : "ph-plus-circle",
-    saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]];
+  const libE = getLibrary().find(e => e.id === entry.id);
+  // editable = propia o colaborativa unida; ajenas solo-guardadas NO exponen editar/quitar/borrar
+  const editable = !!((libE && libE.editable) || it.editable);
+  const opts = [["ph-arrow-square-out", "Abrir", () => entry.kind === "artists"
+    ? openArtist(entry.id, true, { title: entry.title, cover: entry.cover })
+    : openCollection(entry.id, true, { kind: entry.kind, title: entry.title, subtitle: entry.subtitle, cover: entry.cover })]];
+  opts.push([saved ? "ph-fill ph-check-circle" : "ph-plus-circle",
+    saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
-  if (entry.kind === "playlists" && _authSt.logged_in) {
-    // solo funcionan en playlists propias: YT rechaza editar/borrar ajenas (toast de error)
-    opts.push(["ph-pencil-simple", "Editar playlist", () => openPlModal(entry)]);
+  if (entry.kind === "playlists" && _authSt.logged_in && editable) {
+    opts.push(["ph-pencil-simple", "Editar playlist", () => openPlModal(libE || entry)]);
     opts.push(["ph-users-three", "Colaboración", () => openCollabMenu(entry, x, y)]);
     opts.push(["ph-trash", "Eliminar playlist (YT Music)", () => deletePl(entry)]);
   }
@@ -1365,6 +1389,8 @@ document.addEventListener("click", e => { if (!$("ctxmenu").contains(e.target)) 
 document.addEventListener("scroll", closeMenu, true);
 function renderCollection(d) {
   _colKind = d.kind;
+  const libE = getLibrary().find(x => x.id === _colId);
+  _colEditable = !!(d.editable || (libE && libE.editable));   // owned del backend O colaborativa unida localmente
   if (d.kind === "playlist" && d.cover && _colId) setLibCover(_colId, d.cover);   // sidebar refleja la cover real al abrir
   const cv = $("collectionView"); cv.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "col-hero";
@@ -1393,7 +1419,7 @@ function renderCollection(d) {
     e.stopPropagation();
     const r = more.getBoundingClientRect();
     openCardMenu({ browseId: _colId, kind: d.kind === "album" ? "albums" : "playlists",
-      title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover }, r.left, r.bottom + 6, more);
+      title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover, editable: _colEditable }, r.left, r.bottom + 6, more);
   };
   act.appendChild(more);
   hero.lastElementChild.appendChild(act);
@@ -1588,10 +1614,14 @@ async function syncYtLibrary() {
     const haveB = new Set(lib.map(x => x.id));
     let nB = 0;
     [].concat(d.playlists || [], d.albums || [], d.artists || []).forEach(it => {
-      if (it.browseId && !haveB.has(it.browseId)) {
-        lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "" });
-        haveB.add(it.browseId); nB++;
+      if (!it.browseId) return;
+      const ex = lib.find(x => x.id === it.browseId);
+      if (ex) {   // refresca el flag editable de entradas ya presentes (propia vs ajena guardada)
+        if (it.editable !== undefined && ex.editable !== it.editable) { ex.editable = it.editable; nB++; }
+        return;
       }
+      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable });
+      haveB.add(it.browseId); nB++;
     });
     if (nB) { localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
     if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
@@ -1692,7 +1722,7 @@ $("plgo").onclick = async () => {
     } else {
       const d = await (await fetch("/plcreate?title=" + encodeURIComponent(title) + "&desc=" + encodeURIComponent(desc) + "&privacy=" + getPriv())).json();
       if (d.error || !d.id) throw d.error || "YT Music no devolvió id";
-      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now() };
+      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now(), editable: true };
       const lib = getLibrary(); lib.unshift(entry);
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       toast("Playlist creada en tu cuenta");
@@ -1702,10 +1732,35 @@ $("plgo").onclick = async () => {
   } catch (e) { toast("Error: " + e); }
   $("plgo").disabled = false;
 };
+/* modal generico de confirmacion/entrada (sustituye a prompt()/confirm() nativos) */
+let _askRes = null;
+function askModal(o) {
+  return new Promise(res => {
+    _askRes = res;
+    $("askico").className = "ph " + (o.icon || "ph-question");
+    $("asktit").textContent = o.title || "";
+    $("askmsg").textContent = o.message || "";
+    $("askmsg").style.display = o.message ? "" : "none";
+    const inp = $("askinput");
+    inp.hidden = !o.input; inp.value = ""; inp.placeholder = o.placeholder || "";
+    const ok = $("askok");
+    ok.textContent = o.okLabel || "Aceptar";
+    ok.classList.toggle("danger", !!o.danger);
+    $("askmodal").hidden = false;
+    if (o.input) inp.focus();
+  });
+}
+function _askEnd(v) { $("askmodal").hidden = true; if (_askRes) { _askRes(v); _askRes = null; } }
+$("askok").onclick = () => _askEnd($("askinput").hidden ? true : ($("askinput").value.trim() || null));
+$("askcancel").onclick = () => _askEnd(null);
+$("askclose").onclick = () => _askEnd(null);
+$("askmodal").onclick = (e) => { if (e.target === $("askmodal")) _askEnd(null); };
+$("askinput").onkeydown = (e) => { if (e.key === "Enter") $("askok").click(); };
+
 function openPlPicker(s, x, y, li) {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }
   const opts = [["ph-plus", "Nueva playlist…", () => openPlModal()]];
-  getLibrary().filter(e => e.kind === "playlists").slice(0, 12)
+  getLibrary().filter(e => e.kind === "playlists" && e.editable).slice(0, 12)   // solo propias/colaborativas
     .forEach(p => opts.push(["ph-playlist", p.title, () => addToPl(p, s)]));
   showMenu(opts, x, y, li);
 }
@@ -1741,12 +1796,16 @@ function openCollabMenu(entry, x, y) {
   ], x, y);
 }
 async function joinCollabPl() {
-  const link = prompt("Pega el enlace de invitación (music.youtube.com/playlist?list=...&jct=...):");
+  const link = await askModal({
+    title: "Unirse a playlist colaborativa", icon: "ph-user-plus", input: true,
+    message: "Pega el enlace de invitación que te compartieron.",
+    placeholder: "https://music.youtube.com/playlist?list=...&jct=...", okLabel: "Unirse",
+  });
   if (!link) return;
   try {
     const d = await (await fetch("/pljoin?link=" + encodeURIComponent(link))).json();
     if (d.error) throw d.error;
-    const entry = { id: "VL" + d.id, kind: "playlists", title: d.title, subtitle: "Playlist colaborativa", cover: d.cover || "", ts: Date.now() };
+    const entry = { id: "VL" + d.id, kind: "playlists", title: d.title, subtitle: "Playlist colaborativa", cover: d.cover || "", ts: Date.now(), editable: true };
     const lib = getLibrary().filter(x => x.id !== entry.id); lib.unshift(entry);
     localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
     toast("Te uniste a " + d.title);
@@ -1763,7 +1822,11 @@ async function removeFromPl(s) {
   } catch (e) { toast("" + e); }
 }
 async function deletePl(entry) {
-  if (!confirm('Eliminar "' + entry.title + '" de tu cuenta de YT Music? No se puede deshacer.')) return;
+  const ok = await askModal({
+    title: "Eliminar playlist", icon: "ph-trash", danger: true, okLabel: "Eliminar",
+    message: 'Se eliminará "' + entry.title + '" de tu cuenta de YouTube Music. No se puede deshacer.',
+  });
+  if (!ok) return;
   try {
     const d = await (await fetch("/pldelete?id=" + encodeURIComponent(entry.id.replace(/^VL/, "")))).json();
     if (d.error) throw d.error;

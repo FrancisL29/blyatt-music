@@ -193,6 +193,15 @@
     color: var(--text); font: inherit; font-size: .84rem; cursor: pointer; transition: background .15s, border-color .15s; }
   .impgrid button:hover { background: rgb(255 255 255 / .09); border-color: rgb(255 255 255 / .22); }
   .impgrid button i { font-size: 1.7rem; }
+  .implist { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .implist h4 { margin: 10px 0 4px; font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .improw { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 8px; cursor: pointer; }
+  .improw:hover { background: rgb(255 255 255 / .05); }
+  .improw input { accent-color: var(--accent); flex: none; }
+  .improw img { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; background: #1a1a20; flex: none; }
+  .improw .it { min-width: 0; }
+  .improw .it b { display: block; font-size: .86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .improw .it span { font-size: .74rem; color: var(--muted); }
   .askrow { display: flex; gap: 10px; }
   .askrow .gbtn { flex: 1; }
   .gbtn.ghost { background: rgb(255 255 255 / .07); color: var(--text); border: 1px solid rgb(255 255 255 / .12); }
@@ -704,16 +713,27 @@
   <div class="gbox">
     <button class="gclose" id="impclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
     <h3><i class="ph ph-download-simple"></i> Importar biblioteca</h3>
-    <p class="ghint" style="margin:0 0 12px">Trae tus playlists y me gusta desde otra plataforma. Elige el origen:</p>
-    <div class="impgrid">
-      <button data-platform="spotify"><i class="ph ph-spotify-logo"></i>Spotify</button>
-      <button data-platform="apple"><i class="ph ph-apple-logo"></i>Apple Music</button>
-      <button data-platform="amazon"><i class="ph ph-amazon-logo"></i>Amazon Music</button>
-      <button data-platform="tidal"><i class="ph ph-wave-sine"></i>Tidal</button>
-      <button data-platform="deezer"><i class="ph ph-music-notes"></i>Deezer</button>
-      <button data-platform="csv"><i class="ph ph-file-csv"></i>Archivo CSV</button>
+    <div id="impstep1">
+      <p class="ghint" style="margin:0 0 12px">Trae tus playlists y me gusta desde otra plataforma. Elige el origen:</p>
+      <div class="impgrid">
+        <button data-platform="spotify"><i class="ph ph-spotify-logo"></i>Spotify</button>
+        <button data-platform="apple"><i class="ph ph-apple-logo"></i>Apple Music</button>
+        <button data-platform="amazon"><i class="ph ph-amazon-logo"></i>Amazon Music</button>
+        <button data-platform="tidal"><i class="ph ph-wave-sine"></i>Tidal</button>
+        <button data-platform="deezer"><i class="ph ph-music-notes"></i>Deezer</button>
+        <button data-platform="csv"><i class="ph ph-file-csv"></i>Archivo CSV</button>
+      </div>
+      <p class="ghint" style="margin:12px 0 0">Las canciones se buscarán en YouTube Music y se añadirán a tu cuenta.</p>
     </div>
-    <p class="ghint" style="margin:12px 0 0">Las canciones se buscarán en YouTube Music y se añadirán a tu cuenta.</p>
+    <div id="impstep2" hidden>
+      <p class="ghint" id="imphint" style="margin:0 0 10px"></p>
+      <div id="implist" class="implist"></div>
+      <p class="ghint" id="impprog" style="margin:10px 0 0" hidden></p>
+      <div class="askrow" style="margin-top:14px">
+        <button class="gbtn ghost" id="impback">Volver</button>
+        <button class="gbtn" id="impgo">Importar selección</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1817,6 +1837,7 @@ $("askinput").onkeydown = (e) => { if (e.key === "Enter") $("askok").click(); };
 const IMP_NAMES = { spotify: "Spotify", apple: "Apple Music", amazon: "Amazon Music", tidal: "Tidal", deezer: "Deezer", csv: "CSV" };
 function openImportModal() {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para importar"); return; }
+  _impStep(1);
   $("impmodal").hidden = false;
 }
 $("impclose").onclick = () => { $("impmodal").hidden = true; };
@@ -1825,9 +1846,100 @@ document.querySelectorAll(".impgrid button").forEach(b => {
   b.onclick = () => importFrom(b.dataset.platform);
 });
 function importFrom(platform) {
-  // TODO: implementacion por plataforma (CSV parse / scraping de playlist publica / API)
+  if (platform === "spotify") { spotFlow(); return; }
+  // TODO: resto de plataformas (CSV parse / API)
   toast("Importar desde " + (IMP_NAMES[platform] || platform) + ": próximamente");
 }
+
+/* ---------- importacion desde Spotify ----------
+   login real (ventana pywebview, main.py) -> /spot/lib lista la biblioteca -> checklist ->
+   /spot/import por seleccion (backend matchea cada pista en YT Music y crea/likea/suscribe) */
+function _impStep(n) { $("impstep1").hidden = n !== 1; $("impstep2").hidden = n !== 2; }
+$("impback").onclick = () => _impStep(1);
+async function spotFlow() {
+  $("imphint").textContent = "Conectando con Spotify...";
+  $("implist").innerHTML = ""; $("impprog").hidden = true; $("impgo").disabled = false;
+  _impStep(2);
+  try {
+    let st = await jget("/spot/status");
+    if (!st.logged_in) {
+      const r = await jget("/spot/login");
+      if (r.error) throw r.error;
+      $("imphint").textContent = "Inicia sesión en la ventana de Spotify...";
+      for (let i = 0; i < 90 && !st.logged_in; i++) {   // 3 min max
+        await new Promise(res => setTimeout(res, 2000));
+        if ($("impmodal").hidden) return;   // usuario cerro el modal: abandona
+        st = await jget("/spot/status");
+      }
+      if (!st.logged_in) throw "No se detectó la sesión de Spotify";
+    }
+    $("imphint").textContent = "Cargando biblioteca de " + (st.name || "Spotify") + "...";
+    const d = await jget("/spot/lib");
+    if (d.error) throw d.error;
+    renderSpotPicker(d);
+  } catch (e) { $("imphint").textContent = "Error: " + e; }
+}
+function _improw(kind, id, title, sub, cover, checked) {
+  const l = document.createElement("label"); l.className = "improw";
+  l.innerHTML = '<input type="checkbox"><img alt=""><div class="it"><b></b><span></span></div>';
+  const inp = l.querySelector("input");
+  inp.checked = !!checked;
+  Object.assign(inp.dataset, { kind, id, title });
+  const im = l.querySelector("img");
+  if (cover) im.src = cover; else im.remove();
+  l.querySelector("b").textContent = title;
+  l.querySelector("span").textContent = sub || "";
+  return l;
+}
+function renderSpotPicker(d) {
+  $("imphint").textContent = "Elige qué importar a tu cuenta de YouTube Music:";
+  const box = $("implist"); box.innerHTML = "";
+  const sec = (t) => { const h = document.createElement("h4"); h.textContent = t; box.appendChild(h); };
+  if (d.liked) {
+    sec("Me gusta");
+    box.appendChild(_improw("liked", "", "Canciones que te gustan", d.liked + " canciones", "", true));
+  }
+  if ((d.playlists || []).length) {
+    sec("Playlists");
+    d.playlists.forEach(p => box.appendChild(_improw("playlist", p.id, p.title, (p.count ? p.count + " canciones" : "") + (p.owner ? " • " + p.owner : ""), p.cover)));
+  }
+  if ((d.albums || []).length) {
+    sec("Álbumes");
+    d.albums.forEach(a => box.appendChild(_improw("album", a.id, a.title, a.artist, a.cover)));
+  }
+  if ((d.artists || []).length) {
+    sec("Artistas");
+    d.artists.forEach(a => box.appendChild(_improw("artist", a.id, a.title, "Artista", a.cover)));
+  }
+  if (!box.children.length) $("imphint").textContent = "Tu biblioteca de Spotify está vacía.";
+}
+$("impgo").onclick = async () => {
+  const sel = [...document.querySelectorAll("#implist input:checked")].map(i => i.dataset);
+  if (!sel.length) { toast("No hay nada seleccionado"); return; }
+  $("impgo").disabled = true; $("impback").disabled = true;
+  const prog = $("impprog"); prog.hidden = false;
+  let okN = 0, missN = 0, failN = 0;
+  // poll de progreso intra-item (matching de pistas en el backend)
+  const t = setInterval(async () => {
+    try {
+      const p = await jget("/spot/progress");
+      if (p.active && p.total) prog.textContent = `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
+    } catch (e) {}
+  }, 900);
+  for (let i = 0; i < sel.length; i++) {
+    const s = sel[i];
+    prog.textContent = `Importando "${s.title}" (${i + 1}/${sel.length})...`;
+    try {
+      const r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title));
+      if (r.error) { failN++; continue; }
+      okN += r.added || 0; missN += r.missed || 0;
+    } catch (e) { failN++; }
+  }
+  clearInterval(t);
+  prog.textContent = `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".";
+  $("impgo").disabled = false; $("impback").disabled = false;
+  _ytSynced = false; syncYtLibrary();   // refleja lo importado en la biblioteca local
+};
 
 function openPlPicker(s, x, y, li) {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }

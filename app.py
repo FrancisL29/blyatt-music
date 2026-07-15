@@ -1368,6 +1368,190 @@ def pl_remove(pid, vid):
     return {"ok": True}
 
 
+# ---------- importacion desde Spotify ----------
+# login real en ventana pywebview (main.py inyecta SPOTLOGIN); el token sale del script #session
+# del web player (open.spotify.com) y vale ~1h: suficiente para una importacion. Sin API key.
+SPOT_API = "https://api.spotify.com/v1/"
+SPOTLOGIN = None
+_spot_tok = ""
+_imp_prog = {"active": False, "label": "", "done": 0, "total": 0}
+
+
+def _spot_req(path, tok=None):
+    req = urllib.request.Request(SPOT_API + path if not path.startswith("http") else path,
+                                 headers={"Authorization": "Bearer " + (tok or _spot_tok)})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def spot_set_token(tok):
+    # valida contra /me antes de aceptar (el web player tambien emite tokens anonimos)
+    global _spot_tok
+    try:
+        if tok and (_spot_req("me", tok) or {}).get("id"):
+            _spot_tok = tok
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def spot_status():
+    if not _spot_tok:
+        return {"logged_in": False}
+    try:
+        me = _spot_req("me")
+        return {"logged_in": True, "name": me.get("display_name", "")}
+    except Exception:
+        return {"logged_in": False}   # token caducado: el frontend relanza /spot/login
+
+
+def _spot_all(path, key=None, cap=1000):
+    out, url = [], path
+    while url and len(out) < cap:
+        d = _spot_req(url)
+        if key:
+            d = d.get(key) or {}
+        out += d.get("items") or []
+        url = d.get("next") or None
+    return out[:cap]
+
+
+def _spot_img(x):
+    im = (x or {}).get("images") or []
+    return im[-1]["url"] if im else ""
+
+
+def spot_lib():
+    if not _spot_tok:
+        return {"error": "Sin sesión de Spotify"}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        fpl = ex.submit(_spot_all, "me/playlists?limit=50", None, 200)
+        fal = ex.submit(_spot_all, "me/albums?limit=50", None, 200)
+        far = ex.submit(_spot_all, "me/following?type=artist&limit=50", "artists", 200)
+        fli = ex.submit(_spot_req, "me/tracks?limit=1")
+    out = {"playlists": [], "albums": [], "artists": [], "liked": 0}
+    try:
+        out["playlists"] = [{"id": p["id"], "title": p.get("name", ""), "cover": _spot_img(p),
+                             "count": (p.get("tracks") or {}).get("total", 0),
+                             "owner": (p.get("owner") or {}).get("display_name", "")}
+                            for p in fpl.result() if p and p.get("id")]
+    except Exception:
+        pass
+    try:
+        out["albums"] = [{"id": a["album"]["id"], "title": a["album"].get("name", ""),
+                          "cover": _spot_img(a["album"]),
+                          "artist": ", ".join(x.get("name", "") for x in a["album"].get("artists") or [])}
+                         for a in fal.result() if a and a.get("album", {}).get("id")]
+    except Exception:
+        pass
+    try:
+        out["artists"] = [{"id": a["id"], "title": a.get("name", ""), "cover": _spot_img(a)}
+                          for a in far.result() if a and a.get("id")]
+    except Exception:
+        pass
+    try:
+        out["liked"] = (fli.result() or {}).get("total", 0)
+    except Exception:
+        pass
+    return out
+
+
+def _spot_match(y, title, artists):
+    # mejor videoId de YT Music para una pista de Spotify (titulo+artista, similitud difflib)
+    try:
+        res = y.search((title + " " + artists).strip(), filter="songs", limit=5) or []
+    except Exception:
+        return None
+    tl, al = title.lower(), artists.lower()
+    best, bs = None, 0.0
+    for r in res[:5]:
+        vid = r.get("videoId")
+        if not vid:
+            continue
+        s = difflib.SequenceMatcher(None, tl, (r.get("title") or "").lower()).ratio()
+        ra = ", ".join(a.get("name", "") for a in r.get("artists") or []).lower()
+        if ra and al and (ra.split(",")[0].strip() in al or al.split(",")[0].strip() in ra):
+            s += .25
+        if s > bs:
+            bs, best = s, vid
+    return best if bs >= .55 else None
+
+
+def _spot_tracks_of(kind, sid, cap=500):
+    if kind == "liked":
+        items = _spot_all("me/tracks?limit=50", None, cap)
+    elif kind == "playlist":
+        items = _spot_all("playlists/%s/tracks?limit=100" % sid, None, cap)
+    else:
+        return []
+    out = []
+    for it in items:
+        t = (it or {}).get("track") or {}
+        if t.get("name"):
+            out.append((t["name"], ", ".join(a.get("name", "") for a in t.get("artists") or [])))
+    return out
+
+
+def _match_all(y, pairs):
+    # matching en paralelo conservando orden; actualiza _imp_prog
+    vids = [None] * len(pairs)
+    def work(i):
+        vids[i] = _spot_match(y, pairs[i][0], pairs[i][1])
+        _imp_prog["done"] += 1
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(work, range(len(pairs))))
+    return [v for v in vids if v]
+
+
+def spot_import(kind, sid, title):
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    if not _spot_tok:
+        return {"error": "Sin sesión de Spotify"}
+    _imp_prog.update(active=True, label=title or kind, done=0, total=0)
+    try:
+        if kind == "artist":
+            r = (y.search(title, filter="artists", limit=5) or [{}])[0]
+            bid = r.get("browseId")
+            if not bid:
+                return {"error": "No encontrado en YT Music: " + title}
+            y.subscribe_artists([bid])
+            _CACHE.pop("ytlib", None)
+            return {"ok": True, "added": 1, "missed": []}
+        if kind == "album":
+            r = (y.search(title, filter="albums", limit=5) or [{}])[0]
+            bid = r.get("browseId")
+            if not bid:
+                return {"error": "No encontrado en YT Music: " + title}
+            lib_save(bid, "albums", True)
+            return {"ok": True, "added": 1, "missed": []}
+        pairs = _spot_tracks_of(kind, sid)
+        if not pairs:
+            return {"error": "Sin canciones que importar"}
+        _imp_prog.update(total=len(pairs))
+        vids = _match_all(y, pairs)
+        missed = len(pairs) - len(vids)
+        if kind == "liked":
+            def like(v):
+                try:
+                    y.rate_song(v, "LIKE")
+                except Exception:
+                    pass
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                list(ex.map(like, vids))
+        else:
+            if not vids:
+                return {"error": "Ninguna canción encontrada en YT Music"}
+            y.create_playlist(title or "Importada de Spotify", "Importada de Spotify",
+                              privacy_status="PRIVATE", video_ids=vids)
+        _CACHE.pop("ytlib", None)
+        return {"ok": True, "added": len(vids), "missed": missed}
+    finally:
+        _imp_prog.update(active=False)
+
+
 def rate_song(video_id, like):
     # like en la app -> me gusta en la cuenta de YT Music del usuario
     y = ytm()
@@ -1469,7 +1653,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path in ("/ytlib", "/rate", "/libsave"):
+        if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path.startswith("/spot/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
                     if parse_qs(u.query).get("fresh"):
@@ -1493,6 +1677,22 @@ class H(BaseHTTPRequestHandler):
                     return self._json(lib_save(qs.get("id", [""])[0],
                                                qs.get("kind", [""])[0],
                                                qs.get("save", ["1"])[0] == "1"))
+                if u.path.startswith("/spot/"):
+                    qs = parse_qs(u.query)
+                    g = lambda k: qs.get(k, [""])[0]
+                    if u.path == "/spot/login":
+                        if not SPOTLOGIN:
+                            return self._json({"error": "Solo disponible en la app de escritorio (Blyatt.bat / py main.py)"})
+                        SPOTLOGIN()
+                        return self._json({"ok": True})
+                    if u.path == "/spot/status":
+                        return self._json(spot_status())
+                    if u.path == "/spot/lib":
+                        return self._json(spot_lib())
+                    if u.path == "/spot/progress":
+                        return self._json(_imp_prog)
+                    if u.path == "/spot/import":
+                        return self._json(spot_import(g("kind"), g("id"), g("title")))
                 if u.path.startswith("/pl"):
                     qs = parse_qs(u.query)
                     g = lambda k: qs.get(k, [""])[0]

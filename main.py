@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Blyatt - app de escritorio. Sirve la web local y la abre en una ventana nativa (pywebview)."""
+import json
 import os
 import threading
 import time
@@ -11,6 +12,7 @@ from app import serve
 
 PORT = 8000
 LOGIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
+SPOT_URL = "https://open.spotify.com/"
 
 
 def _cookie_header(cookie_list):
@@ -56,8 +58,36 @@ def google_login(silent=False):
     threading.Thread(target=poll, daemon=True).start()
 
 
+def spotify_login():
+    # ventana con el web player real de Spotify (perfil WebView2 persistente: la sesion se reusa).
+    # El token de acceso viene embebido en el script #session de open.spotify.com; los tokens
+    # anonimos se descartan (app.spot_set_token valida contra /v1/me). Si no hay sesion, el
+    # usuario pulsa "Log in" en la propia pagina; el poll captura el token tras el login.
+    w = webview.create_window("Conectar con Spotify", SPOT_URL, width=990, height=760)
+
+    def poll():
+        for _ in range(600):   # 20 min max para login manual
+            time.sleep(2)
+            try:
+                if "open.spotify.com" not in (w.get_current_url() or ""):
+                    continue
+                raw = w.evaluate_js("(document.getElementById('session')||{}).textContent || ''")
+                tok = (json.loads(raw) or {}).get("accessToken", "") if raw else ""
+                if tok and app.spot_set_token(tok):
+                    break
+            except Exception:
+                pass
+        try:
+            w.destroy()
+        except Exception:
+            pass
+
+    threading.Thread(target=poll, daemon=True).start()
+
+
 if __name__ == "__main__":
     app.WEBLOGIN = google_login
+    app.SPOTLOGIN = spotify_login
     httpd = serve(PORT)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     webview.create_window("Blyatt", f"http://127.0.0.1:{PORT}",

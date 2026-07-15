@@ -886,7 +886,7 @@ function toggleLibrary(entry) {
   let list = getLibrary();
   const saving = !list.some(x => x.id === entry.id);
   if (!saving) { list = list.filter(x => x.id !== entry.id); toast("Quitado de tu biblioteca"); }
-  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "", ts: Date.now() }); toast("Guardado en tu biblioteca"); }
+  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "", creator: entry.creator || "", ts: Date.now() }); toast("Guardado en tu biblioteca"); }
   localStorage.setItem("lightning.library", JSON.stringify(list));
   renderLibrary();
   document.querySelectorAll(".savebtn").forEach(b => { if (b._sync) b._sync(); });
@@ -913,7 +913,11 @@ function renderLibrary() {
     b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
     const im = b.querySelector("img"); im.src = e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : ""); im.classList.add(e.kind || "");
     b.querySelector(".lt2").textContent = e.title;
-    b.querySelector(".la2").textContent = e.subtitle || (e.kind === "artists" ? "Artista" : e.kind === "albums" ? "Álbum" : "Playlist");
+    // subtitulo = tipo (+ autor): Artista / Álbum • Artista / Playlist • Usuario
+    const owner = e.creator || "";
+    b.querySelector(".la2").textContent = e.kind === "artists" ? "Artista"
+      : e.kind === "albums" ? "Álbum" + (owner ? " • " + owner : "")
+      : "Playlist" + (owner ? " • " + owner : "");
     b.onclick = () => e.kind === "artists" ? openArtist(e.id, true, { title: e.title, cover: e.cover })
       : openCollection(e.id, true, { kind: e.kind, title: e.title, subtitle: e.subtitle, cover: e.cover });
     b.oncontextmenu = (ev) => { ev.preventDefault(); openCardMenu(e, ev.clientX, ev.clientY); };
@@ -935,7 +939,7 @@ function libEntryFrom(it) {   // normaliza card de busqueda/carrusel/version O e
   const id = it.browseId || it.id; if (!id) return null;
   const kind = it.kind === "artists" || id.startsWith("UC") ? "artists"
     : (it.kind === "playlists" || id.startsWith("VL")) ? "playlists" : "albums";
-  return { id, kind, title: it.title, subtitle: it.subtitle, cover: it.cover };
+  return { id, kind, title: it.title, subtitle: it.subtitle, cover: it.cover, creator: it.creator || "" };
 }
 
 /* ---------- helpers ---------- */
@@ -1642,11 +1646,12 @@ async function syncYtLibrary() {
     [].concat(d.playlists || [], d.albums || [], d.artists || []).forEach(it => {
       if (!it.browseId) return;
       const ex = lib.find(x => x.id === it.browseId);
-      if (ex) {   // refresca el flag editable de entradas ya presentes (propia vs ajena guardada)
+      if (ex) {   // refresca editable y creator de entradas ya presentes
         if (it.editable !== undefined && ex.editable !== it.editable) { ex.editable = it.editable; nB++; }
+        if (it.creator && ex.creator !== it.creator) { ex.creator = it.creator; nB++; }
         return;
       }
-      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable });
+      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "" });
       haveB.add(it.browseId); nB++;
     });
     if (nB) { localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
@@ -1748,7 +1753,7 @@ $("plgo").onclick = async () => {
     } else {
       const d = await (await fetch("/plcreate?title=" + encodeURIComponent(title) + "&desc=" + encodeURIComponent(desc) + "&privacy=" + getPriv())).json();
       if (d.error || !d.id) throw d.error || "YT Music no devolvió id";
-      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now(), editable: true };
+      const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now(), editable: true, creator: _authSt.name || "Tú" };
       const lib = getLibrary(); lib.unshift(entry);
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       toast("Playlist creada en tu cuenta");
@@ -1831,7 +1836,7 @@ async function joinCollabPl() {
   try {
     const d = await (await fetch("/pljoin?link=" + encodeURIComponent(link))).json();
     if (d.error) throw d.error;
-    const entry = { id: "VL" + d.id, kind: "playlists", title: d.title, subtitle: "Playlist colaborativa", cover: d.cover || "", ts: Date.now(), editable: true };
+    const entry = { id: "VL" + d.id, kind: "playlists", title: d.title, subtitle: "Playlist colaborativa", cover: d.cover || "", ts: Date.now(), editable: true, creator: d.creator || "" };
     const lib = getLibrary().filter(x => x.id !== entry.id); lib.unshift(entry);
     localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
     toast("Te uniste a " + d.title);
@@ -2015,7 +2020,10 @@ function markPlaying() {
   document.querySelectorAll(sel).forEach(li => li.classList.add("playing"));
   syncPlayIcons();
 }
-function togglePlay() { audio.paused ? audio.play() : audio.pause(); }
+function togglePlay() {
+  if (current && !eng.buf) { playSong(current, true); return; }   // arranque en frio: la ultima cancion restaurada aun no esta cargada
+  audio.paused ? audio.play() : audio.pause();
+}
 
 function nextIndex() {
   if (!queue.length) return -1;
@@ -2305,6 +2313,14 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
 });
 
 renderLibrary();
+// al iniciar, el player muestra la ultima cancion escuchada (pausada; togglePlay hace el arranque en frio)
+(() => {
+  const s = getRecents()[0];
+  if (!s || !s.id) return;
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+  queue = [s]; qIndex = 0;
+  paintPlayer(s); applyAccent(s.cover); refreshLikeUI();
+})();
 setView("home", false);   // Inicio = ventana principal (al final: tras definir todo)
 </script>
 </body>

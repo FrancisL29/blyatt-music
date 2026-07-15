@@ -1349,7 +1349,8 @@ def pl_join(link):
         pass
     th = d.get("thumbnails") or []
     return {"ok": True, "id": pid, "title": d.get("title", "Playlist colaborativa"),
-            "cover": th[-1]["url"] if th else ""}
+            "cover": th[-1]["url"] if th else "",
+            "creator": (d.get("author") or {}).get("name", "")}
 
 
 def pl_remove(pid, vid):
@@ -1428,9 +1429,10 @@ def yt_library():
                 aus = [aus]
             # propia si no expone autor o el autor es la cuenta; ajenas guardadas -> editable False
             own = not aus or any((a.get("name") or "") == acct for a in aus if isinstance(a, dict))
+            creator = ", ".join(a.get("name", "") for a in aus if isinstance(a, dict) and a.get("name")) or acct
             out.append({"browseId": "VL" + pid, "kind": "playlists", "title": p.get("title", ""),
                         "subtitle": ("%s canciones" % n) if n else "Playlist", "cover": _yt_thumb(p),
-                        "editable": own})
+                        "editable": own, "creator": creator})
         return out
 
     def artists():
@@ -1440,7 +1442,8 @@ def yt_library():
 
     def albums():
         return [{"browseId": a["browseId"], "kind": "albums", "title": a.get("title", ""),
-                 "subtitle": _yt_artists(a) or str(a.get("year", "")), "cover": _yt_thumb(a)}
+                 "subtitle": _yt_artists(a) or str(a.get("year", "")), "cover": _yt_thumb(a),
+                 "creator": _yt_artists(a)}
                 for a in y.get_library_albums(limit=50) if a.get("browseId")]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:

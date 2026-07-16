@@ -2,9 +2,12 @@
 """Buscador de YouTube Music sin API key. Proxy + estaticos en stdlib."""
 import concurrent.futures
 import difflib
+import hashlib
+import hmac
 import json
 import os
 import re
+import struct
 import time
 import urllib.error
 import urllib.request
@@ -1370,22 +1373,29 @@ def pl_remove(pid, vid):
 
 
 # ---------- importacion desde Spotify ----------
-# login real en ventana pywebview (main.py inyecta SPOTLOGIN); el Bearer del web player se intercepta
-# de las peticiones nativas (WebResourceRequested) y vale ~1h. Sin API key. Se persiste en disco
-# (spotify.json) para no re-loguear entre reinicios mientras el token siga vivo.
+# Sin API key. main.py abre el web player, el usuario inicia sesion y extraemos la cookie sp_dc
+# (via get_cookies, API oficial de pywebview). Con sp_dc generamos el access token nosotros:
+# Spotify exige un TOTP (time-based) en /api/token -> lo calculamos en Python (algoritmo del web
+# player). sp_dc dura ~1 anio -> se persiste y regeneramos el token bajo demanda: LOGIN PERSISTENTE,
+# sin re-loguear entre reinicios. El token de acceso vive ~1h y se refresca solo desde sp_dc.
 SPOT_API = "https://api.spotify.com/v1/"
 SPOT_FILE = os.path.join(AUTH_DIR, "spotify.json")
+# cifrado del secreto TOTP del web player (version 14, la vigente). Si Spotify lo rota, actualizar.
+SPOT_SECRET_CIPHER = [62, 54, 109, 83, 107, 77, 41, 103, 45, 93, 114, 38, 41, 97, 64, 51, 95, 94, 95, 94]
+SPOT_TOTP_VER = 14
 SPOTLOGIN = None
 _spot_tok = ""
-_spot_exp = 0.0   # epoch de caducidad estimada del token (~1h)
+_spot_exp = 0.0   # epoch de caducidad del access token (~1h)
+_spot_dc = ""     # cookie sp_dc (durable ~1 anio): fuente para regenerar tokens
 _imp_prog = {"active": False, "label": "", "done": 0, "total": 0}
 
 
 def _spot_load():
-    global _spot_tok, _spot_exp
+    global _spot_tok, _spot_exp, _spot_dc
     try:
         with open(SPOT_FILE, encoding="utf-8") as f:
             d = json.load(f)
+        _spot_dc = d.get("sp_dc", "") or ""
         if d.get("token") and float(d.get("exp", 0)) > time.time() + 60:
             _spot_tok, _spot_exp = d["token"], float(d["exp"])
     except Exception:
@@ -1396,9 +1406,101 @@ def _spot_save():
     try:
         os.makedirs(AUTH_DIR, exist_ok=True)
         with open(SPOT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"token": _spot_tok, "exp": _spot_exp}, f)
+            json.dump({"token": _spot_tok, "exp": _spot_exp, "sp_dc": _spot_dc}, f)
     except Exception:
         pass
+
+
+def _spot_totp(ts):
+    # TOTP del web player de Spotify: XOR del cifrado -> clave HMAC-SHA1, 6 digitos, ventana 30s
+    key = "".join(str(e ^ ((i % 33) + 9)) for i, e in enumerate(SPOT_SECRET_CIPHER)).encode()
+    h = hmac.new(key, struct.pack(">Q", int(ts) // 30), hashlib.sha1).digest()
+    o = h[-1] & 15
+    return "%06d" % ((int.from_bytes(h[o:o + 4], "big") & 0x7fffffff) % 1000000)
+
+
+def _spot_cookie_get(url, sp_dc):
+    req = urllib.request.Request(url, headers={
+        "Cookie": "sp_dc=" + sp_dc, "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json", "App-Platform": "WebPlayer",
+        "Referer": "https://open.spotify.com/",
+    })
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+
+def _spot_token_from_dc(sp_dc):
+    # genera un access token a partir de sp_dc + TOTP (mismo flujo que el web player)
+    try:
+        st = _spot_cookie_get("https://open.spotify.com/server-time", sp_dc)
+        ts = int((st or {}).get("serverTime") or time.time())
+    except Exception:
+        ts = int(time.time())
+    otp = _spot_totp(ts)
+    url = ("https://open.spotify.com/api/token?reason=transport&productType=web-player"
+           "&totp=%s&totpServer=%s&totpVer=%d" % (otp, otp, SPOT_TOTP_VER))
+    d = _spot_cookie_get(url, sp_dc)
+    return (d or {}).get("accessToken", ""), (d or {}).get("accessTokenExpirationTimestampMs", 0)
+
+
+def _spot_dbg(msg):
+    # diagnostico del flujo sp_dc -> token (auth/spot_debug.log). Se puede borrar cuando funcione.
+    try:
+        os.makedirs(AUTH_DIR, exist_ok=True)
+        with open(os.path.join(AUTH_DIR, "spot_debug.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%H:%M:%S ") + str(msg) + "\n")
+    except Exception:
+        pass
+
+
+def spot_set_dc(sp_dc):
+    # main.py entrega la cookie sp_dc extraida de la ventana de login; genera y valida el token
+    global _spot_tok, _spot_exp, _spot_dc
+    if not sp_dc:
+        _spot_dbg("sp_dc vacio (login aun no completo)")
+        return False
+    try:
+        tok, exp_ms = _spot_token_from_dc(sp_dc)
+        if not tok:
+            _spot_dbg("api/token no devolvio accessToken")
+            return False
+        if (_spot_req("me", tok) or {}).get("id"):
+            _spot_tok = tok
+            _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
+            _spot_dc = sp_dc
+            _spot_save()
+            _spot_dbg("TOKEN OK -> sesion Spotify lista")
+            return True
+        _spot_dbg("token generado pero /me lo rechazo")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:120]
+        except Exception:
+            pass
+        _spot_dbg("HTTP %s en flujo token: %s" % (e.code, body))
+    except Exception as e:
+        _spot_dbg("err: " + str(e)[:120])
+    return False
+
+
+def _spot_ensure():
+    # asegura un access token vivo; si caduco pero hay sp_dc, lo regenera (login persistente)
+    global _spot_tok, _spot_exp
+    if _spot_tok and _spot_exp > time.time() + 30:
+        return True
+    if not _spot_dc:
+        return bool(_spot_tok)
+    try:
+        tok, exp_ms = _spot_token_from_dc(_spot_dc)
+        if tok:
+            _spot_tok = tok
+            _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
+            _spot_save()
+            return True
+    except Exception:
+        pass
+    return bool(_spot_tok)
 
 
 def _spot_req(path, tok=None):
@@ -1416,29 +1518,14 @@ def _spot_req(path, tok=None):
     raise RuntimeError("Spotify rate limit persistente")
 
 
-def spot_set_token(tok):
-    # valida contra /me antes de aceptar (el web player tambien emite tokens anonimos/de cliente)
-    global _spot_tok, _spot_exp
-    if not tok or tok == _spot_tok:
-        return bool(tok) and tok == _spot_tok   # ya aceptado: evita revalidar el mismo token en cada request
-    try:
-        if (_spot_req("me", tok) or {}).get("id"):
-            _spot_tok, _spot_exp = tok, time.time() + 3300   # ~55 min de margen
-            _spot_save()
-            return True
-    except Exception:
-        pass
-    return False
-
-
 def spot_status():
-    if not _spot_tok:
+    if not _spot_ensure():
         return {"logged_in": False}
     try:
         me = _spot_req("me")
         return {"logged_in": True, "name": me.get("display_name", "")}
     except Exception:
-        return {"logged_in": False}   # token caducado: el frontend relanza /spot/login
+        return {"logged_in": False}
 
 
 def _spot_all(path, key=None, cap=100000):
@@ -1458,7 +1545,7 @@ def _spot_img(x):
 
 
 def spot_lib():
-    if not _spot_tok:
+    if not _spot_ensure():
         return {"error": "Sin sesión de Spotify"}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         fpl = ex.submit(_spot_all, "me/playlists?limit=50")
@@ -1544,7 +1631,7 @@ def spot_import(kind, sid, title):
     y = ytm()
     if not y:
         return {"error": "Sin sesión de Google"}
-    if not _spot_tok:
+    if not _spot_ensure():
         return {"error": "Sin sesión de Spotify"}
     _imp_prog.update(active=True, label=title or kind, done=0, total=0)
     try:

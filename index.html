@@ -734,6 +734,7 @@
         <button class="gbtn" id="impgo">Importar selección</button>
       </div>
     </div>
+    <input type="file" id="impfile" accept=".csv" multiple hidden>
   </div>
 </div>
 
@@ -1847,9 +1848,62 @@ document.querySelectorAll(".impgrid button").forEach(b => {
 });
 function importFrom(platform) {
   if (platform === "spotify") { spotFlow(); return; }
-  // TODO: resto de plataformas (CSV parse / API)
+  if (platform === "csv") { $("impfile").click(); return; }
+  // TODO: resto de plataformas
   toast("Importar desde " + (IMP_NAMES[platform] || platform) + ": próximamente");
 }
+
+/* ---------- importacion por CSV (formato exportify y compatibles) ----------
+   parser CSV completo (comillas, comas y saltos de linea internos); detecta columnas
+   "Track Name"/"Artist Name(s)" por cabecera, fallback a indices 1/3 de exportify */
+function parseCSV(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else cell += c;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+const _csvData = new Map();   // id temporal -> {title, tracks:[[titulo, artistas]]}
+function csvTracks(rows) {
+  if (!rows.length) return [];
+  const head = rows[0].map(h => h.toLowerCase().trim());
+  let ti = head.findIndex(h => h === "track name" || h === "title" || h === "nombre de la pista");
+  let ai = head.findIndex(h => h.startsWith("artist name") || h === "artist" || h.startsWith("nombre del artista"));
+  const hasHead = ti !== -1;
+  if (ti === -1) ti = 1;          // layout exportify: 1 = Track Name
+  if (ai === -1) ai = 3;          // 3 = Artist Name(s)
+  return rows.slice(hasHead ? 1 : 0)
+    .map(r => [(r[ti] || "").trim(), (r[ai] || "").trim()])
+    .filter(t => t[0]);
+}
+$("impfile").onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = "";
+  if (!files.length) return;
+  _csvData.clear();
+  $("imphint").textContent = "Elige qué archivos importar (cada CSV será una playlist en tu cuenta):";
+  const box = $("implist"); box.innerHTML = "";
+  for (const f of files) {
+    const tracks = csvTracks(parseCSV(await f.text()));
+    const id = "csv" + _csvData.size;
+    const title = f.name.replace(/\.csv$/i, "").replace(/_/g, " ");
+    _csvData.set(id, { title, tracks });
+    box.appendChild(_improw("csv", id, title, tracks.length + " canciones", "", true));
+  }
+  $("impprog").hidden = true; $("impgo").disabled = false;
+  _impStep(2);
+};
 
 /* ---------- importacion desde Spotify ----------
    login real (ventana pywebview, main.py) -> /spot/lib lista la biblioteca -> checklist ->
@@ -1930,7 +1984,13 @@ $("impgo").onclick = async () => {
     const s = sel[i];
     prog.textContent = `Importando "${s.title}" (${i + 1}/${sel.length})...`;
     try {
-      const r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title));
+      let r;
+      if (s.kind === "csv") {
+        const d = _csvData.get(s.id);
+        r = await (await fetch("/impcsv", { method: "POST", body: JSON.stringify({ title: d.title, tracks: d.tracks }) })).json();
+      } else {
+        r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title));
+      }
       if (r.error) { failN++; continue; }
       okN += r.added || 0; missN += r.missed || 0;
     } catch (e) { failN++; }

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -1378,10 +1379,18 @@ _imp_prog = {"active": False, "label": "", "done": 0, "total": 0}
 
 
 def _spot_req(path, tok=None):
-    req = urllib.request.Request(SPOT_API + path if not path.startswith("http") else path,
-                                 headers={"Authorization": "Bearer " + (tok or _spot_tok)})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read())
+    # con reintento en 429 (Retry-After) al estilo exportify: biblioteca completa sin fallar por rate limit
+    url = SPOT_API + path if not path.startswith("http") else path
+    for _ in range(5):
+        req = urllib.request.Request(url, headers={"Authorization": "Bearer " + (tok or _spot_tok)})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                raise
+            time.sleep(min(int(e.headers.get("Retry-After") or 2), 30))
+    raise RuntimeError("Spotify rate limit persistente")
 
 
 def spot_set_token(tok):
@@ -1406,7 +1415,7 @@ def spot_status():
         return {"logged_in": False}   # token caducado: el frontend relanza /spot/login
 
 
-def _spot_all(path, key=None, cap=1000):
+def _spot_all(path, key=None, cap=100000):
     out, url = [], path
     while url and len(out) < cap:
         d = _spot_req(url)
@@ -1426,9 +1435,9 @@ def spot_lib():
     if not _spot_tok:
         return {"error": "Sin sesión de Spotify"}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        fpl = ex.submit(_spot_all, "me/playlists?limit=50", None, 200)
-        fal = ex.submit(_spot_all, "me/albums?limit=50", None, 200)
-        far = ex.submit(_spot_all, "me/following?type=artist&limit=50", "artists", 200)
+        fpl = ex.submit(_spot_all, "me/playlists?limit=50")
+        fal = ex.submit(_spot_all, "me/albums?limit=50")
+        far = ex.submit(_spot_all, "me/following?type=artist&limit=50", "artists")
         fli = ex.submit(_spot_req, "me/tracks?limit=1")
     out = {"playlists": [], "albums": [], "artists": [], "liked": 0}
     try:
@@ -1478,11 +1487,12 @@ def _spot_match(y, title, artists):
     return best if bs >= .55 else None
 
 
-def _spot_tracks_of(kind, sid, cap=500):
+def _spot_tracks_of(kind, sid):
+    # biblioteca COMPLETA: paginacion sin tope (429 manejado en _spot_req)
     if kind == "liked":
-        items = _spot_all("me/tracks?limit=50", None, cap)
+        items = _spot_all("me/tracks?limit=50")
     elif kind == "playlist":
-        items = _spot_all("playlists/%s/tracks?limit=100" % sid, None, cap)
+        items = _spot_all("playlists/%s/tracks?limit=100" % sid)
     else:
         return []
     out = []
@@ -1544,10 +1554,47 @@ def spot_import(kind, sid, title):
         else:
             if not vids:
                 return {"error": "Ninguna canción encontrada en YT Music"}
-            y.create_playlist(title or "Importada de Spotify", "Importada de Spotify",
-                              privacy_status="PRIVATE", video_ids=vids)
+            _yt_make_playlist(y, title or "Importada de Spotify", vids)
         _CACHE.pop("ytlib", None)
         return {"ok": True, "added": len(vids), "missed": missed}
+    finally:
+        _imp_prog.update(active=False)
+
+
+def _yt_make_playlist(y, title, vids):
+    # playlists grandes: crear con el primer lote y anadir el resto en tandas de 100 (YT rechaza creates enormes)
+    pid = y.create_playlist(title, "Importada", privacy_status="PRIVATE", video_ids=vids[:100])
+    if not isinstance(pid, str):
+        raise RuntimeError("YT Music rechazó la creación")
+    for i in range(100, len(vids), 100):
+        try:
+            y.add_playlist_items(pid, vids[i:i + 100], duplicates=True)
+        except Exception:
+            pass
+    return pid
+
+
+def import_csv(body):
+    # CSV de exportify (o compatible): {title, tracks:[[titulo, artistas], ...]} -> playlist en YT Music
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    try:
+        d = json.loads(body)
+        title = (d.get("title") or "Importada").strip()
+        pairs = [(t[0], t[1] if len(t) > 1 else "") for t in d.get("tracks") or [] if t and t[0]]
+    except Exception:
+        return {"error": "CSV inválido"}
+    if not pairs:
+        return {"error": "Sin canciones en el CSV"}
+    _imp_prog.update(active=True, label=title, done=0, total=len(pairs))
+    try:
+        vids = _match_all(y, pairs)
+        if not vids:
+            return {"error": "Ninguna canción encontrada en YT Music"}
+        _yt_make_playlist(y, title, vids)
+        _CACHE.pop("ytlib", None)
+        return {"ok": True, "added": len(vids), "missed": len(pairs) - len(vids)}
     finally:
         _imp_prog.update(active=False)
 
@@ -1888,6 +1935,13 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")
             return self._json(auth_set_headers(raw))
+        if u.path == "/impcsv":
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n).decode("utf-8", "replace")
+            try:
+                return self._json(import_csv(raw))
+            except Exception as e:
+                return self._json({"error": str(e)}, 502)
         self.send_response(404)
         self.end_headers()
 

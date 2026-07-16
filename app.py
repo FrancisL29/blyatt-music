@@ -1380,9 +1380,10 @@ def pl_remove(pid, vid):
 # sin re-loguear entre reinicios. El token de acceso vive ~1h y se refresca solo desde sp_dc.
 SPOT_API = "https://api.spotify.com/v1/"
 SPOT_FILE = os.path.join(AUTH_DIR, "spotify.json")
-# cifrado del secreto TOTP del web player (version 14, la vigente). Si Spotify lo rota, actualizar.
-SPOT_SECRET_CIPHER = [62, 54, 109, 83, 107, 77, 41, 103, 45, 93, 114, 38, 41, 97, 64, 51, 95, 94, 95, 94]
-SPOT_TOTP_VER = 14
+# El secreto TOTP del web player ROTA cada pocos dias -> se carga de una fuente remota mantenida
+# (auto-actualiza) con fallback local. Formato {version: cifrado[]}. Se elige la version mas alta.
+SPOT_SECRETS_URL = "https://raw.githubusercontent.com/xyloflake/spot-secrets-go/refs/heads/main/secrets/secretDict.json"
+SPOT_SECRET_FALLBACK = {"61": [44, 55, 47, 42, 70, 40, 34, 114, 76, 74, 50, 111, 120, 97, 75, 76, 94, 102, 43, 69, 49, 120, 118, 80, 64, 78]}
 SPOTLOGIN = None
 _spot_tok = ""
 _spot_exp = 0.0   # epoch de caducidad del access token (~1h)
@@ -1411,9 +1412,22 @@ def _spot_save():
         pass
 
 
-def _spot_totp(ts):
+def _spot_secrets():
+    # {version: cifrado[]} desde la fuente remota (cache 1h) con fallback local si falla la descarga
+    def fetch():
+        req = urllib.request.Request(SPOT_SECRETS_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read())
+        return d if isinstance(d, dict) and d else SPOT_SECRET_FALLBACK
+    try:
+        return cached("spot_secrets", 3600, fetch) or SPOT_SECRET_FALLBACK
+    except Exception:
+        return SPOT_SECRET_FALLBACK
+
+
+def _spot_totp(ts, cipher):
     # TOTP del web player de Spotify: XOR del cifrado -> clave HMAC-SHA1, 6 digitos, ventana 30s
-    key = "".join(str(e ^ ((i % 33) + 9)) for i, e in enumerate(SPOT_SECRET_CIPHER)).encode()
+    key = "".join(str(e ^ ((i % 33) + 9)) for i, e in enumerate(cipher)).encode()
     h = hmac.new(key, struct.pack(">Q", int(ts) // 30), hashlib.sha1).digest()
     o = h[-1] & 15
     return "%06d" % ((int.from_bytes(h[o:o + 4], "big") & 0x7fffffff) % 1000000)
@@ -1431,14 +1445,17 @@ def _spot_cookie_get(url, sp_dc):
 
 def _spot_token_from_dc(sp_dc):
     # genera un access token a partir de sp_dc + TOTP (mismo flujo que el web player)
+    secrets = _spot_secrets()
+    ver = max(secrets.keys(), key=lambda x: int(x))   # version mas alta = la vigente
+    cipher = secrets[ver]
     try:
         st = _spot_cookie_get("https://open.spotify.com/server-time", sp_dc)
         ts = int((st or {}).get("serverTime") or time.time())
     except Exception:
         ts = int(time.time())
-    otp = _spot_totp(ts)
+    otp = _spot_totp(ts, cipher)
     url = ("https://open.spotify.com/api/token?reason=transport&productType=web-player"
-           "&totp=%s&totpServer=%s&totpVer=%d" % (otp, otp, SPOT_TOTP_VER))
+           "&totp=%s&totpServer=%s&totpVer=%s" % (otp, otp, ver))
     d = _spot_cookie_get(url, sp_dc)
     return (d or {}).get("accessToken", ""), (d or {}).get("accessTokenExpirationTimestampMs", 0)
 

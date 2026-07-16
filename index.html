@@ -860,6 +860,29 @@ const EN = {
   "Elige qué importar a tu cuenta de YouTube Music:": "Choose what to import to your YouTube Music account:",
   "Canciones que te gustan": "Liked songs", "Spotify": "Spotify", "Apple Music": "Apple Music",
   "Amazon Music": "Amazon Music", "Tidal": "Tidal", "Deezer": "Deezer",
+  "Añadido a Liked": "Added to Liked", "Quitado de Liked": "Removed from Liked",
+  "No se pudo añadir a la cola": "Couldn't add to the queue",
+  "Sesión de YouTube caducada: vuelve a conectar": "YouTube session expired: reconnect",
+  "No se completó el login": "Login not completed", "Sesión de Google cerrada": "Google session closed",
+  "Inicia sesión en la ventana de Google": "Sign in in the Google window",
+  "Instala ytmusicapi: py -m pip install ytmusicapi": "Install ytmusicapi: py -m pip install ytmusicapi",
+  "Pega los headers primero": "Paste the headers first", "Sesión de Google iniciada": "Google session started",
+  "Ponle un nombre a la playlist": "Give the playlist a name",
+  "Inicia sesión con Google para usar playlists": "Sign in with Google to use playlists",
+  "Colaboración activada: enlace copiado": "Collaboration enabled: link copied",
+  "Colaboración desactivada": "Collaboration disabled", "No estaba activada o no es tuya": "It wasn't enabled or isn't yours",
+  "Quitada de la playlist": "Removed from the playlist", "Temporizador desactivado": "Sleep timer off",
+  "Elige qué archivos importar (cada CSV será una playlist en tu cuenta):":
+    "Choose which files to import (each CSV becomes a playlist in your account):",
+  "No se detectó la sesión de Spotify": "Spotify session not detected",
+  "Pega el enlace de invitación que te compartieron.": "Paste the invite link that was shared with you.",
+  "Playlist colaborativa": "Collaborative playlist",
+  "Reproduciendo ahora": "Now playing", "A continuación": "Up next",
+  "Reproduciendo": "Playing", "Añadida a": "Added to", "Importar desde": "Import from",
+  "No se pudo reproducir:": "Couldn't play:", "Error:": "Error:",
+  "Reproducidos recientemente": "Recently played",
+  "Configuración: próximamente": "Settings: coming soon", "próximamente": "coming soon",
+  "Historial": "History", "Cerrar": "Close", "Cola": "Queue",
 };
 const getLang = () => localStorage.getItem("lightning.lang") || "es";
 let lang = getLang();
@@ -1504,7 +1527,8 @@ function showMenu(opts, x, y, li) {
 function openSubMenu(sub, anchor) {
   const s = $("ctxsub"); s.innerHTML = "";
   for (const [ic, label, fn] of sub) {
-    const b = document.createElement("button"); b.innerHTML = `<i class="ph ${ic}"></i><span></span>`;
+    const b = document.createElement("button");
+    b.innerHTML = (ic ? `<i class="ph ${ic}"></i>` : "") + "<span></span>";
     b.querySelector("span").textContent = t(label);
     b.onclick = (e) => { e.stopPropagation(); closeMenu(); fn(); };
     s.appendChild(b);
@@ -1555,7 +1579,7 @@ async function addCollectionToQueue(browseId) {
     const d = await (await fetch("/collection?id=" + encodeURIComponent(browseId))).json();
     if (d.error || !d.tracks || !d.tracks.length) throw new Error();
     const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, duration: t.duration, explicit: t.explicit }));
-    if (!current || !queue.length) { playFromList(songs, 0); toast("Reproduciendo " + (d.title || "")); return; }
+    if (!current || !queue.length) { playFromList(songs, 0); toast(t("Reproduciendo") + " " + (d.title || "")); return; }
     let at = queue.length;   // insertar al final de la cola real, antes de la seccion de recomendaciones
     for (let k = qIndex + 1; k < queue.length; k++) if (queue[k]._rec) { at = k; break; }
     queue.splice(at, 0, ...songs);
@@ -1621,7 +1645,7 @@ function renderCollection(d) {
   const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, explicit: t.explicit, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
   if (!d.tracks.length && d.kind === "playlist") {
     const p = document.createElement("div"); p.className = "lempty";
-    p.textContent = "Esta playlist está vacía. Haz click derecho en cualquier canción y elige \"Añadir a playlist\".";
+    p.textContent = t("Esta playlist está vacía. Haz click derecho en cualquier canción y elige \"Añadir a playlist\".");
     cv.appendChild(p);
   }
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
@@ -1710,7 +1734,7 @@ function renderHome(force) {
   const nr = homeSec(hv, "Nuevos Lanzamientos"); skelCards(nr.row, 8);   // siempre la ultima seccion
   if (!seedId) {
     const p = document.createElement("div"); p.className = "lempty";
-    p.textContent = "Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.";
+    p.textContent = t("Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.");
     hv.appendChild(p);
   }
   fetch("/newreleases").then(r => r.json()).then(d => {
@@ -1843,8 +1867,8 @@ $("userBtn").onclick = (e) => {
   showMenu([
     ["ph-gear", "Configuración", () => toast(t("Configuración: próximamente"))],
     ["ph-translate", "Idioma", null, [
-      ["ph-flag", "Español", () => setLang("es")],
-      ["ph-flag", "Inglés", () => setLang("en")],
+      ["", "Español", () => setLang("es")],
+      ["", "Inglés", () => setLang("en")],
     ]],
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
     [_authSt.logged_in ? "ph-sign-out" : "ph-google-logo",
@@ -1934,13 +1958,13 @@ function askModal(o) {
   return new Promise(res => {
     _askRes = res;
     $("askico").className = "ph " + (o.icon || "ph-question");
-    $("asktit").textContent = o.title || "";
-    $("askmsg").textContent = o.message || "";
+    $("asktit").textContent = t(o.title || "");
+    $("askmsg").textContent = t(o.message || "");
     $("askmsg").style.display = o.message ? "" : "none";
     const inp = $("askinput");
     inp.hidden = !o.input; inp.value = ""; inp.placeholder = o.placeholder || "";
     const ok = $("askok");
-    ok.textContent = o.okLabel || "Aceptar";
+    ok.textContent = t(o.okLabel || "Aceptar");
     ok.classList.toggle("danger", !!o.danger);
     $("askmodal").hidden = false;
     if (o.input) inp.focus();
@@ -1970,7 +1994,7 @@ function importFrom(platform) {
   if (platform === "spotify") { spotFlow(); return; }
   if (platform === "csv") { $("impfile").click(); return; }
   // TODO: resto de plataformas
-  toast("Importar desde " + (IMP_NAMES[platform] || platform) + ": próximamente");
+  toast(t("Importar desde") + " " + (IMP_NAMES[platform] || platform) + ": " + t("próximamente"));
 }
 
 /* ---------- importacion por CSV (formato exportify y compatibles) ----------
@@ -2012,7 +2036,7 @@ $("impfile").onchange = async (e) => {
   const files = [...e.target.files]; e.target.value = "";
   if (!files.length) return;
   _csvData.clear();
-  $("imphint").textContent = "Elige qué archivos importar (cada CSV será una playlist en tu cuenta):";
+  $("imphint").textContent = t("Elige qué archivos importar (cada CSV será una playlist en tu cuenta):");
   const box = $("implist"); box.innerHTML = "";
   for (const f of files) {
     const tracks = csvTracks(parseCSV(await f.text()));
@@ -2095,15 +2119,16 @@ $("impgo").onclick = async () => {
   const prog = $("impprog"); prog.hidden = false;
   let okN = 0, missN = 0, failN = 0;
   // poll de progreso intra-item (matching de pistas en el backend)
-  const t = setInterval(async () => {
+  const en = lang === "en";
+  const pt = setInterval(async () => {
     try {
       const p = await jget("/spot/progress");
-      if (p.active && p.total) prog.textContent = `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
+      if (p.active && p.total) prog.textContent = en ? `Importing "${p.label}": ${p.done}/${p.total} songs...` : `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
     } catch (e) {}
   }, 900);
   for (let i = 0; i < sel.length; i++) {
     const s = sel[i];
-    prog.textContent = `Importando "${s.title}" (${i + 1}/${sel.length})...`;
+    prog.textContent = (en ? `Importing "${s.title}" (` : `Importando "${s.title}" (`) + (i + 1) + "/" + sel.length + ")...";
     try {
       let r;
       if (s.kind === "csv") {
@@ -2116,8 +2141,10 @@ $("impgo").onclick = async () => {
       okN += r.added || 0; missN += r.missed || 0;
     } catch (e) { failN++; }
   }
-  clearInterval(t);
-  prog.textContent = `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".";
+  clearInterval(pt);
+  prog.textContent = en
+    ? `Done: ${okN} items imported` + (missN ? `, ${missN} songs not found` : "") + (failN ? `, ${failN} failed` : "") + "."
+    : `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".";
   $("impgo").disabled = false; $("impback").disabled = false;
   _ytSynced = false; syncYtLibrary();   // refleja lo importado en la biblioteca local
 };
@@ -2133,7 +2160,7 @@ async function addToPl(p, s) {
   try {
     const d = await (await fetch("/pladd?id=" + encodeURIComponent(p.id.replace(/^VL/, "")) + "&vid=" + encodeURIComponent(s.id))).json();
     if (d.error) throw d.error;
-    toast("Añadida a " + p.title);
+    toast(t("Añadida a") + " " + p.title);
     if (d.cover) setLibCover(p.id, d.cover);   // YT regenero la portada: reflejala en la biblioteca
   } catch (e) { toast("" + e); }
 }
@@ -2189,7 +2216,8 @@ async function removeFromPl(s) {
 async function deletePl(entry) {
   const ok = await askModal({
     title: "Eliminar playlist", icon: "ph-trash", danger: true, okLabel: "Eliminar",
-    message: 'Se eliminará "' + entry.title + '" de tu cuenta de YouTube Music. No se puede deshacer.',
+    message: lang === "en" ? '"' + entry.title + '" will be deleted from your YouTube Music account. This cannot be undone.'
+      : 'Se eliminará "' + entry.title + '" de tu cuenta de YouTube Music. No se puede deshacer.',
   });
   if (!ok) return;
   try {
@@ -2288,7 +2316,7 @@ async function _engStart(s, tok) {
   } catch (err) {
     if (tok !== playToken) return;
     seek.classList.remove("loading");
-    toast("No se pudo reproducir: " + (err.message || err));
+    toast(t("No se pudo reproducir:") + " " + (err.message || err));
   }
 }
 function onPlaybackStarted(s) {

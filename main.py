@@ -58,11 +58,24 @@ def google_login(silent=False):
     threading.Thread(target=poll, daemon=True).start()
 
 
+SPOT_FETCH_JS = r"""
+(() => {
+  if (window.__spotBusy) return;
+  window.__spotBusy = true;
+  fetch("https://open.spotify.com/get_access_token?reason=transport&productType=web_player", { credentials: "include" })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { window.__spotTok = (d && d.accessToken) || ""; window.__spotBusy = false; })
+    .catch(() => { window.__spotTok = ""; window.__spotBusy = false; });
+})(); window.__spotTok || ""
+"""
+
+
 def spotify_login():
     # ventana con el web player real de Spotify (perfil WebView2 persistente: la sesion se reusa).
-    # El token de acceso viene embebido en el script #session de open.spotify.com; los tokens
-    # anonimos se descartan (app.spot_set_token valida contra /v1/me). Si no hay sesion, el
-    # usuario pulsa "Log in" en la propia pagina; el poll captura el token tras el login.
+    # Antes leiamos el script #session (Spotify lo quito); ahora llamamos /get_access_token desde
+    # DENTRO de la ventana (usa las cookies sp_dc de la sesion). Tokens anonimos (sin sesion) fallan
+    # en la validacion /v1/me y se descartan. Si el usuario ve la pagina publica, debe pulsar
+    # "Iniciar sesion" ARRIBA A LA DERECHA; el poll captura el token cuando el login termina.
     w = webview.create_window("Conectar con Spotify", SPOT_URL, width=990, height=760)
 
     def poll():
@@ -71,8 +84,7 @@ def spotify_login():
             try:
                 if "open.spotify.com" not in (w.get_current_url() or ""):
                     continue
-                raw = w.evaluate_js("(document.getElementById('session')||{}).textContent || ''")
-                tok = (json.loads(raw) or {}).get("accessToken", "") if raw else ""
+                tok = w.evaluate_js(SPOT_FETCH_JS) or ""
                 if tok and app.spot_set_token(tok):
                     break
             except Exception:

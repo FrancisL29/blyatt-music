@@ -1481,14 +1481,13 @@ def spot_set_dc(sp_dc):
         if not tok:
             _spot_dbg("api/token no devolvio accessToken")
             return False
-        if (_spot_req("me", tok) or {}).get("id"):
-            _spot_tok = tok
-            _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
-            _spot_dc = sp_dc
-            _spot_save()
-            _spot_dbg("TOKEN OK -> sesion Spotify lista")
-            return True
-        _spot_dbg("token generado pero /me lo rechazo")
+        # token de api/token ya es valido; NO validar con /me (el poll cada 2s spammea -> 429)
+        _spot_tok = tok
+        _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
+        _spot_dc = sp_dc
+        _spot_save()
+        _spot_dbg("TOKEN OK -> sesion Spotify lista")
+        return True
     except urllib.error.HTTPError as e:
         body = ""
         try:
@@ -1515,34 +1514,34 @@ def _spot_ensure():
             _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
             _spot_save()
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        _spot_dbg("ensure err: " + str(e)[:100])
     return bool(_spot_tok)
 
 
 def _spot_req(path, tok=None):
     # con reintento en 429 (Retry-After) al estilo exportify: biblioteca completa sin fallar por rate limit
     url = SPOT_API + path if not path.startswith("http") else path
-    for _ in range(5):
-        req = urllib.request.Request(url, headers={"Authorization": "Bearer " + (tok or _spot_tok)})
+    for _ in range(3):
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + (tok or _spot_tok),
+            "User-Agent": "Mozilla/5.0", "Accept": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code != 429:
+                _spot_dbg("req %s HTTP %s: %s" % (path[:30], e.code, e.read().decode("utf-8", "replace")[:100]))
                 raise
-            time.sleep(min(int(e.headers.get("Retry-After") or 2), 30))
+            ra = int(e.headers.get("Retry-After") or 2)
+            time.sleep(min(ra, 60) + 1)
     raise RuntimeError("Spotify rate limit persistente")
 
 
 def spot_status():
-    if not _spot_ensure():
-        return {"logged_in": False}
-    try:
-        me = _spot_req("me")
-        return {"logged_in": True, "name": me.get("display_name", "")}
-    except Exception:
-        return {"logged_in": False}
+    ok = _spot_ensure()
+    _spot_dbg("status logged_in=%s tok=%s" % (ok, bool(_spot_tok)))
+    return {"logged_in": bool(ok), "name": ""}   # sin /me (429 lo cuelga)
 
 
 def _spot_all(path, key=None, cap=100000):
@@ -1564,7 +1563,7 @@ def _spot_img(x):
 def spot_lib():
     if not _spot_ensure():
         return {"error": "Sin sesión de Spotify"}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
         fpl = ex.submit(_spot_all, "me/playlists?limit=50")
         fal = ex.submit(_spot_all, "me/albums?limit=50")
         far = ex.submit(_spot_all, "me/following?type=artist&limit=50", "artists")
@@ -1575,8 +1574,8 @@ def spot_lib():
                              "count": (p.get("tracks") or {}).get("total", 0),
                              "owner": (p.get("owner") or {}).get("display_name", "")}
                             for p in fpl.result() if p and p.get("id")]
-    except Exception:
-        pass
+    except Exception as e:
+        _spot_dbg("lib playlists err: " + repr(e)[:150])
     try:
         out["albums"] = [{"id": a["album"]["id"], "title": a["album"].get("name", ""),
                           "cover": _spot_img(a["album"]),

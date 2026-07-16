@@ -1370,12 +1370,35 @@ def pl_remove(pid, vid):
 
 
 # ---------- importacion desde Spotify ----------
-# login real en ventana pywebview (main.py inyecta SPOTLOGIN); el token sale del script #session
-# del web player (open.spotify.com) y vale ~1h: suficiente para una importacion. Sin API key.
+# login real en ventana pywebview (main.py inyecta SPOTLOGIN); el Bearer del web player se intercepta
+# de las peticiones nativas (WebResourceRequested) y vale ~1h. Sin API key. Se persiste en disco
+# (spotify.json) para no re-loguear entre reinicios mientras el token siga vivo.
 SPOT_API = "https://api.spotify.com/v1/"
+SPOT_FILE = os.path.join(AUTH_DIR, "spotify.json")
 SPOTLOGIN = None
 _spot_tok = ""
+_spot_exp = 0.0   # epoch de caducidad estimada del token (~1h)
 _imp_prog = {"active": False, "label": "", "done": 0, "total": 0}
+
+
+def _spot_load():
+    global _spot_tok, _spot_exp
+    try:
+        with open(SPOT_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        if d.get("token") and float(d.get("exp", 0)) > time.time() + 60:
+            _spot_tok, _spot_exp = d["token"], float(d["exp"])
+    except Exception:
+        pass
+
+
+def _spot_save():
+    try:
+        os.makedirs(AUTH_DIR, exist_ok=True)
+        with open(SPOT_FILE, "w", encoding="utf-8") as f:
+            json.dump({"token": _spot_tok, "exp": _spot_exp}, f)
+    except Exception:
+        pass
 
 
 def _spot_req(path, tok=None):
@@ -1394,11 +1417,14 @@ def _spot_req(path, tok=None):
 
 
 def spot_set_token(tok):
-    # valida contra /me antes de aceptar (el web player tambien emite tokens anonimos)
-    global _spot_tok
+    # valida contra /me antes de aceptar (el web player tambien emite tokens anonimos/de cliente)
+    global _spot_tok, _spot_exp
+    if not tok or tok == _spot_tok:
+        return bool(tok) and tok == _spot_tok   # ya aceptado: evita revalidar el mismo token en cada request
     try:
-        if tok and (_spot_req("me", tok) or {}).get("id"):
-            _spot_tok = tok
+        if (_spot_req("me", tok) or {}).get("id"):
+            _spot_tok, _spot_exp = tok, time.time() + 3300   # ~55 min de margen
+            _spot_save()
             return True
     except Exception:
         pass
@@ -1951,6 +1977,7 @@ class H(BaseHTTPRequestHandler):
 
 # ThreadingHTTPServer: la extraccion con yt-dlp tarda; sin hilos una reproduccion bloquearia las busquedas.
 def serve(port=8000):
+    _spot_load()   # restaura el token de Spotify persistido (si sigue vivo)
     return ThreadingHTTPServer(("127.0.0.1", port), H)
 
 

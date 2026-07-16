@@ -64,77 +64,73 @@ def google_login(silent=False):
     threading.Thread(target=poll, daemon=True).start()
 
 
-# Spotify metio TOTP en /get_access_token: un fetch directo ya no da token valido. En vez de
-# reimplementar el TOTP, INTERCEPTAMOS el Bearer real que el propio web player usa en cada peticion
-# a api/spclient.spotify.com (fetch + XHR monkeypatch). El web player ya hizo el TOTP -> su token
-# es valido. Se instala un hook una vez y el token se captura en la siguiente request del player
-# (playback state, etc. disparan requests constantes). Fallback: /get_access_token por si acaso.
-SPOT_FETCH_JS = r"""
-(() => {
-  if (!window.__spotHook) {
-    window.__spotHook = true;
-    window.__spotTok = window.__spotTok || "";
-    const grab = (v) => {
-      try {
-        if (typeof v === "string" && v.slice(0, 7) === "Bearer ") window.__spotTok = v.slice(7);
-      } catch (e) {}
-    };
-    const digHeaders = (h) => {
-      try {
-        if (!h) return;
-        if (typeof h.get === "function") grab(h.get("authorization") || h.get("Authorization"));
-        else if (typeof h === "object") { for (const k in h) if (k.toLowerCase() === "authorization") grab(h[k]); }
-      } catch (e) {}
-    };
-    const of = window.fetch;
-    window.fetch = function (input, init) {
-      try {
-        if (input instanceof Request) digHeaders(input.headers);
-        if (init && init.headers) digHeaders(init.headers);
-      } catch (e) {}
-      return of.apply(this, arguments);
-    };
-    const os = XMLHttpRequest.prototype.setRequestHeader;
-    XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
-      try { if (String(k).toLowerCase() === "authorization") grab(v); } catch (e) {}
-      return os.apply(this, arguments);
-    };
-    // fallback: endpoint clasico (puede fallar por TOTP, pero es gratis intentarlo)
-    fetch("https://open.spotify.com/get_access_token?reason=transport&productType=web_player", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d && d.accessToken && !window.__spotTok) window.__spotTok = d.accessToken; })
-      .catch(() => {});
-  }
-  return window.__spotTok || "";
-})()
-"""
+def _spot_core(uid):
+    # llega al CoreWebView2 nativo de la ventana de pywebview (backend Edge/WebView2)
+    try:
+        from webview.platforms.winforms import BrowserView
+        bv = BrowserView.instances.get(uid)
+        core = bv and bv.browser and bv.browser.webview and bv.browser.webview.CoreWebView2
+        return core
+    except Exception:
+        return None
 
 
 def spotify_login():
-    # ventana con el web player real de Spotify (perfil WebView2 persistente: la sesion se reusa).
-    # El token Bearer se intercepta de las propias peticiones del web player (ver SPOT_FETCH_JS).
-    # Tokens anonimos (sin sesion) fallan en la validacion /v1/me y se descartan. Si el usuario
-    # ve la pagina publica, debe pulsar "Iniciar sesion" ARRIBA A LA DERECHA.
+    # Spotify metio TOTP en /get_access_token y su bundle captura window.fetch antes de que un
+    # monkeypatch por JS pueda actuar -> ambos caminos JS son fragiles. ELEGANTE: interceptamos en la
+    # CAPA NATIVA de red (WebResourceRequested de WebView2) el header Authorization: Bearer que el
+    # propio web player ya envia a api.spotify.com (token que YA paso el TOTP). Cero JS, cero race.
     w = webview.create_window("Conectar con Spotify", SPOT_URL, width=990, height=760)
+    holder = {"tok": ""}
+
+    def on_request(sender, args):
+        try:
+            uri = args.Request.Uri or ""
+            if "api.spotify.com" not in uri and "spclient" not in uri:
+                return
+            for hdr in args.Request.Headers.GetEnumerator():
+                if str(hdr.Key).lower() == "authorization":
+                    v = str(hdr.Value)
+                    if v.startswith("Bearer "):
+                        holder["tok"] = v[7:]   # ligero: solo guarda; el poll valida (no bloquea la UI)
+                    break
+        except Exception:
+            pass
+
+    def wire():
+        # espera a que CoreWebView2 inicialice y engancha el interceptor (pywebview ya puso el filtro '*')
+        for _ in range(60):
+            if _APP_CLOSING.is_set():
+                return
+            core = _spot_core(w.uid)
+            if core:
+                try:
+                    core.WebResourceRequested += on_request
+                except Exception:
+                    pass
+                return
+            time.sleep(0.5)
 
     def poll():
+        last = ""
         for _ in range(600):   # 20 min max para login manual
-            if _APP_CLOSING.is_set():   # cerraron Blyatt: no dejar esta ventana viva
+            if _APP_CLOSING.is_set():
                 break
             time.sleep(2)
-            try:
-                if "open.spotify.com" not in (w.get_current_url() or ""):
-                    continue
-                tok = w.evaluate_js(SPOT_FETCH_JS) or ""
-                if tok and app.spot_set_token(tok):
-                    break
-            except Exception:
-                pass
+            t = holder["tok"]
+            if t and t != last:   # solo valida tokens nuevos (evita revalidar el mismo)
+                last = t
+                try:
+                    if app.spot_set_token(t):
+                        break
+                except Exception:
+                    pass
         try:
             w.destroy()
         except Exception:
             pass
 
+    threading.Thread(target=wire, daemon=True).start()
     threading.Thread(target=poll, daemon=True).start()
 
 

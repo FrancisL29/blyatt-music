@@ -75,6 +75,19 @@ def _spot_control(uid):
         return None
 
 
+_SPOT_LOG = os.path.join(app.BASE, "auth", "spot_debug.log")
+
+
+def _spot_log(msg):
+    # diagnostico de la captura de token (auth/spot_debug.log). Ayuda a ver si el Bearer llega.
+    try:
+        os.makedirs(os.path.dirname(_SPOT_LOG), exist_ok=True)
+        with open(_SPOT_LOG, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%H:%M:%S ") + str(msg) + "\n")
+    except Exception:
+        pass
+
+
 def spotify_login():
     # Spotify metio TOTP en /get_access_token y su bundle captura window.fetch antes de que un
     # monkeypatch JS pueda actuar -> ambos caminos JS fallan. ELEGANTE: interceptamos en la CAPA
@@ -84,26 +97,43 @@ def spotify_login():
     # = pantalla en blanco). Nos desuscribimos al captar el primer token (WebResourceRequested es
     # BLOQUEANTE por request: dejarlo activo penaliza cada recurso de la pagina).
     w = webview.create_window("Conectar con Spotify", SPOT_URL, width=990, height=760)
-    holder = {"tok": "", "core": None, "handler": None}
+    holder = {"tok": "", "core": None, "cdp": None}
+    _spot_log("--- login iniciado ---")
+
+    def _grab(bearer, src):
+        if bearer and bearer.startswith("Bearer "):
+            b = bearer[7:]
+            if b and b != holder["tok"]:
+                holder["tok"] = b
+                _spot_log("bearer capturado via " + src)
 
     def on_request(sender, args):
+        # WebResourceRequested (backup). SIN filtro de host: el web player pega a api-partner/
+        # gue1-spclient, no a api.spotify.com. El Bearer solo sale en llamadas API (nunca en estaticos).
         try:
-            uri = args.Request.Uri or ""
-            if "api.spotify.com" not in uri and "spclient" not in uri:
-                return   # ignora estaticos/scdn: barato, no toca headers
             for hdr in args.Request.Headers.GetEnumerator():
                 if str(hdr.Key).lower() == "authorization":
-                    v = str(hdr.Value)
-                    # guarda el ultimo Bearer distinto; el poll valida (algunos son tokens de cliente
-                    # anonimos -> hay que probar cada uno, no desuscribir hasta que /me confirme)
-                    if v.startswith("Bearer ") and v[7:] != holder["tok"]:
-                        holder["tok"] = v[7:]
+                    _grab(str(hdr.Value), "webresource")
+                    break
+        except Exception:
+            pass
+
+    def on_cdp(sender, args):
+        # CDP Network.requestWillBeSent (PRIMARIO): ve los headers ANTES del Service Worker de Spotify,
+        # que es punto ciego de WebResourceRequested. Cubre fetch/XHR/SW por igual.
+        try:
+            d = json.loads(args.ParameterObjectAsJson or "{}")
+            hs = ((d.get("request") or {}).get("headers")) or {}
+            for k, val in hs.items():
+                if k.lower() == "authorization":
+                    _grab(str(val), "cdp")
                     break
         except Exception:
             pass
 
     def wire():
-        # espera a CoreWebView2 y suscribe EN EL HILO UI via BeginInvoke (pywebview ya puso filtro '*')
+        # espera a CoreWebView2 y suscribe AMBOS interceptores EN EL HILO UI via BeginInvoke
+        # (WebView2 tiene afinidad de hilo; hacerlo desde el daemon = deadlock COM = pantalla blanca)
         from System import Action
         for _ in range(120):
             if _APP_CLOSING.is_set():
@@ -112,30 +142,43 @@ def spotify_login():
             core = ctrl and getattr(ctrl, "CoreWebView2", None)
             if ctrl and core:
                 holder["core"] = core
-                holder["handler"] = on_request
 
                 def sub():
                     try:
-                        core.WebResourceRequested += on_request
-                    except Exception:
-                        pass
+                        core.WebResourceRequested += on_request   # backup
+                    except Exception as e:
+                        _spot_log("err WebResourceRequested: " + str(e)[:80])
+                    try:
+                        core.CallDevToolsProtocolMethod("Network.enable", "{}")
+                        rec = core.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent")
+                        rec.DevToolsProtocolEventReceived += on_cdp   # primario
+                        holder["cdp"] = rec
+                        _spot_log("interceptores enganchados (CDP + WebResource)")
+                    except Exception as e:
+                        _spot_log("err CDP: " + str(e)[:80])
                 try:
-                    ctrl.BeginInvoke(Action(sub))   # marshal al hilo UI: evita el deadlock COM
-                except Exception:
-                    pass
+                    ctrl.BeginInvoke(Action(sub))
+                except Exception as e:
+                    _spot_log("err BeginInvoke: " + str(e)[:80])
                 return
             time.sleep(0.5)
+        _spot_log("wire: CoreWebView2 nunca inicializo")
 
     def unsub():
-        # desuscribe el interceptor EN EL HILO UI (mismo motivo que sub: afinidad de WebView2)
+        # desengancha ambos interceptores EN EL HILO UI (misma afinidad)
         ctrl = _spot_control(w.uid)
-        if not ctrl or not holder["core"] or not holder["handler"]:
+        if not ctrl or not holder["core"]:
             return
         from System import Action
 
         def do():
             try:
-                holder["core"].WebResourceRequested -= holder["handler"]
+                holder["core"].WebResourceRequested -= on_request
+            except Exception:
+                pass
+            try:
+                if holder.get("cdp"):
+                    holder["cdp"].DevToolsProtocolEventReceived -= on_cdp
             except Exception:
                 pass
         try:
@@ -154,10 +197,12 @@ def spotify_login():
                 last = t
                 try:
                     if app.spot_set_token(t):
+                        _spot_log("token VALIDO -> sesion Spotify lista, cerrando ventana")
                         unsub()   # token bueno: deja de interceptar
                         break
-                except Exception:
-                    pass
+                    _spot_log("token rechazado por /me (anonimo o sin scope), sigo esperando")
+                except Exception as e:
+                    _spot_log("err validando: " + str(e)[:80])
         unsub()
         try:
             w.destroy()

@@ -2280,7 +2280,8 @@ class H(BaseHTTPRequestHandler):
             if not fp.startswith(os.path.join(BASE, "assets") + os.sep) or not os.path.isfile(fp):  # evita path traversal
                 self.send_response(404); self.end_headers(); return
             ctype = {".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff",
-                     ".js": "text/javascript", ".png": "image/png", ".svg": "image/svg+xml"}.get(
+                     ".js": "text/javascript", ".png": "image/png", ".svg": "image/svg+xml",
+                     ".json": "application/manifest+json"}.get(
                          os.path.splitext(fp)[1], "application/octet-stream")
             with open(fp, "rb") as f:
                 payload = f.read()

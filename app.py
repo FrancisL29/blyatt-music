@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Buscador de YouTube Music sin API key. Proxy + estaticos en stdlib."""
+import base64
 import concurrent.futures
 import difflib
 import hashlib
@@ -11,8 +12,9 @@ import struct
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from yt_dlp import YoutubeDL
 
 try:
@@ -114,7 +116,18 @@ def _parse_item(item):
             artists.append({"name": r.get("text", ""), "id": bid})
         elif (bid.startswith("MPRE") or bid.startswith("VL")) and not album:
             album = {"name": r.get("text", ""), "id": bid}
-    artist = ", ".join(a["name"] for a in artists) or "".join(r.get("text", "") for r in runs(1)[2:3])
+    artist = ", ".join(a["name"] for a in artists)
+    if not artist:
+        # sin runs enlazados (YT a veces no linkea al artista): primer run del subtitulo que no sea
+        # separador, tipo, duracion ni reproducciones
+        for r in runs(1):
+            t = (r.get("text") or "").strip()
+            if (not t or t in ("•", "·") or t.lower() in ("song", "canción", "cancion", "video", "álbum", "album")
+                    or re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", t)
+                    or "eproduc" in t or "lays" in t or "stream" in t.lower()):
+                continue
+            artist = t
+            break
     try:
         thumbs = item["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
     except (KeyError, TypeError):
@@ -1387,17 +1400,31 @@ SPOT_SECRET_FALLBACK = {"61": [44, 55, 47, 42, 70, 40, 34, 114, 76, 74, 50, 111,
 SPOTLOGIN = None
 _spot_tok = ""
 _spot_exp = 0.0   # epoch de caducidad del access token (~1h)
-_spot_dc = ""     # cookie sp_dc (durable ~1 anio): fuente para regenerar tokens
+_spot_dc = ""     # cookie sp_dc (LEGACY: Spotify devuelve 429 permanente a tokens web-player en /v1)
+_spot_cid = ""    # client_id de la app Spotify del usuario (OAuth PKCE, metodo exportify)
+_spot_rt = ""     # refresh_token OAuth: renueva el access token sin re-login
+_spot_pkce = {}   # verifier/state del flujo authorize en curso
 _imp_prog = {"active": False, "label": "", "done": 0, "total": 0}
+_imp_cancel = False   # /spot/cancel lo activa; los bucles de import lo consultan y abortan
+
+# OAuth PKCE (metodo exportify): el DEV registra UNA app en developer.spotify.com (gratis) y pone
+# su Client ID aqui -> los usuarios solo inician sesion, exactamente como exportify (que tambien
+# lleva el client_id de su dev en el codigo). Redirect URI de la app: http://127.0.0.1:8000/spot/callback
+SPOT_CLIENT_ID = ""
+SPOT_REDIRECT = "http://127.0.0.1:8000/spot/callback"
+SPOT_SCOPES = "user-library-read user-follow-read playlist-read-private playlist-read-collaborative"
 
 
 def _spot_load():
-    global _spot_tok, _spot_exp, _spot_dc
+    global _spot_tok, _spot_exp, _spot_cid, _spot_rt
+    _spot_cid = SPOT_CLIENT_ID
     try:
         with open(SPOT_FILE, encoding="utf-8") as f:
             d = json.load(f)
-        _spot_dc = d.get("sp_dc", "") or ""
-        if d.get("token") and float(d.get("exp", 0)) > time.time() + 60:
+        _spot_cid = d.get("client_id") or SPOT_CLIENT_ID
+        _spot_rt = d.get("refresh_token", "") or ""
+        # tokens legacy (sp_dc/web-player) se IGNORAN: Spotify les da 429 permanente en /v1
+        if _spot_rt and d.get("token") and float(d.get("exp", 0)) > time.time() + 60:
             _spot_tok, _spot_exp = d["token"], float(d["exp"])
     except Exception:
         pass
@@ -1407,9 +1434,94 @@ def _spot_save():
     try:
         os.makedirs(AUTH_DIR, exist_ok=True)
         with open(SPOT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"token": _spot_tok, "exp": _spot_exp, "sp_dc": _spot_dc}, f)
+            json.dump({"token": _spot_tok, "exp": _spot_exp,
+                       "client_id": _spot_cid, "refresh_token": _spot_rt}, f)
     except Exception:
         pass
+
+
+def _b64url(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _spot_token_post(data):
+    req = urllib.request.Request("https://accounts.spotify.com/api/token",
+                                 data=urlencode(data).encode(),
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def spot_set_client(cid):
+    global _spot_cid
+    cid = (cid or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{32}", cid):
+        return {"error": "Client ID inválido (32 caracteres hexadecimales)"}
+    _spot_cid = cid
+    _spot_save()
+    return {"ok": True}
+
+
+def spot_login():
+    # abre el navegador del sistema en accounts.spotify.com (misma UX que exportify: si ya hay
+    # sesion en el navegador, autoriza con un click). El callback vuelve a este server local.
+    if not _spot_cid:
+        return {"error": "need_client"}
+    verifier = _b64url(os.urandom(48))
+    _spot_pkce.update(verifier=verifier, state=_b64url(os.urandom(12)))
+    url = "https://accounts.spotify.com/authorize?" + urlencode({
+        "client_id": _spot_cid, "response_type": "code", "redirect_uri": SPOT_REDIRECT,
+        "scope": SPOT_SCOPES, "state": _spot_pkce["state"],
+        "code_challenge_method": "S256",
+        "code_challenge": _b64url(hashlib.sha256(verifier.encode()).digest())})
+    webbrowser.open(url)
+    return {"ok": True}
+
+
+def spot_callback(code, state):
+    global _spot_tok, _spot_exp, _spot_rt
+    if not code or state != _spot_pkce.get("state"):
+        return False, "Estado OAuth inválido: reintenta desde Blyatt"
+    try:
+        d = _spot_token_post({"grant_type": "authorization_code", "code": code,
+                              "redirect_uri": SPOT_REDIRECT, "client_id": _spot_cid,
+                              "code_verifier": _spot_pkce.get("verifier", "")})
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            pass
+        _spot_dbg("callback HTTP %s: %s" % (e.code, body))
+        return False, "Spotify rechazó el código (HTTP %s). Verifica que la Redirect URI de tu app sea exactamente %s" % (e.code, SPOT_REDIRECT)
+    except Exception as e:
+        return False, str(e)[:150]
+    if not d.get("access_token"):
+        return False, "Sin access_token en la respuesta"
+    _spot_tok = d["access_token"]
+    _spot_exp = time.time() + int(d.get("expires_in", 3600)) - 60
+    _spot_rt = d.get("refresh_token", "") or _spot_rt
+    _spot_save()
+    _spot_dbg("OAUTH OK -> sesion Spotify lista (PKCE)")
+    return True, ""
+
+
+def _spot_refresh():
+    global _spot_tok, _spot_exp, _spot_rt
+    if not (_spot_rt and _spot_cid):
+        return False
+    try:
+        d = _spot_token_post({"grant_type": "refresh_token", "refresh_token": _spot_rt,
+                              "client_id": _spot_cid})
+        if d.get("access_token"):
+            _spot_tok = d["access_token"]
+            _spot_exp = time.time() + int(d.get("expires_in", 3600)) - 60
+            _spot_rt = d.get("refresh_token", "") or _spot_rt
+            _spot_save()
+            return True
+    except Exception as e:
+        _spot_dbg("refresh err: " + str(e)[:100])
+    return False
 
 
 def _spot_secrets():
@@ -1501,22 +1613,13 @@ def spot_set_dc(sp_dc):
 
 
 def _spot_ensure():
-    # asegura un access token vivo; si caduco pero hay sp_dc, lo regenera (login persistente)
-    global _spot_tok, _spot_exp
+    # asegura un access token OAuth vivo (refresh_token -> login persistente sin re-autorizar).
+    # Tokens derivados de sp_dc NO cuentan: Spotify les devuelve 429 permanente en /v1.
+    if not _spot_rt:
+        return False
     if _spot_tok and _spot_exp > time.time() + 30:
         return True
-    if not _spot_dc:
-        return bool(_spot_tok)
-    try:
-        tok, exp_ms = _spot_token_from_dc(_spot_dc)
-        if tok:
-            _spot_tok = tok
-            _spot_exp = (exp_ms / 1000.0) if exp_ms else (time.time() + 3300)
-            _spot_save()
-            return True
-    except Exception as e:
-        _spot_dbg("ensure err: " + str(e)[:100])
-    return bool(_spot_tok)
+    return _spot_refresh()
 
 
 def _spot_req(path, tok=None):
@@ -1534,7 +1637,7 @@ def _spot_req(path, tok=None):
                 _spot_dbg("req %s HTTP %s: %s" % (path[:30], e.code, e.read().decode("utf-8", "replace")[:100]))
                 raise
             ra = int(e.headers.get("Retry-After") or 2)
-            time.sleep(min(ra, 60) + 1)
+            time.sleep(min(ra, 60) + 3)   # esperar el RA COMPLETO: insistir antes lo re-arma a 60s
     raise RuntimeError("Spotify rate limit persistente")
 
 
@@ -1546,7 +1649,7 @@ def spot_status():
 
 def _spot_all(path, key=None, cap=100000):
     out, url = [], path
-    while url and len(out) < cap:
+    while url and len(out) < cap and not _imp_cancel:
         d = _spot_req(url)
         if key:
             d = d.get(key) or {}
@@ -1570,8 +1673,10 @@ def spot_lib():
         fli = ex.submit(_spot_req, "me/tracks?limit=1")
     out = {"playlists": [], "albums": [], "artists": [], "liked": 0}
     try:
-        out["playlists"] = [{"id": p["id"], "title": p.get("name", ""), "cover": _spot_img(p),
-                             "count": (p.get("tracks") or {}).get("total", 0),
+        # shape dev-mode 2025: el total viaja en "items.total" (ya no existe "tracks" en me/playlists)
+        out["playlists"] = [{"id": p["id"], "title": p.get("name") or "(sin nombre)", "cover": _spot_img(p),
+                             "count": ((p.get("tracks") or p.get("items") or {}).get("total", 0)),
+                             "public": bool(p.get("public")),
                              "owner": (p.get("owner") or {}).get("display_name", "")}
                             for p in fpl.result() if p and p.get("id")]
     except Exception as e:
@@ -1579,6 +1684,7 @@ def spot_lib():
     try:
         out["albums"] = [{"id": a["album"]["id"], "title": a["album"].get("name", ""),
                           "cover": _spot_img(a["album"]),
+                          "count": a["album"].get("total_tracks", 0),
                           "artist": ", ".join(x.get("name", "") for x in a["album"].get("artists") or [])}
                          for a in fal.result() if a and a.get("album", {}).get("id")]
     except Exception:
@@ -1596,7 +1702,8 @@ def spot_lib():
 
 
 def _spot_match(y, title, artists):
-    # mejor videoId de YT Music para una pista de Spotify (titulo+artista, similitud difflib)
+    # mejor match de YT Music para una pista de Spotify (titulo+artista, similitud difflib).
+    # Devuelve {id,title,artist,cover,duration} o None (el resolutor manual muestra que se eligio)
     try:
         res = y.search((title + " " + artists).strip(), filter="songs", limit=5) or []
     except Exception:
@@ -1612,8 +1719,35 @@ def _spot_match(y, title, artists):
         if ra and al and (ra.split(",")[0].strip() in al or al.split(",")[0].strip() in ra):
             s += .25
         if s > bs:
-            bs, best = s, vid
-    return best if bs >= .55 else None
+            bs, best = s, r
+    if bs < .55 or not best:
+        return None
+    return {"id": best["videoId"], "title": best.get("title", ""),
+            "artist": ", ".join(a.get("name", "") for a in best.get("artists") or []),
+            "cover": (best.get("thumbnails") or [{}])[-1].get("url", ""),
+            "duration": best.get("duration") or ""}
+
+
+def _spot_pl_items(sid):
+    # /playlists/{id}/tracks devuelve 403 a apps dev-mode nuevas (restriccion Spotify 2025).
+    # El meta endpoint SI trae las pistas embebidas de playlists PROPIAS, en shape nuevo:
+    # top-level "items" = paging cuyas entradas llevan "item" (no "track"). Las ajenas vienen sin pistas.
+    d = _spot_req("playlists/" + sid)
+    pg = d.get("tracks") or d.get("items") or {}
+    items = list(pg.get("items") or [])
+    nxt = pg.get("next")
+    while nxt:
+        try:
+            d = _spot_req(nxt)
+        except urllib.error.HTTPError as e:
+            _spot_dbg("paginacion de playlist %s bloqueada (HTTP %s) tras %d pistas" % (sid, e.code, len(items)))
+            break
+        pg = d.get("tracks") or d.get("items") or d
+        items += pg.get("items") or []
+        nxt = pg.get("next")
+    if not items:
+        raise RuntimeError("Spotify oculta las pistas de esta playlist a apps en modo desarrollo (solo playlists creadas por ti son legibles)")
+    return items
 
 
 def _spot_tracks_of(kind, sid):
@@ -1621,39 +1755,45 @@ def _spot_tracks_of(kind, sid):
     if kind == "liked":
         items = _spot_all("me/tracks?limit=50")
     elif kind == "playlist":
-        items = _spot_all("playlists/%s/tracks?limit=100" % sid)
+        items = _spot_pl_items(sid)
     else:
         return []
     out = []
     for it in items:
-        t = (it or {}).get("track") or {}
+        t = (it or {}).get("track") or (it or {}).get("item") or {}
         if t.get("name"):
             out.append((t["name"], ", ".join(a.get("name", "") for a in t.get("artists") or [])))
     return out
 
 
 def _match_all(y, pairs):
-    # matching en paralelo conservando orden; actualiza _imp_prog
-    vids = [None] * len(pairs)
+    # matching en paralelo conservando el ORDEN ORIGINAL; actualiza _imp_prog.
+    # Devuelve el reporte completo: [{title, artists, match: {...}|None}] (el resolutor lo pinta entero)
+    rep = [None] * len(pairs)
     def work(i):
-        vids[i] = _spot_match(y, pairs[i][0], pairs[i][1])
+        if _imp_cancel:
+            _imp_prog["done"] += 1
+            return
+        rep[i] = _spot_match(y, pairs[i][0], pairs[i][1])
         _imp_prog["done"] += 1
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(work, range(len(pairs))))
-    return [v for v in vids if v]
+    return [{"title": pairs[i][0], "artists": pairs[i][1], "match": rep[i]} for i in range(len(pairs))]
 
 
-def spot_import(kind, sid, title):
+def spot_import(kind, sid, title, cover=""):
+    global _imp_cancel
     y = ytm()
     if not y:
         return {"error": "Sin sesión de Google"}
     if not _spot_ensure():
         return {"error": "Sin sesión de Spotify"}
+    _imp_cancel = False
     _imp_prog.update(active=True, label=title or kind, done=0, total=0)
     try:
         if kind == "artist":
-            r = (y.search(title, filter="artists", limit=5) or [{}])[0]
-            bid = r.get("browseId")
+            res = y.search(title, filter="artists", limit=5) or []
+            bid = next((r.get("browseId") for r in res if r.get("browseId")), None)
             if not bid:
                 return {"error": "No encontrado en YT Music: " + title}
             y.subscribe_artists([bid])
@@ -1670,10 +1810,15 @@ def spot_import(kind, sid, title):
         if not pairs:
             return {"error": "Sin canciones que importar"}
         _imp_prog.update(total=len(pairs))
-        vids = _match_all(y, pairs)
-        missed = len(pairs) - len(vids)
+        report = _match_all(y, pairs)
+        if _imp_cancel:
+            return {"error": "Importación cancelada"}
+        vids = [t["match"]["id"] for t in report if t["match"]]
+        pid = None
         if kind == "liked":
             def like(v):
+                if _imp_cancel:
+                    return
                 try:
                     y.rate_song(v, "LIKE")
                 except Exception:
@@ -1683,11 +1828,83 @@ def spot_import(kind, sid, title):
         else:
             if not vids:
                 return {"error": "Ninguna canción encontrada en YT Music"}
-            _yt_make_playlist(y, title or "Importada de Spotify", vids)
+            pid = _yt_make_playlist(y, title or "Importada de Spotify", vids)
+            if cover:
+                try:
+                    img, mime = _cover_from_url(cover)
+                    pl_set_cover(pid, img, mime)   # portada original de Spotify tambien en YT
+                except Exception as e:
+                    _spot_dbg("cover upload err: " + str(e)[:100])
         _CACHE.pop("ytlib", None)
-        return {"ok": True, "added": len(vids), "missed": missed}
+        return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
+                "tracks": report, "playlist_id": pid,
+                "title": title or ("Me gusta" if kind == "liked" else "Importada de Spotify")}
     finally:
         _imp_prog.update(active=False)
+
+
+def pl_set_cover(pid, img, mime):
+    # portada CUSTOM real en YT Music (protocolo del web player, ytmusicapi PR #866 no mergeado):
+    # 1) handshake resumable a playlist_image_upload -> X-Goog-Upload-URL, 2) binario -> blobId,
+    # 3) browse/edit_playlist con ACTION_SET_CUSTOM_THUMBNAIL. Reusa sesion/SAPISIDHASH de ytmusicapi.
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    up = "https://music.youtube.com/playlist_image_upload/playlist_custom_thumbnail"
+    h = dict(y.headers)
+    h.update({"Content-Type": "text/plain; charset=utf-8", "origin": "https://music.youtube.com",
+              "X-Goog-Upload-Command": "start", "X-Goog-Upload-Header-Content-Length": str(len(img)),
+              "X-Goog-Upload-Protocol": "resumable", "x-goog-authuser": "0"})
+    r = y._session.post(up, data="playlistId=" + pid, headers=h, cookies=y.cookies, proxies=y.proxies)
+    real = r.headers.get("X-Goog-Upload-URL")
+    if not real:
+        return {"error": "YT rechazó el upload de portada (HTTP %s)" % r.status_code}
+    h2 = dict(y.headers)
+    h2.update({"Content-Type": mime or "image/jpeg", "X-Goog-Upload-Command": "upload, finalize",
+               "X-Goog-Upload-Offset": "0", "x-goog-authuser": "0"})
+    r2 = y._session.post(real, data=img, headers=h2, cookies=y.cookies, proxies=y.proxies)
+    try:
+        d = r2.json()
+    except Exception:
+        d = {}
+    blob = d.get("playlistScottyEncryptedBlobId") or d.get("encryptedBlobId")
+    if not blob:
+        return {"error": "Upload sin blobId (HTTP %s): %s" % (r2.status_code, str(d)[:120])}
+    y._send_request("browse/edit_playlist", {"playlistId": pid, "actions": [{
+        "action": "ACTION_SET_CUSTOM_THUMBNAIL",
+        "addedCustomThumbnail": {
+            "imageKey": {"type": "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL", "name": "studio_square_thumbnail"},
+            "playlistScottyEncryptedBlobId": blob}}]})
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    return {"ok": True}
+
+
+def _cover_from_url(url):
+    # descarga una portada externa (p.ej. i.scdn.co de Spotify) para subirla a YT
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return r.read(), r.headers.get_content_type() or "image/jpeg"
+
+
+def imp_replace(pid, vids):
+    # reescribe la playlist con la lista final del resolutor manual, en el ORDEN ORIGINAL de la
+    # fuente (add_playlist_items solo apendiza: para respetar orden hay que vaciar y re-anadir)
+    y = ytm()
+    if not y:
+        return {"error": "Sin sesión de Google"}
+    if not (pid and vids):
+        return {"error": "Sin datos"}
+    pl = y.get_playlist(pid, limit=None) or {}
+    old = [{"videoId": t.get("videoId"), "setVideoId": t.get("setVideoId")}
+           for t in pl.get("tracks") or [] if t.get("setVideoId")]
+    if old:
+        y.remove_playlist_items(pid, old)
+    for i in range(0, len(vids), 100):
+        y.add_playlist_items(pid, vids[i:i + 100], duplicates=True)
+    _CACHE.pop("ytlib", None)
+    _CACHE.pop("col:VL" + pid, None)
+    return {"ok": True, "count": len(vids)}
 
 
 def _yt_make_playlist(y, title, vids):
@@ -1716,14 +1933,20 @@ def import_csv(body):
         return {"error": "CSV inválido"}
     if not pairs:
         return {"error": "Sin canciones en el CSV"}
+    global _imp_cancel
+    _imp_cancel = False
     _imp_prog.update(active=True, label=title, done=0, total=len(pairs))
     try:
-        vids = _match_all(y, pairs)
+        report = _match_all(y, pairs)
+        if _imp_cancel:
+            return {"error": "Importación cancelada"}
+        vids = [t["match"]["id"] for t in report if t["match"]]
         if not vids:
             return {"error": "Ninguna canción encontrada en YT Music"}
-        _yt_make_playlist(y, title, vids)
+        pid = _yt_make_playlist(y, title, vids)
         _CACHE.pop("ytlib", None)
-        return {"ok": True, "added": len(vids), "missed": len(pairs) - len(vids)}
+        return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
+                "tracks": report, "playlist_id": pid, "title": title}
     finally:
         _imp_prog.update(active=False)
 
@@ -1754,7 +1977,7 @@ def yt_library():
         return {"error": "Sin sesión de Google"}
 
     def liked():
-        d = y.get_liked_songs(limit=200)
+        d = y.get_liked_songs(limit=None)   # TODOS los likes (paginado por continuations)
         out = []
         for t in d.get("tracks") or []:
             if not t.get("videoId"):
@@ -1857,18 +2080,33 @@ class H(BaseHTTPRequestHandler):
                     qs = parse_qs(u.query)
                     g = lambda k: qs.get(k, [""])[0]
                     if u.path == "/spot/login":
-                        if not SPOTLOGIN:
-                            return self._json({"error": "Solo disponible en la app de escritorio (Blyatt.bat / py main.py)"})
-                        SPOTLOGIN()
-                        return self._json({"ok": True})
+                        return self._json(spot_login())
+                    if u.path == "/spot/setclient":
+                        return self._json(spot_set_client(g("id")))
+                    if u.path == "/spot/callback":
+                        ok, err = spot_callback(g("code"), g("state"))
+                        page = ("<html><body style='font-family:sans-serif;background:#0b0b0f;color:#eee;"
+                                "display:grid;place-items:center;height:100vh'><div style='text-align:center'>"
+                                + ("<h2>Spotify conectado</h2><p>Vuelve a Blyatt, esta pestaña ya puede cerrarse.</p>"
+                                   if ok else "<h2>Error</h2><p>%s</p>" % err)
+                                + "</div></body></html>").encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(page)))
+                        self.end_headers()
+                        self.wfile.write(page)
+                        return
                     if u.path == "/spot/status":
                         return self._json(spot_status())
                     if u.path == "/spot/lib":
                         return self._json(spot_lib())
+                    if u.path == "/spot/cancel":
+                        globals()["_imp_cancel"] = True
+                        return self._json({"ok": True})
                     if u.path == "/spot/progress":
                         return self._json(_imp_prog)
                     if u.path == "/spot/import":
-                        return self._json(spot_import(g("kind"), g("id"), g("title")))
+                        return self._json(spot_import(g("kind"), g("id"), g("title"), g("cover")))
                 if u.path.startswith("/pl"):
                     qs = parse_qs(u.query)
                     g = lambda k: qs.get(k, [""])[0]
@@ -2064,6 +2302,24 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")
             return self._json(auth_set_headers(raw))
+        if u.path == "/plcover":
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n).decode("utf-8", "replace")
+            try:
+                d = json.loads(raw)
+                head, b64 = (d.get("data") or "").split(",", 1)
+                mime = head.split(":")[1].split(";")[0] if ":" in head else "image/jpeg"
+                return self._json(pl_set_cover(d.get("id") or "", base64.b64decode(b64), mime))
+            except Exception as e:
+                return self._json({"error": str(e)}, 502)
+        if u.path == "/implace":
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n).decode("utf-8", "replace")
+            try:
+                d = json.loads(raw)
+                return self._json(imp_replace(d.get("id") or "", d.get("vids") or []))
+            except Exception as e:
+                return self._json({"error": str(e)}, 502)
         if u.path == "/impcsv":
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")
@@ -2081,7 +2337,9 @@ class H(BaseHTTPRequestHandler):
 # ThreadingHTTPServer: la extraccion con yt-dlp tarda; sin hilos una reproduccion bloquearia las busquedas.
 def serve(port=8000):
     _spot_load()   # restaura el token de Spotify persistido (si sigue vivo)
-    return ThreadingHTTPServer(("127.0.0.1", port), H)
+    # host configurable: escritorio usa 127.0.0.1 (privado); en servidor BLYATT_HOST=0.0.0.0 lo expone
+    host = os.environ.get("BLYATT_HOST", "127.0.0.1")
+    return ThreadingHTTPServer((host, port), H)
 
 
 if __name__ == "__main__":

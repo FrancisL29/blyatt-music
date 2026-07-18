@@ -186,6 +186,7 @@
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   body.sb-collapsed .user-chip { padding-left: 13px; }
   #gmodal, #plmodal, #askmodal, #impmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #askmodal { z-index: 40; }   /* askModal puede abrirse SOBRE impmodal (p.ej. pedir Client ID) */
   #gmodal[hidden], #plmodal[hidden], #askmodal[hidden], #impmodal[hidden] { display: none; }
   .impgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .impgrid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px;
@@ -193,15 +194,41 @@
     color: var(--text); font: inherit; font-size: .84rem; cursor: pointer; transition: background .15s, border-color .15s; }
   .impgrid button:hover { background: rgb(255 255 255 / .09); border-color: rgb(255 255 255 / .22); }
   .impgrid button i { font-size: 1.7rem; }
-  .implist { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-  .implist h4 { margin: 10px 0 4px; font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  .improw { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 8px; cursor: pointer; }
+  #impmodal .gbox { width: min(720px, 94vw); }
+  .implist { max-height: min(58vh, 560px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+             border: 1px solid var(--line); border-radius: 12px; padding: 6px; background: rgb(255 255 255 / .02); }
+  .implist h4 { margin: 12px 8px 6px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em;
+                display: flex; align-items: center; gap: 8px; }
+  .implist h4::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .implist h4:first-child { margin-top: 4px; }
+  .improw { display: flex; align-items: center; gap: 12px; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
   .improw:hover { background: rgb(255 255 255 / .05); }
-  .improw input { accent-color: var(--accent); flex: none; }
-  .improw img { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; background: #1a1a20; flex: none; }
+  .gbox .improw input, .gbox .impall input, .gbox .implist h4 input { accent-color: var(--accent); flex: none; width: 15px; height: 15px; margin: 0; padding: 0; }
+  .implist h4 input { cursor: pointer; }
+  .improw img { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; background: #1a1a20; flex: none; }
+  .improw.artist img { border-radius: 50%; }
   .improw .it { min-width: 0; }
-  .improw .it b { display: block; font-size: .86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .improw .it span { font-size: .74rem; color: var(--muted); }
+  .improw .it b { display: block; font-size: .89rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .improw .it span { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .improw .pub { flex: none; margin-left: auto; font-size: .68rem; color: var(--muted); border: 1px solid var(--line);
+                 border-radius: 99px; padding: 2px 8px; }
+  .impall { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px 8px; border-radius: 9px;
+            cursor: pointer; font-size: .84rem; font-weight: 600; border: 1px solid var(--line); background: rgb(255 255 255 / .04); }
+  .impall:hover { background: rgb(255 255 255 / .07); }
+  .impall input { accent-color: var(--accent); width: 15px; height: 15px; }
+  .impall .cnt { margin-left: auto; font-weight: 400; font-size: .76rem; color: var(--muted); }
+  #impbusy { padding: 26px 0 6px; }
+  .impspin { width: 42px; height: 42px; margin: 0 auto; border-radius: 50%;
+             border: 3px solid rgb(255 255 255 / .12); border-top-color: var(--accent);
+             animation: impspin .8s linear infinite; }
+  @keyframes impspin { to { transform: rotate(360deg); } }
+  .impbarwrap { height: 6px; border-radius: 99px; background: rgb(255 255 255 / .08); overflow: hidden; }
+  #impbar { height: 100%; width: 0%; border-radius: 99px; background: var(--accent); transition: width .4s ease; }
+  .fixrow .cands { margin: 2px 0 6px 28px; border-left: 2px solid var(--line); padding-left: 6px; }
+  .fixrow .mline { font-size: .72rem; color: var(--muted); }
+  .fixrow:not(.miss) .mline { color: color-mix(in srgb, var(--accent) 75%, #fff); }
+  .fixrow.miss > .improw .mline { color: #e0788a; }
+  .fixrow.miss > .improw .pub { color: var(--text); border-color: rgb(255 255 255 / .3); }
   .askrow { display: flex; gap: 10px; }
   .askrow .gbtn { flex: 1; }
   .gbtn.ghost { background: rgb(255 255 255 / .07); color: var(--text); border: 1px solid rgb(255 255 255 / .12); }
@@ -330,6 +357,13 @@
              background-size: 200% 100%; animation: sh 1.2s infinite; }
   @keyframes sh { to { background-position: -200% 0; } }
   @media (prefers-reduced-motion: reduce) { .shimmer, li { animation: none; } }
+  /* fila esqueleto de vlist (scroll rapido estilo Spotify) */
+  .vskel { display: grid !important; grid-template-columns: 44px 1fr; gap: 12px; align-items: center;
+           padding: 8px 12px; box-sizing: border-box; }
+  .vskel .sq { width: 42px; height: 42px; border-radius: 8px; }
+  .vskel .ln { height: 10px; border-radius: 6px; }
+  .vskel .ln.w1 { width: 55%; } .vskel .ln.w2 { width: 30%; margin-top: 8px; }
+  .vpadT, .vpadB { pointer-events: none; }
 
   /* ---------- PLAYER ---------- */
   #player {
@@ -730,11 +764,27 @@
     </div>
     <div id="impstep2" hidden>
       <p class="ghint" id="imphint" style="margin:0 0 10px"></p>
+      <label class="impall" id="impallrow" hidden><input type="checkbox" id="impall"><span data-i18n>Seleccionar todo</span><span class="cnt" id="impcnt"></span></label>
       <div id="implist" class="implist"></div>
       <p class="ghint" id="impprog" style="margin:10px 0 0" hidden></p>
       <div class="askrow" style="margin-top:14px">
         <button class="gbtn ghost" id="impback" data-i18n>Volver</button>
         <button class="gbtn" id="impgo" data-i18n>Importar selección</button>
+      </div>
+    </div>
+    <div id="impbusy" hidden>
+      <div class="impspin"></div>
+      <p class="ghint" id="impblabel" style="text-align:center;margin:14px 0 10px"></p>
+      <div class="impbarwrap"><div id="impbar"></div></div>
+      <div class="askrow" style="margin-top:18px;justify-content:center">
+        <button class="gbtn danger" id="impcancel" data-i18n>Cancelar</button>
+      </div>
+    </div>
+    <div id="impstep3" hidden>
+      <p class="ghint" id="fixhint" style="margin:0 0 10px"></p>
+      <div id="fixlist" class="implist"></div>
+      <div class="askrow" style="margin-top:14px">
+        <button class="gbtn" id="fixdone" data-i18n>Listo</button>
       </div>
     </div>
     <input type="file" id="impfile" accept=".csv" multiple hidden>
@@ -856,6 +906,20 @@ const EN = {
   "Unirse a playlist colaborativa": "Join collaborative playlist", "Unirse": "Join",
   "Configuración: próximamente": "Settings: coming soon", "Idioma: próximamente": "Language: coming soon",
   "Cargando biblioteca de Spotify...": "Loading Spotify library...", "Conectando con Spotify...": "Connecting to Spotify...",
+  "Conectar con Spotify": "Connect to Spotify", "Conectar": "Connect",
+  "Pega el Client ID de tu app de Spotify. Créala gratis en developer.spotify.com/dashboard (Create app) con Redirect URI exactamente: http://127.0.0.1:8000/spot/callback":
+    "Paste your Spotify app's Client ID. Create one for free at developer.spotify.com/dashboard (Create app) with Redirect URI exactly: http://127.0.0.1:8000/spot/callback",
+  "Autoriza a Blyatt en la pestaña del navegador...": "Authorize Blyatt in the browser tab...",
+  "Seleccionar todo": "Select all", "Listo": "Done",
+  "Buscando...": "Searching...", "Sin resultados": "No results",
+  "Cambiar": "Change", "No encontrada": "Not found", "Guardando": "Saving",
+  "Importación cancelada": "Import cancelled",
+  "Cambiar portada…": "Change cover…", "Quitar portada personalizada": "Remove custom cover",
+  "Portada actualizada": "Cover updated", "Portada personalizada quitada": "Custom cover removed",
+  "Portada subida a YT Music": "Cover uploaded to YT Music", "Solo se aplicó en Blyatt": "Only applied in Blyatt",
+  "No se pudo leer la imagen": "Couldn't read the image",
+  "Revisa el resultado en el orden original: toca cualquier canción para cambiarla de versión o buscar las no encontradas.":
+    "Review the result in the original order: tap any song to change its version or search the missing ones.",
   "Tu biblioteca de Spotify está vacía.": "Your Spotify library is empty.",
   "Elige qué importar a tu cuenta de YouTube Music:": "Choose what to import to your YouTube Music account:",
   "Canciones que te gustan": "Liked songs", "Spotify": "Spotify", "Apple Music": "Apple Music",
@@ -1070,7 +1134,7 @@ function renderLibrary() {
   getLibrary().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).forEach(e => {
     const b = document.createElement("button"); b.className = "nav-item lib-item";
     b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
-    const im = b.querySelector("img"); im.src = e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : ""); im.classList.add(e.kind || "");
+    const im = b.querySelector("img"); im.src = e.ccover || e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : ""); im.classList.add(e.kind || "");
     b.querySelector(".lt2").textContent = e.title;
     // subtitulo = tipo (+ autor): Artista / Álbum • Artista / Playlist • Usuario
     const owner = e.creator || "";
@@ -1159,6 +1223,94 @@ function applyAccent(cover) {
 }
 
 /* ---------- render listas ---------- */
+function vlist(container, count, build, scroller) {
+  // Virtualizacion estilo Spotify: solo viven en el DOM las filas visibles (+margen); dos pads
+  // conservan el alto total para que la barra de scroll sea real. Scroll rapido (saltos de mas
+  // de 3 pantallas por frame) pinta ESQUELETOS shimmer y materializa las filas al parar (110ms).
+  // Nodos construidos se cachean (Map) para re-scroll instantaneo sin repetir la animacion.
+  scroller = scroller || document.querySelector("main");
+  const padT = document.createElement("div"), padB = document.createElement("div");
+  container.append(padT, padB);
+  const cache = new Map();
+  let pitch = 0, rowH = 48, start = 0, end = 0, raf = 0, skelTimer = 0, curSkel = false, virgin = true;
+  function node(i) {
+    let n = cache.get(i);
+    if (n) {
+      n.style.animation = "none";   // ya hizo su entrada: no re-animar al re-insertar
+      if (n.dataset && n.dataset.id) n.classList.toggle("playing", !!(current && current.id === n.dataset.id));
+      return n;
+    }
+    n = build(i); cache.set(i, n);
+    if (!virgin) n.style.animationDelay = "0ms";   // filas creadas al scrollear: sin stagger (apareceria tarde)
+    return n;
+  }
+  function skelRow() {
+    const n = document.createElement(container.tagName === "UL" ? "li" : "div");
+    n.className = "vskel";
+    n.style.height = rowH + "px";
+    n.innerHTML = '<div class="sq shimmer"></div><div><div class="ln w1 shimmer"></div><div class="ln w2 shimmer"></div></div>';
+    return n;
+  }
+  function setPads() { const p = pitch || 48; padT.style.height = (start * p) + "px"; padB.style.height = (Math.max(0, count - end) * p) + "px"; }
+  function fill(a, b, skel) {
+    while (padT.nextSibling !== padB) padT.nextSibling.remove();
+    const frag = document.createDocumentFragment();
+    for (let i = a; i < b; i++) frag.appendChild(skel ? skelRow() : node(i));
+    container.insertBefore(frag, padB);
+    start = a; end = b; curSkel = skel; setPads();
+  }
+  function patch(a, b) {
+    if (curSkel || b <= start || a >= end) return fill(a, b, false);
+    while (start < a && padT.nextSibling !== padB) { padT.nextSibling.remove(); start++; }
+    while (end > b && padB.previousSibling !== padT) { padB.previousSibling.remove(); end--; }
+    if (a < start) {
+      const frag = document.createDocumentFragment();
+      for (let i = a; i < start; i++) frag.appendChild(node(i));
+      padT.after(frag); start = a;
+    }
+    if (b > end) {
+      const frag = document.createDocumentFragment();
+      for (let i = end; i < b; i++) frag.appendChild(node(i));
+      padB.before(frag); end = b;
+    }
+    setPads();
+  }
+  function measure() {
+    if (pitch) return;
+    const r1 = padT.nextSibling, r2 = r1 && r1.nextSibling;
+    if (r2 && r2 !== padB && r2.offsetTop > r1.offsetTop) { pitch = r2.offsetTop - r1.offsetTop; rowH = r1.offsetHeight || pitch; }
+    else if (r1 && r1 !== padB && r1.offsetHeight) pitch = rowH = r1.offsetHeight;
+    // si no se pudo medir (contenedor detached), pitch queda 0 y se re-mide en el proximo update
+  }
+  function update() {
+    raf = 0;
+    if (!container.isConnected) return;   // aun no insertado (o vista cerrada): el scroll re-activa
+    measure();
+    const p = pitch || 48;
+    // origen de la lista en coordenadas de scroll: padT menos su propia altura ya aplicada
+    const origin = padT.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    const vis = Math.max(8, Math.ceil((scroller.clientHeight || 700) / p));
+    const first = Math.floor((scroller.scrollTop - origin) / p);
+    const a = Math.max(0, Math.min(count, first - 10)), b = Math.max(0, Math.min(count, first + vis + 10));
+    if (b <= a) { if (start !== end) fill(Math.max(0, Math.min(a, count - 1)), Math.max(0, Math.min(a, count - 1)), false); return; }
+    if (end > start && Math.abs(a - start) > vis * 3) {
+      fill(a, b, true);
+      clearTimeout(skelTimer);
+      skelTimer = setTimeout(update, 110);
+      return;
+    }
+    if (a !== start || b !== end || curSkel) patch(a, b);
+  }
+  function onScroll() {
+    if (!container.isConnected) { scroller.removeEventListener("scroll", onScroll); clearTimeout(skelTimer); return; }
+    if (!raf) raf = requestAnimationFrame(update);
+  }
+  fill(0, Math.min(count, 40), false);
+  virgin = false;
+  measure();
+  update();
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+}
 function render(list, v) {
   if (list && list.sections) { renderSections(list.sections); return; }   // busqueda "Todo": secciones priorizadas
   const r = $("r"), empty = $("empty");
@@ -1172,6 +1324,11 @@ function render(list, v) {
   const KINDS = { artists: "artista", albums: "álbum", playlists: "playlist", profiles: "perfil" };
   const isBrowse = !!list[0].browseId;
   r.classList.toggle("grid", isBrowse);   // cuadricula para artistas/albumes/playlists/perfiles
+  if (!isBrowse) {
+    // canciones (liked puede tener miles): virtualizado para scroll fluido
+    vlist(r, list.length, i => songLi(list[i], list, i, v === "buscar"));
+    return;
+  }
   list.forEach((s, i) => {
     const li = document.createElement("li"); li.style.setProperty("--i", i);
     if (s.browseId) {   // tarjeta con caratula grande; entrar en el requiere browse (pendiente)
@@ -1266,7 +1423,7 @@ function metaHtml(s) {
 }
 function songLi(s, list, i, solo) {
   const plist = solo ? [s] : list, pidx = solo ? 0 : i;   // solo: cola = esa cancion, recomendaciones la extienden
-  const li = document.createElement("li"); li.style.setProperty("--i", i); li.dataset.id = s.id;
+  const li = document.createElement("li"); li.style.setProperty("--i", Math.min(i % 80, 20)); li.dataset.id = s.id;
   li.innerHTML = `<div class="cover-wrap"><img alt=""><div class="play-hint"><i class="ph-fill ph-play"></i></div></div>
     <div class="meta"><div class="t"></div><div class="a"></div></div>
     <span class="cplays"></span>
@@ -1456,7 +1613,8 @@ function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + fil
   const isAlb = (seed.kind === "albums" || seed.kind === "album");
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
-  if (seed.cover) { hero.querySelector("img").src = seed.cover; bg.style.backgroundImage = `url("${seed.cover}")`; bg.classList.add("on"); }
+  const seedCov = seed.ccover || seed.cover;
+  if (seedCov) { hero.querySelector("img").src = seedCov; bg.style.backgroundImage = `url("${seedCov}")`; bg.classList.add("on"); }
   else hero.querySelector(".cov").classList.add("shimmer");
   hero.querySelector(".ct").textContent = seed.subtitle || (isAlb ? "Álbum" : "Playlist");
   hero.querySelector("h1").textContent = seed.title || "";
@@ -1487,7 +1645,8 @@ function colTrackRow(t, songs, i, hasPic) {
   if (hasPic) li.querySelector("img").src = s.cover;
   li.querySelector(".ct2").textContent = t.title;
   li.querySelector(".ca").innerHTML = expBadge(s) + metaHtml(s);   // badge Explicit + artistas/album clickeables
-  li.querySelector(".cextra").textContent = t.extra || "";
+  // no repetir el album: si ya sale en la linea de meta (metaHtml), la columna extra sobra
+  li.querySelector(".cextra").textContent = (s.album && s.album.name === t.extra) ? "" : (t.extra || "");
   li.querySelector(".cdur").textContent = t.duration || "";
   if (current && current.id === s.id) li.classList.add("playing");
   li.onclick = () => playFromList(songs, i);
@@ -1566,6 +1725,11 @@ function openCardMenu(it, x, y, el) {
       saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
+  if (entry.kind === "playlists" && libE) {
+    // portada custom es LOCAL (YT no expone subirla): disponible para toda playlist guardada
+    opts.push(["ph-image", "Cambiar portada…", () => pickCover(libE)]);
+    if (libE.ccover) opts.push(["ph-x-circle", "Quitar portada personalizada", () => setCcover(libE.id, null)]);
+  }
   if (entry.kind === "playlists" && _authSt.logged_in && editable) {
     opts.push(["ph-pencil-simple", "Editar playlist", () => openPlModal(libE || entry)]);
     opts.push(["ph-users-three", "Colaboración", () => openCollabMenu(entry, x, y)]);
@@ -1610,7 +1774,7 @@ function renderCollection(d) {
   const cv = $("collectionView"); cv.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
-  const heroCover = d.cover || (d.kind === "playlist" ? PL_EMPTY_COVER : "");
+  const heroCover = (libE && libE.ccover) || d.cover || (d.kind === "playlist" ? PL_EMPTY_COVER : "");
   if (heroCover) {
     hero.querySelector("img").src = heroCover;
     bg.style.backgroundImage = `url("${heroCover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
@@ -1649,7 +1813,7 @@ function renderCollection(d) {
     cv.appendChild(p);
   }
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
-  d.tracks.forEach((t, i) => ul.appendChild(colTrackRow(t, songs, i, hasPic)));
+  vlist(ul, d.tracks.length, i => colTrackRow(d.tracks[i], songs, i, hasPic));
   cv.appendChild(ul);
   const _inCol = () => current && songs.some(x => x.id === current.id);
   const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
@@ -1985,8 +2149,8 @@ function openImportModal() {
   _impStep(1);
   $("impmodal").hidden = false;
 }
-$("impclose").onclick = () => { $("impmodal").hidden = true; };
-$("impmodal").onclick = (e) => { if (e.target === $("impmodal")) $("impmodal").hidden = true; };
+$("impclose").onclick = () => { if (!_impBusyFlag) $("impmodal").hidden = true; };
+$("impmodal").onclick = (e) => { if (e.target === $("impmodal") && !_impBusyFlag) $("impmodal").hidden = true; };
 document.querySelectorAll(".impgrid button").forEach(b => {
   b.onclick = () => importFrom(b.dataset.platform);
 });
@@ -2046,24 +2210,51 @@ $("impfile").onchange = async (e) => {
     box.appendChild(_improw("csv", id, title, tracks.length + " canciones", "", true));
   }
   $("impprog").hidden = true; $("impgo").disabled = false;
+  $("impallrow").hidden = !box.querySelector("input");
+  _impSync();
   _impStep(2);
 };
 
 /* ---------- importacion desde Spotify ----------
    login real (ventana pywebview, main.py) -> /spot/lib lista la biblioteca -> checklist ->
    /spot/import por seleccion (backend matchea cada pista en YT Music y crea/likea/suscribe) */
-function _impStep(n) { $("impstep1").hidden = n !== 1; $("impstep2").hidden = n !== 2; }
+function _impStep(n) { $("impstep1").hidden = n !== 1; $("impstep2").hidden = n !== 2; $("impstep3").hidden = n !== 3; $("impbusy").hidden = n !== "busy"; }
+let _impBusyFlag = false, _impCancel = false;
+function _impBusy(on) {
+  _impBusyFlag = on;
+  $("impclose").style.display = on ? "none" : "";   // importando: solo se sale con Cancelar
+  if (on) { $("impbar").style.width = "0%"; _impStep("busy"); }
+}
+$("impcancel").onclick = () => {
+  _impCancel = true;
+  jget("/spot/cancel").catch(() => {});
+  _impBusy(false);
+  $("impmodal").hidden = true;
+  toast(t("Importación cancelada"));
+};
 $("impback").onclick = () => _impStep(1);
 async function spotFlow() {
   $("imphint").textContent = t("Conectando con Spotify...");
   $("implist").innerHTML = ""; $("impprog").hidden = true; $("impgo").disabled = false;
+  $("impallrow").hidden = true;
   _impStep(2);
   try {
     let st = await jget("/spot/status");
     if (!st.logged_in) {
-      const r = await jget("/spot/login");
+      let r = await jget("/spot/login");
+      if (r.error === "need_client") {
+        const cid = await askModal({
+          title: t("Conectar con Spotify"), icon: "ph-plug",
+          message: t("Pega el Client ID de tu app de Spotify. Créala gratis en developer.spotify.com/dashboard (Create app) con Redirect URI exactamente: http://127.0.0.1:8000/spot/callback"),
+          input: true, placeholder: "Client ID", okLabel: t("Conectar"),
+        });
+        if (!cid) { $("impmodal").hidden = true; return; }
+        const sc = await jget("/spot/setclient?id=" + encodeURIComponent(cid.trim()));
+        if (sc.error) throw sc.error;
+        r = await jget("/spot/login");
+      }
       if (r.error) throw r.error;
-      $("imphint").textContent = t("Inicia sesión en la ventana de Spotify...");
+      $("imphint").textContent = t("Autoriza a Blyatt en la pestaña del navegador...");
       for (let i = 0; i < 90 && !st.logged_in; i++) {   // 3 min max
         await new Promise(res => setTimeout(res, 2000));
         if ($("impmodal").hidden) return;   // usuario cerro el modal: abandona
@@ -2077,22 +2268,53 @@ async function spotFlow() {
     renderSpotPicker(d);
   } catch (e) { $("imphint").textContent = "Error: " + e; }
 }
-function _improw(kind, id, title, sub, cover, checked) {
-  const l = document.createElement("label"); l.className = "improw";
+function _improw(kind, id, title, sub, cover, checked, badge) {
+  const l = document.createElement("label"); l.className = "improw" + (kind === "artist" ? " artist" : "");
   l.innerHTML = '<input type="checkbox"><img alt=""><div class="it"><b></b><span></span></div>';
   const inp = l.querySelector("input");
   inp.checked = !!checked;
-  Object.assign(inp.dataset, { kind, id, title });
+  inp.onchange = _impSync;
+  Object.assign(inp.dataset, { kind, id, title, cover: cover || "" });
   const im = l.querySelector("img");
   if (cover) im.src = cover; else im.remove();
   l.querySelector("b").textContent = title;
   l.querySelector("span").textContent = sub || "";
+  if (badge) {
+    const b = document.createElement("span");
+    b.className = "pub"; b.textContent = badge;
+    l.appendChild(b);
+  }
   return l;
 }
+function _impSync() {
+  // estado del "Seleccionar todo" + contador segun los checks individuales
+  const all = [...document.querySelectorAll("#implist .improw input")];
+  const on = all.filter(i => i.checked).length;
+  $("impall").checked = on === all.length && all.length > 0;
+  $("impall").indeterminate = on > 0 && on < all.length;
+  $("impcnt").textContent = on + " / " + all.length;
+}
+$("impall").onchange = () => {
+  document.querySelectorAll("#implist input").forEach(i => { i.checked = $("impall").checked; });   // incluye los de seccion
+  _impSync();
+};
 function renderSpotPicker(d) {
   $("imphint").textContent = t("Elige qué importar a tu cuenta de YouTube Music:");
   const box = $("implist"); box.innerHTML = "";
-  const sec = (label) => { const h = document.createElement("h4"); h.textContent = t(label); box.appendChild(h); };
+  const sec = (label) => {
+    // checkbox de seccion: marca/desmarca todos los items hasta el siguiente header
+    const h = document.createElement("h4");
+    const cb = document.createElement("input"); cb.type = "checkbox";
+    cb.onchange = () => {
+      for (let el = h.nextElementSibling; el && el.tagName !== "H4"; el = el.nextElementSibling) {
+        const i = el.querySelector("input");
+        if (i) i.checked = cb.checked;
+      }
+      _impSync();
+    };
+    const sp = document.createElement("span"); sp.textContent = t(label);
+    h.append(cb, sp); box.appendChild(h);
+  };
   const songsWord = lang === "en" ? " songs" : " canciones";
   if (d.liked) {
     sec("Me gusta");
@@ -2100,53 +2322,183 @@ function renderSpotPicker(d) {
   }
   if ((d.playlists || []).length) {
     sec("Playlists");
-    d.playlists.forEach(p => box.appendChild(_improw("playlist", p.id, p.title, (p.count ? p.count + songsWord : "") + (p.owner ? " • " + p.owner : ""), p.cover)));
+    d.playlists.forEach(p => box.appendChild(_improw("playlist", p.id, p.title,
+      [p.count ? p.count + songsWord : "", p.owner].filter(Boolean).join(" • "),
+      p.cover, false, t(p.public ? "Pública" : "Privada"))));
   }
   if ((d.albums || []).length) {
     sec("Álbumes");
-    d.albums.forEach(a => box.appendChild(_improw("album", a.id, a.title, a.artist, a.cover)));
+    d.albums.forEach(a => box.appendChild(_improw("album", a.id, a.title,
+      [a.artist, a.count ? a.count + songsWord : ""].filter(Boolean).join(" • "), a.cover)));
   }
   if ((d.artists || []).length) {
     sec("Artistas");
     d.artists.forEach(a => box.appendChild(_improw("artist", a.id, a.title, t("Artista"), a.cover)));
   }
   if (!box.children.length) $("imphint").textContent = t("Tu biblioteca de Spotify está vacía.");
+  $("impallrow").hidden = !box.querySelector("input");
+  _impSync();
 }
 $("impgo").onclick = async () => {
-  const sel = [...document.querySelectorAll("#implist input:checked")].map(i => i.dataset);
+  const sel = [...document.querySelectorAll("#implist .improw input:checked")].map(i => i.dataset);
   if (!sel.length) { toast("No hay nada seleccionado"); return; }
-  $("impgo").disabled = true; $("impback").disabled = true;
-  const prog = $("impprog"); prog.hidden = false;
+  _impCancel = false;
+  _impBusy(true);   // bloquea el modal: solo queda Cancelar
   let okN = 0, missN = 0, failN = 0;
+  const fails = [], fixQueue = [];
   // poll de progreso intra-item (matching de pistas en el backend)
   const en = lang === "en";
   const pt = setInterval(async () => {
     try {
       const p = await jget("/spot/progress");
-      if (p.active && p.total) prog.textContent = en ? `Importing "${p.label}": ${p.done}/${p.total} songs...` : `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
+      if (p.active && p.total) {
+        $("impblabel").textContent = en ? `Importing "${p.label}": ${p.done}/${p.total} songs...` : `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
+        $("impbar").style.width = Math.round(p.done / p.total * 100) + "%";
+      }
     } catch (e) {}
   }, 900);
   for (let i = 0; i < sel.length; i++) {
+    if (_impCancel) break;
     const s = sel[i];
-    prog.textContent = (en ? `Importing "${s.title}" (` : `Importando "${s.title}" (`) + (i + 1) + "/" + sel.length + ")...";
+    $("impblabel").textContent = (en ? `Importing "${s.title}" (` : `Importando "${s.title}" (`) + (i + 1) + "/" + sel.length + ")...";
+    $("impbar").style.width = "0%";
     try {
       let r;
       if (s.kind === "csv") {
         const d = _csvData.get(s.id);
         r = await (await fetch("/impcsv", { method: "POST", body: JSON.stringify({ title: d.title, tracks: d.tracks }) })).json();
       } else {
-        r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title));
+        r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title)
+          + (s.kind === "playlist" && s.cover ? "&cover=" + encodeURIComponent(s.cover) : ""));
       }
-      if (r.error) { failN++; continue; }
+      if (r.error) { failN++; fails.push(`"${s.title}": ${r.error}`); continue; }
       okN += r.added || 0; missN += r.missed || 0;
-    } catch (e) { failN++; }
+      if (r.playlist_id) {
+        // refleja la playlist nueva en la biblioteca AL INSTANTE (ytlib de YT tarda en verla)
+        const entry = { id: "VL" + r.playlist_id, kind: "playlists", title: r.title || s.title, subtitle: "Playlist",
+                        cover: PL_EMPTY_COVER, ts: Date.now(), editable: true, creator: _authSt.name || "Tú" };
+        if (s.cover) entry.ccover = s.cover;   // portada original de Spotify (YT no permite subir portadas custom)
+        const lib = getLibrary().filter(x => x.id !== entry.id); lib.unshift(entry);
+        localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
+      }
+      if (s.kind === "liked") addLikedLocal((r.tracks || []).filter(x => x.match)
+        .map(x => ({ id: x.match.id, title: x.match.title, artist: x.match.artist, cover: x.match.cover, duration: x.match.duration })));
+      if ((r.tracks || []).length) fixQueue.push({ pid: r.playlist_id || null, title: r.title || s.title, tracks: r.tracks, changed: false });
+    } catch (e) { failN++; fails.push(`"${s.title}": ${e}`); }
   }
   clearInterval(pt);
-  prog.textContent = en
+  if (_impCancel) return;   // el botón Cancelar ya cerró el modal
+  _impBusy(false);
+  _ytSynced = false; syncYtLibrary();   // refleja likes/artistas/álbumes importados en lo local
+  const summary = (en
     ? `Done: ${okN} items imported` + (missN ? `, ${missN} songs not found` : "") + (failN ? `, ${failN} failed` : "") + "."
-    : `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".";
-  $("impgo").disabled = false; $("impback").disabled = false;
-  _ytSynced = false; syncYtLibrary();   // refleja lo importado en la biblioteca local
+    : `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".")
+    + (fails.length ? " " + fails.join(" · ") : "");
+  if (fixQueue.length) {
+    $("fixhint").textContent = summary + " " + t("Revisa el resultado en el orden original: toca cualquier canción para cambiarla de versión o buscar las no encontradas.");
+    renderFixList(fixQueue);
+    _impStep(3);
+  } else {
+    $("impprog").hidden = false; $("impprog").textContent = summary;
+    _impStep(2);
+  }
+};
+function addLikedLocal(list) {
+  // refleja likes importados en lightning.liked al instante (sin esperar al sync de /ytlib)
+  let liked = getLiked();
+  const have = new Set(liked.map(x => x.id));
+  const add = list.filter(x => x.id && !have.has(x.id));
+  if (!add.length) return;
+  localStorage.setItem("lightning.liked", JSON.stringify(liked.concat(add)));
+  if (view === "liked") render(getLiked(), "liked");
+  refreshLikeUI();
+}
+let _fixGroups = [];
+function renderFixList(groups) {
+  _fixGroups = groups;
+  const box = $("fixlist"); box.innerHTML = "";
+  groups.forEach(g => {
+    const h = document.createElement("h4"); h.textContent = g.title; box.appendChild(h);
+    g.tracks.forEach(q => box.appendChild(_fixRow(g, q)));
+  });
+}
+function _fixRow(g, q) {
+  const row = document.createElement("div"); row.className = "fixrow";
+  row.innerHTML = '<div class="improw"><img alt=""><div class="it"><b></b><span></span><span class="mline"></span></div><span class="pub"></span></div><div class="cands" hidden></div>';
+  const head = row.querySelector(".improw"), cands = row.querySelector(".cands"), im = head.querySelector("img");
+  row.querySelector("b").textContent = q.title;
+  head.querySelector(".it span").textContent = q.artists;
+  const paint = () => {
+    row.classList.toggle("miss", !q.match);
+    im.style.display = q.match && q.match.cover ? "" : "none";
+    if (q.match) {
+      if (q.match.cover) im.src = q.match.cover;
+      head.querySelector(".mline").textContent = "✓ " + (q.match.title || "") + (q.match.artist ? " • " + q.match.artist : "");
+      head.querySelector(".pub").textContent = q.match.duration || t("Cambiar");
+    } else {
+      head.querySelector(".mline").textContent = t("No encontrada");
+      head.querySelector(".pub").textContent = t("Buscar");
+    }
+  };
+  paint();
+  head.onclick = async () => {
+    if (!cands.hidden) { cands.hidden = true; return; }
+    cands.hidden = false;
+    if (cands.dataset.loaded) return;
+    cands.dataset.loaded = "1";
+    cands.innerHTML = '<p class="ghint" style="margin:6px 10px">' + t("Buscando...") + '</p>';
+    let res = [];
+    try { res = await jget("/search?filter=songs&q=" + encodeURIComponent((q.title + " " + q.artists).trim())) || []; } catch (e) {}
+    cands.innerHTML = "";
+    res.slice(0, 6).forEach(c => {
+      const el = document.createElement("div"); el.className = "improw";
+      el.innerHTML = '<img alt=""><div class="it"><b></b><span></span></div><span class="pub"></span>';
+      const cim = el.querySelector("img");
+      if (c.cover) cim.src = c.cover; else cim.remove();
+      el.querySelector("b").textContent = c.title || "";
+      el.querySelector(".it span").textContent = c.artist || "";
+      el.querySelector(".pub").textContent = c.duration || "";
+      el.onclick = async () => {
+        const pick = { id: c.id, title: c.title || "", artist: c.artist || "", cover: c.cover || "", duration: c.duration || "" };
+        try {
+          if (g.pid) {
+            // playlist: el cambio se aplica al Guardar (reescritura completa en orden original)
+            q.match = pick; g.changed = true;
+          } else {
+            // me gusta: aplicar al instante (like nuevo, quita el like de la version reemplazada)
+            const r2 = await jget("/rate?id=" + encodeURIComponent(pick.id) + "&like=1");
+            if (r2 && r2.error) throw r2.error;
+            if (q.match && q.match.id !== pick.id) {
+              jget("/rate?id=" + encodeURIComponent(q.match.id) + "&like=0");
+              localStorage.setItem("lightning.liked", JSON.stringify(getLiked().filter(x => x.id !== q.match.id)));
+            }
+            addLikedLocal([pick]);
+            q.match = pick;
+            toast(t("Añadida a") + " " + t("Me gusta"));
+          }
+          paint(); cands.hidden = true;
+        } catch (e) { toast("Error: " + e); }
+      };
+      cands.appendChild(el);
+    });
+    if (!cands.childElementCount) cands.innerHTML = '<p class="ghint" style="margin:6px 10px">' + t("Sin resultados") + '</p>';
+  };
+  return row;
+}
+$("fixdone").onclick = async () => {
+  $("fixdone").disabled = true;
+  for (const g of _fixGroups) {
+    if (!g.pid || !g.changed) continue;
+    $("fixhint").textContent = t("Guardando") + ' "' + g.title + '"...';
+    const vids = g.tracks.filter(x => x.match).map(x => x.match.id);
+    try {
+      const r = await (await fetch("/implace", { method: "POST", body: JSON.stringify({ id: g.pid, vids }) })).json();
+      if (r.error) throw r.error;
+    } catch (e) { toast('"' + g.title + '": ' + e); }
+  }
+  $("fixdone").disabled = false;
+  $("impmodal").hidden = true;
+  _ytSynced = false; syncYtLibrary();
 };
 
 function openPlPicker(s, x, y, li) {
@@ -2166,7 +2518,50 @@ async function addToPl(p, s) {
 }
 function setLibCover(id, cover) {
   const lib = getLibrary(); const hit = lib.find(x => x.id === id);
-  if (hit && hit.cover !== cover) { hit.cover = cover; localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+  if (hit && hit.cover !== cover) {
+    hit.cover = cover;
+    localStorage.setItem("lightning.library", JSON.stringify(lib));
+    if (!hit.ccover) renderLibrary();   // con portada custom, la auto-generada de YT no se muestra
+  }
+}
+function setCcover(id, url) {
+  const lib = getLibrary(); const hit = lib.find(x => x.id === id); if (!hit) return;
+  if (url) hit.ccover = url; else delete hit.ccover;
+  localStorage.setItem("lightning.library", JSON.stringify(lib));
+  renderLibrary();
+  if (view === "collection" && _colId === id) {
+    const c = url || hit.cover || PL_EMPTY_COVER;
+    const img = document.querySelector("#collectionView .col-hero .cov img");
+    if (img) img.src = c;
+    bg.style.backgroundImage = `url("${c}")`;
+  }
+  toast(url ? t("Portada actualizada") : t("Portada personalizada quitada"));
+}
+function pickCover(entry) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const img = new Image();
+    img.onload = () => {
+      // recorte cuadrado centrado a 512px, JPEG (localStorage: ~60-90KB por portada)
+      const S = 512, c = document.createElement("canvas"); c.width = c.height = S;
+      const m = Math.min(img.width, img.height);
+      c.getContext("2d").drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, S, S);
+      const dataUrl = c.toDataURL("image/jpeg", .82);
+      setCcover(entry.id, dataUrl);
+      URL.revokeObjectURL(img.src);
+      if (entry.editable && _authSt.logged_in) {
+        // ademas de local: portada REAL en la cuenta de YT Music (playlists propias)
+        fetch("/plcover", { method: "POST", body: JSON.stringify({ id: entry.id.replace(/^VL/, ""), data: dataUrl }) })
+          .then(r => r.json())
+          .then(d => toast(d.error ? t("Solo se aplicó en Blyatt") + ": " + d.error : t("Portada subida a YT Music")))
+          .catch(() => {});
+      }
+    };
+    img.onerror = () => toast(t("No se pudo leer la imagen"));
+    img.src = URL.createObjectURL(f);
+  };
+  inp.click();
 }
 function openCollabMenu(entry, x, y) {
   showMenu([
@@ -2225,6 +2620,7 @@ async function deletePl(entry) {
     if (d.error) throw d.error;
     localStorage.setItem("lightning.library", JSON.stringify(getLibrary().filter(x => x.id !== entry.id)));
     renderLibrary();
+    if (view === "collection" && _colId === entry.id) setView("home");   // la vista abierta era la borrada
     toast("Playlist eliminada");
   } catch (e) { toast("" + e); }
 }
@@ -2526,10 +2922,16 @@ function renderQueue() {
   const ql = $("qlist"); ql.innerHTML = "";
   $("qtitle").textContent = qMode === "history" ? "Historial" : "En cola";
   $("histBtn").classList.toggle("on", qMode === "history");
+  const vwrap = (rows, buildIdx) => {
+    // colas largas (playlist entera encolada) virtualizadas; el scroller es el propio #qlist
+    const w = document.createElement("div"); ql.appendChild(w);
+    vlist(w, rows.length, i => qRow(rows[i], buildIdx(i), "next"), ql);
+  };
   if (qMode === "history") {
     const h = getRecents();
     if (!h.length) { ql.innerHTML = '<div class="lempty">Nada reciente.</div>'; return; }
-    h.forEach((s, i) => ql.appendChild(qRow(s, i, "history")));
+    const w = document.createElement("div"); ql.appendChild(w);
+    vlist(w, h.length, i => qRow(h[i], i, "history"), ql);
     return;
   }
   if (!current) { ql.innerHTML = '<div class="lempty">La cola está vacía.</div>'; return; }
@@ -2537,14 +2939,18 @@ function renderQueue() {
   ql.appendChild(qRow(queue[qIndex] || current, qIndex, "current"));
   const up = queue.slice(qIndex + 1);
   if (up.length) {
-    let recHdr = false, nextHdr = false;
-    up.forEach((s, k) => {
-      if (s._rec && !recHdr) { recHdr = true;
-        const h3 = document.createElement("div"); h3.className = "qsec rec"; h3.innerHTML = '<i class="ph ph-sparkle"></i> Recomendaciones'; ql.appendChild(h3); }
-      else if (!s._rec && !nextHdr) { nextHdr = true;
-        const h2 = document.createElement("div"); h2.className = "qsec"; h2.textContent = "A continuación"; ql.appendChild(h2); }
-      ql.appendChild(qRow(s, qIndex + 1 + k, "next"));
-    });
+    // bloques contiguos por tipo (siguientes/recomendaciones) para poder virtualizar cada uno
+    const fr = up.findIndex(s => s._rec);
+    const nextRows = fr === -1 ? up : up.slice(0, fr);
+    const recRows = fr === -1 ? [] : up.slice(fr);
+    if (nextRows.length) {
+      const h2 = document.createElement("div"); h2.className = "qsec"; h2.textContent = "A continuación"; ql.appendChild(h2);
+      vwrap(nextRows, i => qIndex + 1 + i);
+    }
+    if (recRows.length) {
+      const h3 = document.createElement("div"); h3.className = "qsec rec"; h3.innerHTML = '<i class="ph ph-sparkle"></i> Recomendaciones'; ql.appendChild(h3);
+      vwrap(recRows, i => qIndex + 1 + nextRows.length + i);
+    }
   }
 }
 $("histBtn").onclick = () => { qMode = qMode === "history" ? "queue" : "history"; renderQueue(); };

@@ -624,6 +624,7 @@
     #mnav button { border: none; background: none; color: var(--muted); font-size: 1.45rem;
                    padding: 8px 18px; border-radius: 12px; cursor: pointer; line-height: 1; }
     #mnav button.active { color: var(--accent, #fff); }
+    #mnav #muimg { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; }
     #player { left: 8px; right: 8px; bottom: calc(58px + env(safe-area-inset-bottom));
               padding: 10px 14px 8px; border-radius: 14px; }
     main { padding: 0 16px 210px; }
@@ -839,6 +840,7 @@
   <button data-mv="buscar" aria-label="Buscar"><i class="ph ph-magnifying-glass"></i></button>
   <button data-mv="liked" aria-label="Me gusta"><i class="ph ph-heart"></i></button>
   <button data-mv="lib" aria-label="Biblioteca"><i class="ph ph-books"></i></button>
+  <button data-mv="user" aria-label="Cuenta"><i class="ph ph-user" id="muico"></i><img id="muimg" alt="" hidden></button>
 </nav>
 <div id="player" role="region" aria-label="Reproductor">
   <div class="controls">
@@ -1879,8 +1881,9 @@ function setView(v, push = true) {
 function syncMnav(v) {
   document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
 }
-document.querySelectorAll("#mnav button").forEach(b => b.onclick = () => {
+document.querySelectorAll("#mnav button").forEach(b => b.onclick = (e) => {
   const v = b.dataset.mv;
+  if (v === "user") { e.stopPropagation(); openUserMenu(b); return; }
   if (v === "lib") {
     showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })));
     syncMnav("lib");
@@ -1974,6 +1977,8 @@ function paintUserChip() {
   const ph = _authSt.logged_in && _authSt.photo;
   img.hidden = !ph; ico.style.display = ph ? "none" : "";
   if (ph) img.src = _authSt.photo;
+  const mi = $("muimg"), mo = $("muico");
+  if (mi) { mi.hidden = !ph; mo.style.display = ph ? "none" : ""; if (ph) mi.src = _authSt.photo; }
 }
 async function refreshAuth() {
   try { _authSt = await jget("/auth/status"); } catch (e) {}
@@ -2069,9 +2074,8 @@ async function toggleGoogleSession() {
   $("gwait").hidden = true; $("ghdrs").value = "";
   $("gmodal").hidden = false;
 }
-$("userBtn").onclick = (e) => {
-  e.stopPropagation();
-  const r = $("userBtn").getBoundingClientRect();
+function openUserMenu(btn) {
+  const r = btn.getBoundingClientRect();
   showMenu([
     ["ph-gear", "Configuración", () => toast(t("Configuración: próximamente"))],
     ["ph-translate", "Idioma", null, [
@@ -2082,11 +2086,13 @@ $("userBtn").onclick = (e) => {
     [_authSt.logged_in ? "ph-sign-out" : "ph-google-logo",
      _authSt.logged_in ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],
-  ], r.left, r.top - 8, $("userBtn"));
+  ], r.left, r.top - 8, btn);
   // el menu SIEMPRE arriba del chip: reancla tras medir (showMenu solo clampa hacia abajo)
   const m = $("ctxmenu");
   m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";
-};
+  m.style.left = Math.min(parseFloat(m.style.left) || r.left, innerWidth - m.offsetWidth - 8) + "px";
+}
+$("userBtn").onclick = (e) => { e.stopPropagation(); openUserMenu($("userBtn")); };
 $("gsave").onclick = async () => {
   const raw = $("ghdrs").value.trim();
   if (!raw) { toast("Pega los headers primero"); return; }

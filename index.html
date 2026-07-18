@@ -2059,11 +2059,14 @@ async function syncYtLibrary() {
 function closeGModal() { $("gmodal").hidden = true; }
 async function toggleGoogleSession() {
   if (!_authSt.available) { toast("Instala ytmusicapi: py -m pip install ytmusicapi"); return; }
-  if (_authSt.logged_in) {
+  if (_authSt.logged_in && _authSt.own !== false) {
     await jget("/auth/logout"); toast("Sesión de Google cerrada");
     _ytSynced = false;
     await refreshAuth();
     return;
+  }
+  if (_authSt.logged_in) {   // sesion compartida de la casa: no se cierra, se sustituye con la propia
+    toast("Esta es la cuenta compartida del servidor. Inicia sesión con la tuya para reemplazarla en este dispositivo.");
   }
   // app de escritorio: ventana nativa con el login real de Google (perfil persistente, sin reconectar)
   try {
@@ -2083,8 +2086,8 @@ function openUserMenu(btn) {
       ["", "Inglés", () => setLang("en")],
     ]],
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
-    [_authSt.logged_in ? "ph-sign-out" : "ph-google-logo",
-     _authSt.logged_in ? "Cerrar sesión" : "Iniciar sesión con Google",
+    [(_authSt.logged_in && _authSt.own !== false) ? "ph-sign-out" : "ph-google-logo",
+     (_authSt.logged_in && _authSt.own !== false) ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],
   ], r.left, r.top - 8, btn);
   // el menu SIEMPRE arriba del chip: reancla tras medir (showMenu solo clampa hacia abajo)

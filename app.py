@@ -9,6 +9,7 @@ import json
 import os
 import re
 import struct
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -598,7 +599,9 @@ def _use_album_audio(hdr, tracks):
 
 
 def collection(browse_id):
-    return cached("col:" + browse_id, 600, lambda: _collection(browse_id))
+    # con sesion el contenido depende de la cuenta (playlists privadas): clave por sesion
+    key = _sk("col:" + browse_id) if ytm() else "col:" + browse_id
+    return cached(key, 600, lambda: _collection(browse_id))
 
 
 def _collection_auth(pid):
@@ -1064,8 +1067,32 @@ def audio_url(video_id, fresh=False):
 # son la via soportada por ytmusicapi y la cookie dura anios.
 AUTH_DIR = os.path.join(BASE, "auth")
 BROWSER_FILE = os.path.join(AUTH_DIR, "browser.json")
-_ytm_inst = None
 WEBLOGIN = None   # main.py (pywebview) inyecta aqui el launcher de la ventana de login de Google
+
+# --- sesiones por dispositivo (modo servidor) ---
+# Cada dispositivo lleva una cookie "bid"; si existe auth/browser_<bid>.json esa es SU sesion.
+# Sin sesion propia cae a BROWSER_FILE (la sesion "de la casa", que escribe el weblogin de escritorio).
+SERVER_MODE = bool(os.environ.get("BLYATT_HOST"))
+_REQ = threading.local()
+_ytm_by = {}   # ruta de archivo -> instancia YTMusic
+
+
+def _bid_path(bid):
+    return os.path.join(AUTH_DIR, "browser_%s.json" % bid)
+
+
+def _bid_file():
+    b = getattr(_REQ, "bid", "")
+    if b and re.fullmatch(r"[0-9a-f]{16}", b):
+        p = _bid_path(b)
+        if os.path.exists(p):
+            return p
+    return BROWSER_FILE
+
+
+def _sk(key, file=None):
+    # clave de cache ligada a la sesion efectiva (los datos con sesion no se comparten entre cuentas)
+    return "%s|%s" % (file or _bid_file(), key)
 
 
 def _probe_session(cookie_header, user_agent):
@@ -1100,7 +1127,6 @@ def save_browser_cookie(cookie_header, user_agent=None):
     # cookies frescas extraidas del perfil WebView2 -> browser.json; devuelve True si la sesion vale.
     # CRITICO: guardar x-goog-visitor-id REAL de la sesion; si falta, ytmusicapi inyecta uno anonimo
     # (get_visitor_id sin auth) y YouTube trata todo como deslogueado (logged_in=0).
-    global _ytm_inst
     ua = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     logged = visitor = None
     for _ in range(3):   # YT responde logged_in=0 esporadicamente para cookies validas: reintentar
@@ -1128,23 +1154,24 @@ def save_browser_cookie(cookie_header, user_agent=None):
         hdrs["x-goog-visitor-id"] = visitor
     with open(BROWSER_FILE, "w", encoding="utf8") as f:
         json.dump(hdrs, f, indent=1)
-    _ytm_inst = None
-    _CACHE.pop("sess_alive", None)
-    _CACHE.pop("ytlib", None)
+    _ytm_by.pop(BROWSER_FILE, None)
+    _CACHE.pop(_sk("sess_alive", BROWSER_FILE), None)
+    _CACHE.pop(_sk("ytlib", BROWSER_FILE), None)
     return _session_alive()
 
 
 def ytm():
-    global _ytm_inst
-    if _ytm_inst:
-        return _ytm_inst
-    if not (YTMusic and os.path.exists(BROWSER_FILE)):
+    f = _bid_file()
+    y = _ytm_by.get(f)
+    if y:
+        return y
+    if not (YTMusic and os.path.exists(f)):
         return None
     try:
-        _ytm_inst = YTMusic(BROWSER_FILE, language="es")
+        _ytm_by[f] = YTMusic(f, language="es")
     except Exception:
-        _ytm_inst = None
-    return _ytm_inst
+        return None
+    return _ytm_by.get(f)
 
 
 def _session_alive():
@@ -1173,11 +1200,14 @@ def _account_info():
 
 
 def auth_status():
-    has_file = os.path.exists(BROWSER_FILE)
-    alive = bool(has_file and cached("sess_alive", 300, _session_alive))
-    st = {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None}
+    f = _bid_file()
+    has_file = os.path.exists(f)
+    alive = bool(has_file and cached(_sk("sess_alive"), 300, _session_alive))
+    st = {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None,
+          # propia del dispositivo (o escritorio, donde el global ES del usuario); false = compartida de la casa
+          "own": (not SERVER_MODE) or f != BROWSER_FILE}
     if alive:
-        st.update(cached("acct", 3600, _account_info))
+        st.update(cached(_sk("acct"), 3600, _account_info))
     return st
 
 
@@ -1204,35 +1234,39 @@ def _headers_from_any(raw):
 
 
 def auth_set_headers(raw):
-    global _ytm_inst
     if not YTMusic:
         return {"error": "ytmusicapi no instalado"}
     os.makedirs(AUTH_DIR, exist_ok=True)
+    b = getattr(_REQ, "bid", "")
+    # en modo servidor cada dispositivo escribe SU archivo; en escritorio se mantiene el global
+    tgt = _bid_path(b) if (SERVER_MODE and b) else BROWSER_FILE
     try:
-        ytmusicapi.setup(filepath=BROWSER_FILE, headers_raw=_headers_from_any(raw))
-        _ytm_inst = None
-        _CACHE.pop("sess_alive", None)
+        ytmusicapi.setup(filepath=tgt, headers_raw=_headers_from_any(raw))
+        _ytm_by.pop(tgt, None)
+        _CACHE.pop(_sk("sess_alive", tgt), None)
         if not _session_alive():   # valida contra el flag logged_in real, no solo formato
             raise ValueError("YouTube no reconoce la sesión (headers viejos o de una petición sin login)")
-        _CACHE.pop("ytlib", None)
+        _CACHE.pop(_sk("ytlib", tgt), None)
         return {"ok": True}
     except Exception as e:
-        _ytm_inst = None
+        _ytm_by.pop(tgt, None)
         try:
-            os.remove(BROWSER_FILE)
+            os.remove(tgt)
         except OSError:
             pass
         return {"error": "Headers inválidos o sesión caducada: " + str(e)[:120]}
 
 
 def auth_logout():
-    global _ytm_inst
-    _ytm_inst = None
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("sess_alive", None)
-    _CACHE.pop("acct", None)
+    f = _bid_file()
+    if SERVER_MODE and f == BROWSER_FILE:
+        # dispositivo sin sesion propia: no puede borrar la sesion de la casa (compartida)
+        return {"ok": True, "shared": True}
+    _ytm_by.pop(f, None)
+    for k in ("ytlib", "sess_alive", "acct"):
+        _CACHE.pop(_sk(k, f), None)
     try:
-        os.remove(BROWSER_FILE)
+        os.remove(f)
     except OSError:
         pass
     return {"ok": True}
@@ -1252,7 +1286,7 @@ def lib_save(bid, kind, save):
         y.rate_playlist(pid, "LIKE" if save else "INDIFFERENT")
     else:
         y.rate_playlist(bid[2:] if bid.startswith("VL") else bid, "LIKE" if save else "INDIFFERENT")
-    _CACHE.pop("ytlib", None)
+    _CACHE.pop(_sk("ytlib"), None)
     return {"ok": True}
 
 
@@ -1264,7 +1298,7 @@ def pl_create(title, desc, privacy):
     pid = y.create_playlist(title, desc or "", privacy_status=privacy or "PRIVATE")
     if not isinstance(pid, str):
         return {"error": "YT Music rechazó la creación"}
-    _CACHE.pop("ytlib", None)
+    _CACHE.pop(_sk("ytlib"), None)
     return {"id": pid}
 
 
@@ -1274,8 +1308,8 @@ def pl_edit(pid, title, desc, privacy):
         return {"error": "Sin sesión de Google"}
     y.edit_playlist(pid, title=title or None, description=desc if desc is not None else None,
                     privacyStatus=privacy or None)
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     return {"ok": True}
 
 
@@ -1284,7 +1318,7 @@ def pl_delete(pid):
     if not y:
         return {"error": "Sin sesión de Google"}
     y.delete_playlist(pid)
-    _CACHE.pop("ytlib", None)
+    _CACHE.pop(_sk("ytlib"), None)
     return {"ok": True}
 
 
@@ -1296,8 +1330,8 @@ def pl_add(pid, vid):
     st = (r or {}).get("status", "")
     if "SUCCEEDED" not in str(st):
         return {"error": "Ya está en la playlist" if "FAILED" in str(st) else "No se pudo añadir"}
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     out = {"ok": True}
     try:
         # consistencia eventual de YT (~1-3s): espera a que la pista aparezca antes de leer la cover fresca
@@ -1309,7 +1343,7 @@ def pl_add(pid, vid):
         th = d.get("thumbnails") or []
         if th:
             out["cover"] = th[-1]["url"]
-        _CACHE.pop("col:VL" + pid, None)   # re-purga: el fetch de arriba pudo repoblar via /collection concurrente
+        _CACHE.pop(_sk("col:VL" + pid), None)   # re-purga: el fetch de arriba pudo repoblar via /collection concurrente
     except Exception:
         pass
     return out
@@ -1338,8 +1372,8 @@ def pl_collab(pid, on):
     if not y:
         return {"error": "Sin sesión de Google"}
     r = y.edit_playlist(pid, collaboration=on)
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     if not on:
         return {"ok": True}
     tok = _find_key(r, "joinCollaborationToken") if isinstance(r, (dict, list)) else None
@@ -1358,7 +1392,7 @@ def pl_join(link):
     if not pid or not tok:
         return {"error": "Enlace inválido: falta list= o jct="}
     y.join_collaborative_playlist(pid, tok)
-    _CACHE.pop("ytlib", None)
+    _CACHE.pop(_sk("ytlib"), None)
     d = {}
     try:
         d = y.get_playlist(pid, limit=1) or {}
@@ -1380,8 +1414,8 @@ def pl_remove(pid, vid):
     if not hit:
         return {"error": "Pista no encontrada en la playlist"}
     y.remove_playlist_items(pid, [{"videoId": vid, "setVideoId": hit["setVideoId"]}])
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     return {"ok": True}
 
 
@@ -1797,7 +1831,7 @@ def spot_import(kind, sid, title, cover=""):
             if not bid:
                 return {"error": "No encontrado en YT Music: " + title}
             y.subscribe_artists([bid])
-            _CACHE.pop("ytlib", None)
+            _CACHE.pop(_sk("ytlib"), None)
             return {"ok": True, "added": 1, "missed": []}
         if kind == "album":
             r = (y.search(title, filter="albums", limit=5) or [{}])[0]
@@ -1835,7 +1869,7 @@ def spot_import(kind, sid, title, cover=""):
                     pl_set_cover(pid, img, mime)   # portada original de Spotify tambien en YT
                 except Exception as e:
                     _spot_dbg("cover upload err: " + str(e)[:100])
-        _CACHE.pop("ytlib", None)
+        _CACHE.pop(_sk("ytlib"), None)
         return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
                 "tracks": report, "playlist_id": pid,
                 "title": title or ("Me gusta" if kind == "liked" else "Importada de Spotify")}
@@ -1875,8 +1909,8 @@ def pl_set_cover(pid, img, mime):
         "addedCustomThumbnail": {
             "imageKey": {"type": "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL", "name": "studio_square_thumbnail"},
             "playlistScottyEncryptedBlobId": blob}}]})
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     return {"ok": True}
 
 
@@ -1902,8 +1936,8 @@ def imp_replace(pid, vids):
         y.remove_playlist_items(pid, old)
     for i in range(0, len(vids), 100):
         y.add_playlist_items(pid, vids[i:i + 100], duplicates=True)
-    _CACHE.pop("ytlib", None)
-    _CACHE.pop("col:VL" + pid, None)
+    _CACHE.pop(_sk("ytlib"), None)
+    _CACHE.pop(_sk("col:VL" + pid), None)
     return {"ok": True, "count": len(vids)}
 
 
@@ -1944,7 +1978,7 @@ def import_csv(body):
         if not vids:
             return {"error": "Ninguna canción encontrada en YT Music"}
         pid = _yt_make_playlist(y, title, vids)
-        _CACHE.pop("ytlib", None)
+        _CACHE.pop(_sk("ytlib"), None)
         return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
                 "tracks": report, "playlist_id": pid, "title": title}
     finally:
@@ -1957,7 +1991,7 @@ def rate_song(video_id, like):
     if not y:
         return {"error": "Sin sesión de Google"}
     y.rate_song(video_id, "LIKE" if like else "INDIFFERENT")
-    _CACHE.pop("ytlib", None)   # la biblioteca cambio: proximo /ytlib re-fetch
+    _CACHE.pop(_sk("ytlib"), None)   # la biblioteca cambio: proximo /ytlib re-fetch
     return {"ok": True}
 
 
@@ -1998,7 +2032,7 @@ def yt_library():
     def playlists():
         acct = ""
         try:
-            acct = (cached("acct", 3600, _account_info) or {}).get("name", "")
+            acct = (cached(_sk("acct"), 3600, _account_info) or {}).get("name", "")
         except Exception:
             pass
         out = []
@@ -2051,12 +2085,13 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        self._setup_bid()
         u = urlparse(self.path)
         if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path.startswith("/spot/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
                     if parse_qs(u.query).get("fresh"):
-                        _CACHE.pop("sess_alive", None)   # el poll post-login necesita el estado real, no el cacheado
+                        _CACHE.pop(_sk("sess_alive"), None)   # el poll post-login necesita el estado real, no el cacheado
                     return self._json(auth_status())
                 if u.path == "/auth/weblogin":
                     if not WEBLOGIN:
@@ -2066,7 +2101,7 @@ class H(BaseHTTPRequestHandler):
                 if u.path == "/auth/logout":
                     return self._json(auth_logout())
                 if u.path == "/ytlib":
-                    return self._json(cached("ytlib", 300, yt_library))
+                    return self._json(cached(_sk("ytlib"), 300, yt_library))
                 if u.path == "/rate":
                     qs = parse_qs(u.query)
                     return self._json(rate_song(qs.get("id", [""])[0],
@@ -2293,11 +2328,19 @@ class H(BaseHTTPRequestHandler):
                 payload = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            if getattr(self, "_new_bid", ""):   # identidad del dispositivo para sesiones independientes
+                self.send_header("Set-Cookie", "bid=%s; Path=/; Max-Age=63072000; SameSite=Lax" % self._new_bid)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
 
+    def _setup_bid(self):
+        m = re.search(r"(?:^|;\s*)bid=([0-9a-f]{16})", self.headers.get("Cookie") or "")
+        self._new_bid = "" if m else os.urandom(8).hex()
+        _REQ.bid = m.group(1) if m else self._new_bid
+
     def do_POST(self):
+        self._setup_bid()
         u = urlparse(self.path)
         if u.path == "/auth/headers":
             n = int(self.headers.get("Content-Length") or 0)

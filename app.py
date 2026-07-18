@@ -1087,6 +1087,9 @@ def _bid_file():
         p = _bid_path(b)
         if os.path.exists(p):
             return p
+    if SERVER_MODE:
+        # sin sesion propia = invitado: en servidor NO se cae a browser.json (esa cuenta es solo del escritorio)
+        return _bid_path(b or "anon")
     return BROWSER_FILE
 
 

@@ -637,13 +637,21 @@
     .col-hero { flex-direction: column; align-items: flex-start; gap: 16px; }
     .col-hero h1 { font-size: 1.8rem; }
     .cextra { display: none; }
-    .ctrack, .ctracks.withpic .ctrack { grid-template-columns: 26px 42px 1fr 26px 48px 26px; }
+    .ctrack { grid-template-columns: 22px 1fr 26px 44px 22px; gap: 8px; padding: 8px 6px; }
+    .ctracks.withpic .ctrack { grid-template-columns: 22px 38px 1fr 26px 44px 22px; }
+    .ctrack .cdots, .ctrack .row-like { opacity: 1; }
+    .col-hero .cov { width: 46vw; height: 46vw; }
+    .col-hero > img, .cov > img { width: 100%; height: 100%; }
     .lline { font-size: 1.5rem; }
     body { grid-template-columns: 1fr; }
     aside { display: none; }
-    .right { display: none; }
-    .controls { grid-template-columns: 1fr auto; }
-    .center { width: 56vw; }
+    .controls { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 8px; gap: 12px; }
+    .now { grid-column: 1; grid-row: 1; gap: 10px; }
+    .now img { width: 44px; height: 44px; }
+    .right { grid-column: 2; grid-row: 1; flex-direction: row; align-items: center; gap: 2px; }
+    .vol-row, #addpl, #sleep { display: none; }
+    .center { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+    .transport { gap: 24px; }
   }
   @media (prefers-reduced-transparency: reduce) {
     form, #player, .sidepanel, .tab, .back-fab, #ctxmenu { background: #14141b; backdrop-filter: none; -webkit-backdrop-filter: none; }

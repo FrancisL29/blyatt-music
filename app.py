@@ -2113,11 +2113,13 @@ class H(BaseHTTPRequestHandler):
                     return self._json(auth_logout())
                 if u.path == "/ytlib":
                     k = _sk("ytlib")
+                    if parse_qs(u.query).get("fresh"):
+                        _CACHE.pop(k, None)   # abrir "Me gusta" fuerza re-fetch real de la cuenta
                     hit = _CACHE.get(k)
                     if hit and time.time() - hit[0] < 300:
                         return self._json(hit[1])
                     d = yt_library()
-                    if not d.get("error") and not d.pop("_partial", False):
+                    if not d.get("error") and not d.get("_partial"):
                         _CACHE[k] = (time.time(), d)
                     return self._json(d)
                 if u.path == "/rate":

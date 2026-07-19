@@ -617,21 +617,23 @@
     html, body, main { overflow-x: hidden; }
     #backBtn { display: none !important; }   /* en movil navega el boton fisico/gesto de Android */
     #mUser { display: flex; align-items: center; justify-content: center; position: fixed;
-             top: 22px; left: 14px; z-index: 5; width: 38px; height: 38px; border-radius: 50%;
+             top: 22px; left: 14px; z-index: 5; width: 38px; height: 38px; padding: 0; box-sizing: border-box;
+             aspect-ratio: 1; border-radius: 50%;
              border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--muted);
              font-size: 1.25rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
-    #mUser img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+    #mUser img { width: 100%; height: 100%; aspect-ratio: 1; border-radius: 50%; object-fit: cover; display: block; }
     #mUser.hid { display: none; }
     .topbar form { margin-left: 46px; }
     .sidepanel { width: 100%; }
     .resizer { display: none; }
+    /* fade negro estilo Spotify: lo que pasa por debajo se aprecia a traves del degradado */
     #mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; flex-direction: row;
-            justify-content: space-around; align-items: center;
-            padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
-            background: rgb(11 11 15 / .82); backdrop-filter: blur(28px) saturate(140%);
-            -webkit-backdrop-filter: blur(28px) saturate(140%); border-top: 1px solid var(--line); }
+            justify-content: space-around; align-items: flex-end;
+            padding: 34px 0 calc(6px + env(safe-area-inset-bottom));
+            background: linear-gradient(to top, rgb(0 0 0 / .96) 0%, rgb(0 0 0 / .88) 45%, rgb(0 0 0 / 0) 100%);
+            border-top: none; pointer-events: none; }
     #mnav button { border: none; background: none; color: var(--muted); font-size: 1.45rem;
-                   padding: 8px 18px; border-radius: 12px; cursor: pointer; line-height: 1; }
+                   padding: 8px 18px; border-radius: 12px; cursor: pointer; line-height: 1; pointer-events: auto; }
     #mnav button.active { color: var(--accent, #fff); }
     #mnav #muimg { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; }
     #player { left: 8px; right: 8px; bottom: calc(58px + env(safe-area-inset-bottom));
@@ -650,8 +652,11 @@
     .ctrack { grid-template-columns: 22px 1fr 26px 44px 22px; gap: 8px; padding: 8px 6px; }
     .ctracks.withpic .ctrack { grid-template-columns: 22px 38px 1fr 26px 44px 22px; }
     .ctrack .cdots, .ctrack .row-like { opacity: 1; }
-    .col-hero .cov { width: 46vw; height: 46vw; }
+    .col-hero .cov { width: 58vw; height: 58vw; align-self: center; }
     .col-hero > img, .cov > img { width: 100%; height: 100%; }
+    /* en album/playlist no hay busqueda: caratula protagonista, como Spotify */
+    body[data-mv="collection"] .topbar { display: none; }
+    body[data-mv="collection"] .col-hero { padding-top: 26px; }
     .lline { font-size: 1.5rem; }
     body { grid-template-columns: 1fr; }
     aside { display: none; }
@@ -1123,6 +1128,7 @@ const store = (k, d) => JSON.parse(localStorage.getItem(k) || d);
 const getLiked = () => store("lightning.liked", "[]");
 const getRecents = () => store("lightning.recents", "[]");
 const isLiked = id => getLiked().some(x => x.id === id);
+const _freshLikes = new Map();   // likes locales recien dados: no borrarlos aunque YT aun no los refleje
 function toggleLike(s) {
   let list = getLiked();
   const nowLiked = !list.some(x => x.id === s.id);
@@ -1130,7 +1136,7 @@ function toggleLike(s) {
   else { const e = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
     if (s.duration) e.duration = s.duration;
     if (s.artists) e.artists = s.artists;
-    list.unshift(e); toast("Añadido a Liked"); }
+    list.unshift(e); _freshLikes.set(s.id, Date.now()); toast("Añadido a Liked"); }
   localStorage.setItem("lightning.liked", JSON.stringify(list));
   refreshLikeUI();
   if (view === "liked") render(getLiked(), "liked");
@@ -1883,16 +1889,23 @@ function setView(v, push = true) {
   $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar/Inicio
   if (isHome) renderHome();
   else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
+  // "Me gusta" se re-sincroniza con la cuenta cada vez que se abre (pinta lo local al instante,
+  // el sync re-renderiza si hay cambios)
+  if (v === "liked" && _authSt.logged_in) syncYtLibrary(true);
   showTop();   // al cambiar de vista, reaparece topbar (y en buscar/inicio queda fija)
   syncMnav(v);
 }
 function syncMnav(v) {
+  document.body.dataset.mv = v;   // permite CSS por vista en movil (p.ej. ocultar topbar en collection)
   document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const mu = $("mUser");
   if (mu) mu.classList.toggle("hid", !["home", "buscar", "lib"].includes(v));   // avatar solo en las 3 pantallas de la nav
 }
-function openMobileLibrary() {
-  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })));
+function openMobileLibrary(push = true) {
+  // estado propio en el historial: volver atras desde una playlist restaura la biblioteca movil
+  // completa (tarjeta "Me gusta" + avatar), no un grid generico
+  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })), false);
+  if (push) pushHist({ t: "mlib" });
   // "Me gusta" como primera playlist de la biblioteca
   const grid = $("gridView").querySelector(".cardgrid");
   const c = document.createElement("div"); c.className = "ccard";
@@ -2031,14 +2044,15 @@ function pollAuth(tries, quiet) {
     } catch (e) {}
   }, 3000);
 }
-let _ytSynced = false;
-async function syncYtLibrary() {
+let _ytSynced = false, _ytSyncBusy = false;
+async function syncYtLibrary(force = false) {
   // fusiona la biblioteca de YT Music en las estructuras locales: likes -> lightning.liked,
   // playlists/albumes/artistas -> lightning.library (sidebar). Aditivo, sin duplicados.
-  if (_ytSynced) return;
-  _ytSynced = true;
+  // force: re-fetch saltando caches (front y server) y reconcilia BAJAS de likes (la cuenta manda)
+  if ((_ytSynced && !force) || _ytSyncBusy) return;
+  _ytSynced = true; _ytSyncBusy = true;
   try {
-    const d = await jget("/ytlib");
+    const d = await jget("/ytlib" + (force ? "?fresh=1" : ""));
     if (d.error) { _ytSynced = false; return; }
     let liked = getLiked();
     const ytMap = new Map((d.liked || []).map(s => [s.id, s]));
@@ -2055,6 +2069,13 @@ async function syncYtLibrary() {
     const addL = (d.liked || []).filter(s => s.id && !haveL.has(s.id))
       .map(s => ({ id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration, artists: s.artists }));
     if (addL.length) { liked = liked.concat(addL); changed = true; }   // los likes locales (mas recientes) quedan arriba
+    if (force && !d._partial && ytMap.size) {
+      // la cuenta es la fuente de verdad: quita likes retirados en YT, salvo los locales muy
+      // recientes (YT tarda ~3s en reflejar /rate, consistencia eventual)
+      const before = liked.length;
+      liked = liked.filter(x => ytMap.has(x.id) || Date.now() - (_freshLikes.get(x.id) || 0) < 60000);
+      if (liked.length !== before) changed = true;
+    }
     if (changed) {
       localStorage.setItem("lightning.liked", JSON.stringify(liked));
       if (view === "liked") render(getLiked(), "liked");
@@ -2077,6 +2098,7 @@ async function syncYtLibrary() {
     if (nB) { localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
     if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
   } catch (e) { _ytSynced = false; }
+  finally { _ytSyncBusy = false; }
 }
 function closeGModal() { $("gmodal").hidden = true; }
 async function toggleGoogleSession() {
@@ -2727,6 +2749,7 @@ function applyHist(s) {
   else if (s.t === "artist") openArtist(s.id, false);
   else if (s.t === "collection") openCollection(s.id, false);
   else if (s.t === "grid") showGrid(s.title, s.items, false);
+  else if (s.t === "mlib") openMobileLibrary(false);
 }
 $("backBtn").onclick = () => history.back();
 window.addEventListener("popstate", (e) => applyHist(e.state));

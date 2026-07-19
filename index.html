@@ -1891,7 +1891,7 @@ function setView(v, push = true) {
   else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
   // "Me gusta" se re-sincroniza con la cuenta cada vez que se abre (pinta lo local al instante,
   // el sync re-renderiza si hay cambios)
-  if (v === "liked" && _authSt.logged_in) syncYtLibrary(true);
+  if (v === "liked") syncLikedWithAccount();
   showTop();   // al cambiar de vista, reaparece topbar (y en buscar/inicio queda fija)
   syncMnav(v);
 }
@@ -2044,16 +2044,36 @@ function pollAuth(tries, quiet) {
     } catch (e) {}
   }, 3000);
 }
-let _ytSynced = false, _ytSyncBusy = false;
+let _ytSynced = false, _ytSyncBusy = false, _likedSyncQ = false;
+async function syncLikedWithAccount() {
+  // sync robusto al abrir "Me gusta": no depende de que /auth/status ya haya llegado (arranque
+  // en frio de la app movil) ni pierde el force si el sync inicial esta en curso
+  if (_likedSyncQ) return;
+  _likedSyncQ = true;
+  try {
+    if (!_authSt.logged_in) {
+      try { _authSt = await jget("/auth/status"); paintUserChip(); } catch (e) {}
+    }
+    if (!_authSt.logged_in) return;
+    while (_ytSyncBusy) await new Promise(r => setTimeout(r, 250));   // espera al sync en curso, luego fuerza
+    const failed = await syncYtLibrary(true);
+    if (failed && failed.includes("liked")) {   // fetch de likes fallo en el server: un reintento
+      await new Promise(r => setTimeout(r, 1500));
+      await syncYtLibrary(true);
+    }
+  } finally { _likedSyncQ = false; }
+}
 async function syncYtLibrary(force = false) {
   // fusiona la biblioteca de YT Music en las estructuras locales: likes -> lightning.liked,
   // playlists/albumes/artistas -> lightning.library (sidebar). Aditivo, sin duplicados.
   // force: re-fetch saltando caches (front y server) y reconcilia BAJAS de likes (la cuenta manda)
   if ((_ytSynced && !force) || _ytSyncBusy) return;
   _ytSynced = true; _ytSyncBusy = true;
+  let _failed = null;
   try {
     const d = await jget("/ytlib" + (force ? "?fresh=1" : ""));
-    if (d.error) { _ytSynced = false; return; }
+    if (d.error) { _ytSynced = false; return null; }
+    _failed = Array.isArray(d._partial) ? d._partial : d._partial ? ["liked", "playlists", "artists", "albums"] : [];
     let liked = getLiked();
     const ytMap = new Map((d.liked || []).map(s => [s.id, s]));
     let changed = false;
@@ -2069,7 +2089,7 @@ async function syncYtLibrary(force = false) {
     const addL = (d.liked || []).filter(s => s.id && !haveL.has(s.id))
       .map(s => ({ id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration, artists: s.artists }));
     if (addL.length) { liked = liked.concat(addL); changed = true; }   // los likes locales (mas recientes) quedan arriba
-    if (force && !d._partial && ytMap.size) {
+    if (force && !_failed.includes("liked") && ytMap.size) {
       // la cuenta es la fuente de verdad: quita likes retirados en YT, salvo los locales muy
       // recientes (YT tarda ~3s en reflejar /rate, consistencia eventual)
       const before = liked.length;
@@ -2099,6 +2119,7 @@ async function syncYtLibrary(force = false) {
     if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
   } catch (e) { _ytSynced = false; }
   finally { _ytSyncBusy = false; }
+  return _failed;
 }
 function closeGModal() { $("gmodal").hidden = true; }
 async function toggleGoogleSession() {

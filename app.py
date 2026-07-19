@@ -2021,11 +2021,19 @@ def yt_library():
     except Exception:
         pass
 
+    truncated = []
+
     def liked():
-        try:
-            d = y.get_liked_songs(limit=None)   # TODOS los likes (paginado por continuations)
-        except Exception:
-            d = y.get_liked_songs(limit=200)   # las continuations largas fallan a veces: mejor 200 que nada
+        d = None
+        for _ in range(3):   # TODOS los likes (paginado por continuations; fallan esporadicamente)
+            try:
+                d = y.get_liked_songs(limit=None)
+                break
+            except Exception:
+                time.sleep(1)
+        if d is None:
+            d = y.get_liked_songs(limit=200)   # ultimo recurso: mejor 200 que nada
+            truncated.append("liked")   # lista INCOMPLETA: el frontend no debe reconciliar bajas con ella
         out = []
         for t in d.get("tracks") or []:
             if not t.get("videoId"):
@@ -2082,7 +2090,10 @@ def yt_library():
                 out[k] = f.result()
             except Exception:
                 out[k] = []
-                out["_partial"] = True   # señal: NO cachear (un fetch fallo; reintentar pronto)
+                out.setdefault("_partial", []).append(k)   # señal: NO cachear; el frontend sabe QUE fallo
+    for k in truncated:
+        if k not in out.get("_partial", []):
+            out.setdefault("_partial", []).append(k)
     return out
 
 

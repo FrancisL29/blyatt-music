@@ -2023,6 +2023,45 @@ def yt_library():
 
     truncated = []
 
+    def _liked_ids_raw():
+        # shape innertube 2025: videoId ya no viene en playlistItemData (ytmusicapi 1.12 lo parsea
+        # None en TODAS las pistas) sino en el watchEndpoint de cada fila. Se pagina VLLM a mano y
+        # se devuelven los ids EN ORDEN (None si la fila no es reproducible) para alinear por indice.
+        def scan(o, ids, tok):
+            if isinstance(o, dict):
+                if "musicResponsiveListItemRenderer" in o:
+                    m, vid = o["musicResponsiveListItemRenderer"], [None]
+
+                    def fw(x):
+                        if isinstance(x, dict):
+                            if "watchEndpoint" in x and x["watchEndpoint"].get("videoId"):
+                                vid[0] = vid[0] or x["watchEndpoint"]["videoId"]
+                            for v in x.values():
+                                fw(v)
+                        elif isinstance(x, list):
+                            for v in x:
+                                fw(v)
+                    fw(m)
+                    ids.append(vid[0])
+                    return
+                if "continuationCommand" in o:
+                    tok[0] = o["continuationCommand"].get("token") or tok[0]
+                for v in o.values():
+                    scan(v, ids, tok)
+            elif isinstance(o, list):
+                for v in o:
+                    scan(v, ids, tok)
+        ids, pages = [], 0
+        r = y._send_request("browse", {"browseId": "VLLM"})
+        while True:
+            tok = [None]
+            scan(r, ids, tok)
+            pages += 1
+            if not tok[0] or pages > 40:
+                break
+            r = y._send_request("browse", {"continuation": tok[0]})
+        return ids
+
     def liked():
         d = None
         for _ in range(3):   # TODOS los likes (paginado por continuations; fallan esporadicamente)
@@ -2034,8 +2073,19 @@ def yt_library():
         if d is None:
             d = y.get_liked_songs(limit=200)   # ultimo recurso: mejor 200 que nada
             truncated.append("liked")   # lista INCOMPLETA: el frontend no debe reconciliar bajas con ella
+        tracks = d.get("tracks") or []
+        if tracks and sum(1 for t in tracks if t.get("videoId")) < len(tracks) / 2:
+            try:
+                ids = _liked_ids_raw()
+                if len(ids) == len(tracks):
+                    for t, vid in zip(tracks, ids):
+                        t["videoId"] = t.get("videoId") or vid
+                else:
+                    truncated.append("liked")   # no se pudo alinear: no reconciliar bajas
+            except Exception:
+                truncated.append("liked")
         out = []
-        for t in d.get("tracks") or []:
+        for t in tracks:
             if not t.get("videoId"):
                 continue
             s = {"id": t["videoId"], "title": t.get("title", ""), "artist": _yt_artists(t),

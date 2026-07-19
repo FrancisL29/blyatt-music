@@ -1853,16 +1853,45 @@ def spot_import(kind, sid, title, cover=""):
             return {"error": "Importación cancelada"}
         vids = [t["match"]["id"] for t in report if t["match"]]
         pid = None
+        added = len(vids)
         if kind == "liked":
-            def like(v):
-                if _imp_cancel:
-                    return
+            # una rafaga de cientos de rate_song en paralelo dispara el throttle de YT y las
+            # llamadas se pierden EN SILENCIO (import de 1469 likes aplicaba ~100). Secuencial
+            # con pausa + skip de ya-likeados (re-import reanuda) + verificacion y 2da pasada.
+            def _liked_now():
                 try:
-                    y.rate_song(v, "LIKE")
+                    return {t.get("videoId") for t in (y.get_liked_songs(limit=None).get("tracks") or [])
+                            if t.get("videoId")}
                 except Exception:
-                    pass
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-                list(ex.map(like, vids))
+                    return None
+            have = _liked_now() or set()
+            todo = [v for v in vids if v not in have]
+            _imp_prog.update(done=0, total=max(len(todo), 1))
+
+            def _like_batch(lst):
+                for v in lst:
+                    if _imp_cancel:
+                        return
+                    for att in range(3):
+                        try:
+                            y.rate_song(v, "LIKE")
+                            break
+                        except Exception:
+                            time.sleep(2 * (att + 1))
+                    _imp_prog["done"] += 1
+                    time.sleep(0.15)
+            _like_batch(todo)
+            if not _imp_cancel and todo:
+                time.sleep(3)   # consistencia eventual antes de verificar
+                after = _liked_now()
+                if after is not None:
+                    missing = [v for v in todo if v not in after]
+                    if missing:
+                        _imp_prog.update(done=0, total=len(missing))
+                        _like_batch(missing)   # segunda pasada: los que YT descarto
+                        time.sleep(3)
+                        after = _liked_now() or after
+                    added = sum(1 for v in vids if v in after or v in have)
         else:
             if not vids:
                 return {"error": "Ninguna canción encontrada en YT Music"}
@@ -1874,7 +1903,7 @@ def spot_import(kind, sid, title, cover=""):
                 except Exception as e:
                     _spot_dbg("cover upload err: " + str(e)[:100])
         _CACHE.pop(_sk("ytlib"), None)
-        return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
+        return {"ok": True, "added": added, "missed": len(report) - len(vids),
                 "tracks": report, "playlist_id": pid,
                 "title": title or ("Me gusta" if kind == "liked" else "Importada de Spotify")}
     finally:

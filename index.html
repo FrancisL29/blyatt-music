@@ -2525,7 +2525,7 @@ $("impgo").onclick = async () => {
   clearInterval(pt);
   if (_impCancel) return;   // el botón Cancelar ya cerró el modal
   _impBusy(false);
-  _ytSynced = false; syncYtLibrary();   // refleja likes/artistas/álbumes importados en lo local
+  _ytSynced = false; syncYtLibrary(true);   // force: refleja el estado REAL de la cuenta tras importar
   const summary = (en
     ? `Done: ${okN} items imported` + (missN ? `, ${missN} songs not found` : "") + (failN ? `, ${failN} failed` : "") + "."
     : `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".")
@@ -2634,8 +2634,13 @@ $("fixdone").onclick = async () => {
   }
   $("fixdone").disabled = false;
   $("impmodal").hidden = true;
-  _ytSynced = false; syncYtLibrary();
+  _ytSynced = false; syncYtLibrary(true);
 };
+// al volver la app/pestana a primer plano, re-sincroniza con la cuenta (la fuente de verdad):
+// escritorio y movil convergen solos aunque el otro dispositivo haya importado/likeado
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && _authSt.logged_in) syncYtLibrary(true);
+});
 
 function openPlPicker(s, x, y, li) {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }
@@ -3240,6 +3245,32 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
     if (history.length > 1) history.back();
     else Capacitor.Plugins.App.exitApp();
   });
+}
+/* app Capacitor: controles de reproduccion en la barra de notificaciones (plugin MediaControls) */
+if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
+  const mc = Capacitor.Plugins.MediaControls;
+  window._mcPush = () => {
+    if (!current) return;
+    mc.update({ title: current.title || "", artist: current.artist || "", cover: current.cover || "",
+      playing: !audio.paused, position: audio.currentTime || 0, duration: audio.duration || 0,
+      liked: isLiked(current.id) }).catch(() => {});
+  };
+  mc.addListener("action", (e) => {
+    if (e.action === "play" || e.action === "pause") togglePlay();
+    else if (e.action === "next") playNext(false);
+    else if (e.action === "prev") { playPrev(); _mcPush(); }
+    else if (e.action === "like") { if (current) toggleLike(current); _mcPush(); }
+    else if (e.action === "seek" && e.position != null) { audio.currentTime = e.position; _mcPush(); }
+  });
+  // repinta la notificacion en cambio de pista y de estado; la posicion se interpola nativa
+  const _opb = onPlaybackStarted;
+  onPlaybackStarted = function (s) { _opb(s); _mcPush(); };
+  const _opn = paintNowPlaying;
+  paintNowPlaying = function (s) { _opn(s); _mcPush(); };
+  const _ost = eng.onState;
+  eng.onState = () => { _ost(); _mcPush(); };
+  setInterval(() => { if (current && !audio.paused) _mcPush(); }, 10000);   // corrige drift del seekbar
+  if (current) _mcPush();   // arranque: la ultima cancion restaurada ya aparece en la notificacion
 }
 </script>
 </body>

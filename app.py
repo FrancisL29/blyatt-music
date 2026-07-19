@@ -1855,9 +1855,10 @@ def spot_import(kind, sid, title, cover=""):
         pid = None
         added = len(vids)
         if kind == "liked":
-            # una rafaga de cientos de rate_song en paralelo dispara el throttle de YT y las
-            # llamadas se pierden EN SILENCIO (import de 1469 likes aplicaba ~100). Secuencial
-            # con pausa + skip de ya-likeados (re-import reanuda) + verificacion y 2da pasada.
+            # YT descarta rate_song en silencio bajo cuota (rafagas pierden ~90%). Estrategia:
+            # pasadas convergentes — likear lo pendiente (3 workers, pausa corta), esperar a que
+            # YT materialice (consistencia eventual, espera creciente), re-verificar contra la
+            # cuenta y repetir SOLO lo que falta. Re-import reanuda gratis (skip de ya-likeados).
             def _liked_now():
                 try:
                     return {t.get("videoId") for t in (y.get_liked_songs(limit=None).get("tracks") or [])
@@ -1866,32 +1867,40 @@ def spot_import(kind, sid, title, cover=""):
                     return None
             have = _liked_now() or set()
             todo = [v for v in vids if v not in have]
-            _imp_prog.update(done=0, total=max(len(todo), 1))
+            after = have
 
-            def _like_batch(lst):
-                for v in lst:
-                    if _imp_cancel:
-                        return
-                    for att in range(3):
-                        try:
-                            y.rate_song(v, "LIKE")
-                            break
-                        except Exception:
-                            time.sleep(2 * (att + 1))
+            def like(v):
+                if not _imp_cancel:
+                    try:
+                        y.rate_song(v, "LIKE")
+                    except Exception:
+                        pass
                     _imp_prog["done"] += 1
-                    time.sleep(0.15)
-            _like_batch(todo)
-            if not _imp_cancel and todo:
-                time.sleep(3)   # consistencia eventual antes de verificar
-                after = _liked_now()
-                if after is not None:
-                    missing = [v for v in todo if v not in after]
-                    if missing:
-                        _imp_prog.update(done=0, total=len(missing))
-                        _like_batch(missing)   # segunda pasada: los que YT descarto
-                        time.sleep(3)
-                        after = _liked_now() or after
-                    added = sum(1 for v in vids if v in after or v in have)
+                    time.sleep(0.1)
+            for pase in range(1, 7):
+                if not todo or _imp_cancel:
+                    break
+                _imp_prog.update(done=0, total=len(todo))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+                    list(ex.map(like, todo))
+                time.sleep(min(5 * pase, 20))   # deja materializar antes de verificar
+                chk = _liked_now()
+                if chk is None:
+                    break
+                after = chk
+                remaining = [v for v in todo if v not in after]
+                if len(remaining) == len(todo):   # pase sin avance: cuota dura, enfriar y reintentar
+                    time.sleep(40)
+                    after = _liked_now() or after
+                    remaining = [v for v in todo if v not in after]
+                    if len(remaining) == len(todo):
+                        break
+                todo = remaining
+            added = sum(1 for v in vids if v in after or v in have)
+            # purga ytlib de TODAS las sesiones del mismo usuario: el proximo sync de cualquier
+            # dispositivo (movil incluido) ve el estado final, no una foto a mitad de import
+            for k in [k for k in list(_CACHE) if str(k).endswith("|ytlib")]:
+                _CACHE.pop(k, None)
         else:
             if not vids:
                 return {"error": "Ninguna canción encontrada en YT Music"}

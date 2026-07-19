@@ -693,7 +693,7 @@
   <div class="lib-scroll">
     <button class="nav-item lib-item" data-view="liked">
       <span class="lib-cov liked-cov"><i class="ph-fill ph-heart"></i></span>
-      <span class="lib-meta"><span class="lt2" data-i18n>Me gusta</span><span class="la2" data-i18n>Playlist fija</span></span>
+      <span class="lib-meta"><span class="lt2" data-i18n>Me gusta</span><span class="la2">Playlist fija</span></span>
     </button>
     <div id="libList"></div>
   </div>
@@ -2948,7 +2948,10 @@ function refreshLikeUI() {
   const on = current && isLiked(current.id);
   const b = $("like"); b.classList.toggle("on", !!on);
   b.querySelector("i").className = (on ? "ph-fill" : "ph") + " ph-heart";
+  const la = document.querySelector('.lib-item[data-view="liked"] .la2');
+  if (la) la.textContent = getLiked().length + " " + t("canciones");
 }
+refreshLikeUI();
 $("like").onclick = () => { if (current) toggleLike(current); };
 /* paneles laterales: lyrics y cola se excluyen mutuamente */
 function togglePanel(panel, btn, onOpen) {

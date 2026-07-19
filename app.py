@@ -907,8 +907,10 @@ class _SilentLogger:
 _YDL_OPTS = {
     "format": "bestaudio[ext=m4a]/bestaudio/best", "quiet": True, "no_warnings": True, "skip_download": True,
     "logger": _SilentLogger(),
-    # el cliente android es el que devuelve audio de forma fiable (web exige PO token actualmente)
-    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+    # SOLO android: es el cliente fiable (web exige PO token) y pedir dos clientes duplica la
+    # latencia (yt-dlp los consulta en serie: ~3.2s vs ~1.5s). Fallback a web en _extract.
+    "extractor_args": {"youtube": {"player_client": ["android"]}},
+    "noplaylist": True,
 }
 
 
@@ -1025,7 +1027,7 @@ def _extract(video_id):
         return _extract_with(video_id)
     except Exception as e:
         if "age" not in str(e).lower() and "sign in" not in str(e).lower():
-            raise
+            return _extract_with(video_id, clients=["web", "android"])   # raro: android fallo sin age-gate
         # subidas alternativas del mismo tema: extrae en paralelo, gana la de mayor similitud que funcione
         alts = _alt_ids(video_id)
         if alts:
@@ -2406,16 +2408,25 @@ class H(BaseHTTPRequestHandler):
                 src = audio_url(vid)
                 req = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=30) as up:
-                    data = up.read()
-                    ctype = up.headers.get("Content-Type", "audio/mp4")
-                self.send_response(200)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Cache-Control", "max-age=3600")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
+                    self.send_response(200)
+                    self.send_header("Content-Type", up.headers.get("Content-Type", "audio/mp4"))
+                    self.send_header("Cache-Control", "max-age=3600")
+                    clen = up.headers.get("Content-Length")
+                    if clen:
+                        self.send_header("Content-Length", clen)
+                    self.end_headers()
+                    # relay por chunks: el cliente empieza a recibir mientras el server sigue bajando
+                    # (antes se bufereaba el archivo entero -> +1-3s de latencia en serie)
+                    while True:
+                        chunk = up.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
             except Exception:
-                self.send_response(502); self.end_headers()
+                try:
+                    self.send_response(502); self.end_headers()
+                except Exception:
+                    pass   # headers ya enviados (fallo a mitad del relay): no hay 502 posible
             return
         elif u.path == "/audio":
             aqs = parse_qs(u.query)

@@ -1,0 +1,13 @@
+{
+  "appId": "com.blyatt.app",
+  "appName": "Blyatt",
+  "webDir": "www",
+  "server": {
+    "url": "https://afflicted-sixteen-stylus.ngrok-free.dev",
+    "androidScheme": "https"
+  },
+  "android": {
+    "overrideUserAgent": "Blyatt/1.0 (Android; Capacitor)",
+    "allowMixedContent": false
+  }
+}

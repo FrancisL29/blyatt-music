@@ -1126,7 +1126,7 @@ def _probe_session(cookie_header, user_agent):
     return logged, rc.get("visitorData", "")
 
 
-def save_browser_cookie(cookie_header, user_agent=None):
+def save_browser_cookie(cookie_header, user_agent=None, target=None):
     # cookies frescas extraidas del perfil WebView2 -> browser.json; devuelve True si la sesion vale.
     # CRITICO: guardar x-goog-visitor-id REAL de la sesion; si falta, ytmusicapi inyecta uno anonimo
     # (get_visitor_id sin auth) y YouTube trata todo como deslogueado (logged_in=0).
@@ -1155,11 +1155,12 @@ def save_browser_cookie(cookie_header, user_agent=None):
     }
     if visitor:
         hdrs["x-goog-visitor-id"] = visitor
-    with open(BROWSER_FILE, "w", encoding="utf8") as f:
+    tgt = target or BROWSER_FILE
+    with open(tgt, "w", encoding="utf8") as f:
         json.dump(hdrs, f, indent=1)
-    _ytm_by.pop(BROWSER_FILE, None)
-    _CACHE.pop(_sk("sess_alive", BROWSER_FILE), None)
-    _CACHE.pop(_sk("ytlib", BROWSER_FILE), None)
+    _ytm_by.pop(tgt, None)
+    _CACHE.pop(_sk("sess_alive", tgt), None)
+    _CACHE.pop(_sk("ytlib", tgt), None)
     return _session_alive()
 
 
@@ -2349,6 +2350,21 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")
             return self._json(auth_set_headers(raw))
+        if u.path == "/auth/cookie":
+            # login nativo (app Capacitor): el WebView captura la cookie de music.youtube.com y la manda aqui
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
+                b = getattr(_REQ, "bid", "")
+                tgt = _bid_path(b) if (SERVER_MODE and b) else BROWSER_FILE
+                os.makedirs(AUTH_DIR, exist_ok=True)
+                ok = save_browser_cookie(d.get("cookie") or "", d.get("ua") or None, target=tgt)
+                if not ok:
+                    try: os.remove(tgt)
+                    except OSError: pass
+                return self._json({"ok": bool(ok)} if ok else {"error": "YouTube no reconoce la sesión"})
+            except Exception as e:
+                return self._json({"error": str(e)[:120]}, 502)
         if u.path == "/plcover":
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")

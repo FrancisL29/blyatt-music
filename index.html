@@ -2068,6 +2068,18 @@ async function toggleGoogleSession() {
   if (_authSt.logged_in) {   // sesion compartida de la casa: no se cierra, se sustituye con la propia
     toast("Esta es la cuenta compartida del servidor. Inicia sesión con la tuya para reemplazarla en este dispositivo.");
   }
+  // app movil (Capacitor): WebView nativo captura la cookie de music.youtube.com -> POST /auth/cookie
+  const gp = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.GoogleLogin;
+  if (gp) {
+    try {
+      const { cookie, ua } = await gp.login();
+      toast("Validando sesión…");
+      const r = await (await fetch("/auth/cookie", { method: "POST", body: JSON.stringify({ cookie, ua }) })).json();
+      if (r.ok) { toast("Sesión de Google conectada"); _ytSynced = false; await refreshAuth(); }
+      else toast(r.error || "No se pudo validar la sesión");
+    } catch (e) { /* login cancelado */ }
+    return;
+  }
   // app de escritorio: ventana nativa con el login real de Google (perfil persistente, sin reconectar)
   try {
     const r = await jget("/auth/weblogin");
@@ -3147,6 +3159,13 @@ renderLibrary();
 })();
 applyI18n();   // traduce el HTML estatico segun el idioma guardado
 setView("home", false);   // Inicio = ventana principal (al final: tras definir todo)
+// app Capacitor: boton fisico "atras" de Android navega el historial de la app
+if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
+  Capacitor.Plugins.App.addListener("backButton", () => {
+    if (history.length > 1) history.back();
+    else Capacitor.Plugins.App.exitApp();
+  });
+}
 </script>
 </body>
 </html>

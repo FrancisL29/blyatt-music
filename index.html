@@ -612,8 +612,17 @@
   #ctxmenu button i, #ctxsub button i { font-size: 1.15rem; color: var(--muted); }
   #ctxmenu button .subcaret { margin-left: auto; font-size: .9rem; }
 
-  #mnav { display: none; }
+  #mnav, #mUser { display: none; }
   @media (max-width: 820px) {
+    html, body, main { overflow-x: hidden; }
+    #backBtn { display: none !important; }   /* en movil navega el boton fisico/gesto de Android */
+    #mUser { display: flex; align-items: center; justify-content: center; position: fixed;
+             top: 22px; left: 14px; z-index: 5; width: 38px; height: 38px; border-radius: 50%;
+             border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--muted);
+             font-size: 1.25rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
+    #mUser img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+    #mUser.hid { display: none; }
+    .topbar form { margin-left: 46px; }
     .sidepanel { width: 100%; }
     .resizer { display: none; }
     #mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; flex-direction: row;
@@ -838,10 +847,9 @@
 <nav id="mnav" aria-label="Navegación móvil">
   <button data-mv="home" aria-label="Inicio"><i class="ph ph-house"></i></button>
   <button data-mv="buscar" aria-label="Buscar"><i class="ph ph-magnifying-glass"></i></button>
-  <button data-mv="liked" aria-label="Me gusta"><i class="ph ph-heart"></i></button>
   <button data-mv="lib" aria-label="Biblioteca"><i class="ph ph-books"></i></button>
-  <button data-mv="user" aria-label="Cuenta"><i class="ph ph-user" id="muico"></i><img id="muimg" alt="" hidden></button>
 </nav>
+<button id="mUser" aria-label="Cuenta"><i class="ph ph-user" id="muico"></i><img id="muimg" alt="" hidden></button>
 <div id="player" role="region" aria-label="Reproductor">
   <div class="controls">
     <div class="now">
@@ -1511,7 +1519,7 @@ function openArtist(browseId, push = true, seed = null) {
   if (!browseId) return;
   _artistSeed = seed; _artistId = browseId;
   if (push) pushHist({ t: "artist", id: browseId });
-  view = "artist";
+  view = "artist"; syncMnav(view);
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
   $("r").style.display = "none"; $("empty").style.display = "none"; $("collectionView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
@@ -1613,7 +1621,7 @@ async function openArtistGrid(title, items, more) {
 }
 function showGrid(title, list, push = true) {
   if (push) pushHist({ t: "grid", title, items: list });
-  view = "grid";
+  view = "grid"; syncMnav(view);
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
   $("r").style.display = "none"; $("empty").style.display = "none"; $("homeView").style.display = "none";
@@ -1631,7 +1639,7 @@ function openCollection(browseId, push = true, seed = null) {
   if (!browseId) return;
   _colId = browseId;
   if (push) pushHist({ t: "collection", id: browseId });
-  view = "collection";
+  view = "collection"; syncMnav(view);
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
   $("tabs").style.display = "none"; $("heading").style.display = "none";
   $("r").style.display = "none"; $("empty").style.display = "none"; $("artistView").style.display = "none"; $("gridView").style.display = "none"; $("homeView").style.display = "none";
@@ -1880,15 +1888,29 @@ function setView(v, push = true) {
 }
 function syncMnav(v) {
   document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
+  const mu = $("mUser");
+  if (mu) mu.classList.toggle("hid", !["home", "buscar", "lib"].includes(v));   // avatar solo en las 3 pantallas de la nav
 }
-document.querySelectorAll("#mnav button").forEach(b => b.onclick = (e) => {
+function openMobileLibrary() {
+  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })));
+  // "Me gusta" como primera playlist de la biblioteca
+  const grid = $("gridView").querySelector(".cardgrid");
+  const c = document.createElement("div"); c.className = "ccard";
+  c.innerHTML = '<div style="width:100%;aspect-ratio:1;border-radius:10px;display:grid;place-items:center;' +
+    'background:linear-gradient(135deg,#4f46e5,#a855f7);font-size:2.6rem;color:#fff"><i class="ph-fill ph-heart"></i></div>' +
+    '<div class="t"></div><div class="a"></div>';
+  c.querySelector(".t").textContent = t("Me gusta");
+  c.querySelector(".a").textContent = getLiked().length + " " + t("canciones");
+  c.onclick = () => setView("liked");
+  grid.prepend(c);
+  syncMnav("lib");
+}
+document.querySelectorAll("#mnav button").forEach(b => b.onclick = () => {
   const v = b.dataset.mv;
-  if (v === "user") { e.stopPropagation(); openUserMenu(b); return; }
-  if (v === "lib") {
-    showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })));
-    syncMnav("lib");
-  } else setView(v);
+  if (v === "lib") openMobileLibrary();
+  else setView(v);
 });
+$("mUser").onclick = (e) => { e.stopPropagation(); openUserMenu($("mUser")); };
 /* ---------- Inicio: Recientes + Para ti + Nuevos Lanzamientos + recomendados ---------- */
 let _homeSeedId = null;
 function skelCards(row, n, circle) {
@@ -2102,9 +2124,9 @@ function openUserMenu(btn) {
      (_authSt.logged_in && _authSt.own !== false) ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],
   ], r.left, r.top - 8, btn);
-  // el menu SIEMPRE arriba del chip: reancla tras medir (showMenu solo clampa hacia abajo)
+  // chip abajo (sidebar) -> menu arriba; avatar arriba (movil) -> menu debajo
   const m = $("ctxmenu");
-  m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";
+  m.style.top = (r.top < innerHeight / 2 ? r.bottom + 8 : Math.max(8, r.top - m.offsetHeight - 8)) + "px";
   m.style.left = Math.min(parseFloat(m.style.left) || r.left, innerWidth - m.offsetWidth - 8) + "px";
 }
 $("userBtn").onclick = (e) => { e.stopPropagation(); openUserMenu($("userBtn")); };

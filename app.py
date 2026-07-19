@@ -2014,8 +2014,18 @@ def yt_library():
     if not y:
         return {"error": "Sin sesión de Google"}
 
+    # nombre de cuenta ANTES del executor: _sk/_REQ son del hilo de la request, no de los workers
+    acct_name = ""
+    try:
+        acct_name = (cached(_sk("acct"), 3600, _account_info) or {}).get("name", "")
+    except Exception:
+        pass
+
     def liked():
-        d = y.get_liked_songs(limit=None)   # TODOS los likes (paginado por continuations)
+        try:
+            d = y.get_liked_songs(limit=None)   # TODOS los likes (paginado por continuations)
+        except Exception:
+            d = y.get_liked_songs(limit=200)   # las continuations largas fallan a veces: mejor 200 que nada
         out = []
         for t in d.get("tracks") or []:
             if not t.get("videoId"):
@@ -2034,11 +2044,7 @@ def yt_library():
         return out
 
     def playlists():
-        acct = ""
-        try:
-            acct = (cached(_sk("acct"), 3600, _account_info) or {}).get("name", "")
-        except Exception:
-            pass
+        acct = acct_name
         out = []
         for p in y.get_library_playlists(limit=50):
             pid = p.get("playlistId", "")
@@ -2076,6 +2082,7 @@ def yt_library():
                 out[k] = f.result()
             except Exception:
                 out[k] = []
+                out["_partial"] = True   # señal: NO cachear (un fetch fallo; reintentar pronto)
     return out
 
 
@@ -2105,7 +2112,14 @@ class H(BaseHTTPRequestHandler):
                 if u.path == "/auth/logout":
                     return self._json(auth_logout())
                 if u.path == "/ytlib":
-                    return self._json(cached(_sk("ytlib"), 300, yt_library))
+                    k = _sk("ytlib")
+                    hit = _CACHE.get(k)
+                    if hit and time.time() - hit[0] < 300:
+                        return self._json(hit[1])
+                    d = yt_library()
+                    if not d.get("error") and not d.pop("_partial", False):
+                        _CACHE[k] = (time.time(), d)
+                    return self._json(d)
                 if u.path == "/rate":
                     qs = parse_qs(u.query)
                     return self._json(rate_song(qs.get("id", [""])[0],

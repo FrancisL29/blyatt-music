@@ -1048,10 +1048,22 @@ function analyzeSilence(buf) {
   buf._eff = Math.max(0.05, (tail - lead) / sr);   // duracion del audio real (sin silencios)
   return buf;
 }
+// reintenta cortes de red transitorios (movil con pantalla apagada, cambio wifi/datos) antes de rendirse
+async function fetchStream(id) {
+  let err;
+  for (let i = 0; i < 4; i++) {
+    try {
+      const r = await fetch("/stream?id=" + id);
+      if (r.ok) return await r.arrayBuffer();
+      err = new Error("stream");
+    } catch (e) { err = e; }
+    await new Promise(res => setTimeout(res, 1500 * (i + 1)));
+  }
+  throw err;
+}
 function getBuffer(id) {
   if (bufCache.has(id)) return bufCache.get(id);
-  const p = fetch("/stream?id=" + id).then(r => { if (!r.ok) throw new Error("stream"); return r.arrayBuffer(); })
-    .then(ab => AC.decodeAudioData(ab)).then(analyzeSilence);
+  const p = fetchStream(id).then(ab => AC.decodeAudioData(ab)).then(analyzeSilence);
   bufCache.set(id, p); bufOrder.push(id);
   while (bufOrder.length > 3) { const old = bufOrder.shift(); if (old !== id) bufCache.delete(old); }   // PCM decodificado pesa: cache pequena
   p.catch(() => bufCache.delete(id));
@@ -1069,20 +1081,28 @@ function _startBuf(buf, offset) {
   n.start(0, lead + offset);                 // arranca en el audio real (omite el silencio de priming)
   eng.node = n; eng.buf = buf; eng.dur = eff; eng.start = AC.currentTime - offset; eng.offset = offset; eng.playing = true;
   try { n.stop(eng.start + eff); } catch (e) {}   // corta antes del padding final
+  _watchEnd(n);
   _scheduleBoundary();
 }
+// el fin de pista lo dispara el evento onended del propio nodo (lo emite el hilo de audio): en
+// segundo plano Chromium estrangula los setTimeout (hasta 1/min) y el avance llegaba tarde o nunca.
+// El setTimeout de _scheduleBoundary queda solo como respaldo; el guard evita doble avance.
+function _watchEnd(n) { n.onended = () => { if (eng.node === n && eng.playing) _onBoundary(); }; }
 function _scheduleBoundary() {
   if (eng.endTimer) clearTimeout(eng.endTimer);
   const remain = eng.dur - (AC.currentTime - eng.start);
   eng.endTimer = setTimeout(_onBoundary, Math.max(0, remain * 1000) + 40);
 }
 function _onBoundary() {
-  eng.endTimer = null;
+  if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
+  if (eng.playing && eng.node && AC.currentTime < eng.start + eng.dur - 0.25) { _scheduleBoundary(); return; }   // disparo prematuro
   if (eng.gInfo && eng.playing) {            // la siguiente ya viene sonando (programada sample-accurate)
     const g = eng.gInfo;
+    if (eng.node) eng.node.onended = null;
     eng.node = eng.gNode; eng.buf = g.buf; eng.dur = g.buf._eff || g.buf.duration; eng.start = g.when; eng.offset = 0;
     eng.gNode = null; eng.gInfo = null;
     try { eng.node.stop(eng.start + eng.dur); } catch (e) {}   // corta antes del padding de esta pista
+    _watchEnd(eng.node);
     _scheduleBoundary();
     if (eng.onAdvance) eng.onAdvance(g.song);   // actualizar UI/cola (sin tocar el audio: ya avanzo solo)
   } else { eng.playing = false; if (eng.onEnded) eng.onEnded(); }

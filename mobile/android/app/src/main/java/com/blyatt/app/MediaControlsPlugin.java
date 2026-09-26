@@ -37,7 +37,7 @@ import java.net.URL;
 public class MediaControlsPlugin extends Plugin {
     private static final String CHANNEL = "blyatt_playback";
     private static final String BTN_ACTION = "com.blyatt.app.MEDIA_BTN";
-    private static final int NOTIF_ID = 7;
+    private static final int NOTIF_ID = MediaPlaybackService.NOTIF_ID;
 
     private MediaSessionCompat session;
     private NotificationManager nm;
@@ -177,13 +177,27 @@ public class MediaControlsPlugin extends Plugin {
             .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
                 .setMediaSession(session.getSessionToken())
                 .setShowActionsInCompactView(1, 2, 3));
+        Notification n = nb.build();
+        // el servicio en primer plano se arranca al primer play (con la app visible: Android 12+
+        // prohibe arrancarlo desde segundo plano) y sigue vivo mientras haya pista cargada, pausada
+        // incluida, para que reanudar desde la notificacion no necesite re-arrancarlo
+        if (MediaPlaybackService.inst == null && playing) {
+            MediaPlaybackService.pending = n;
+            try {
+                ContextCompat.startForegroundService(getContext(),
+                    new Intent(getContext(), MediaPlaybackService.class));
+            } catch (Exception ignored) {}
+        }
+        MediaPlaybackService.pending = n;
         try {
-            nm.notify(NOTIF_ID, nb.build());
+            nm.notify(NOTIF_ID, n);
         } catch (Exception ignored) {}
+        MediaPlaybackService.setPlaying(playing);
     }
 
     @PluginMethod
     public void hide(PluginCall call) {
+        getContext().stopService(new Intent(getContext(), MediaPlaybackService.class));
         nm.cancel(NOTIF_ID);
         call.resolve();
     }

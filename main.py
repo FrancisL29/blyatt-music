@@ -76,6 +76,16 @@ def google_login(silent=False):
     threading.Thread(target=poll, daemon=True).start()
 
 
+def google_logout():
+    # el login de Google vive en el perfil persistente de WebView2 (auth/webview), compartido con la
+    # ventana principal: si no se borran sus cookies, "Iniciar sesion" recaptura la misma cuenta y es
+    # imposible entrar con otra. En escritorio la app no depende de cookies propias (localStorage no se toca)
+    try:
+        main_win.clear_cookies()
+    except Exception:
+        pass
+
+
 def spotify_login():
     # Login robusto SIN eventos nativos (los intentos de interceptar el token en la capa de red
     # fallaban: afinidad de hilo, Service Worker, no alcanzar CoreWebView2 en ventanas runtime).
@@ -107,6 +117,7 @@ def spotify_login():
 
 if __name__ == "__main__":
     app.WEBLOGIN = google_login
+    app.WEBLOGOUT = google_logout
     app.SPOTLOGIN = spotify_login
     httpd = serve(PORT)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -115,7 +126,8 @@ if __name__ == "__main__":
     # al cerrar la ventana principal, avisa a los polls de login para que cierren sus ventanas
     # (si no, una ventana de login abierta mantiene webview.start() vivo = proceso zombie)
     main_win.events.closing += lambda: _APP_CLOSING.set()
-    webview.start(private_mode=False, storage_path=os.path.join(app.BASE, "auth", "webview"))
+    webview.start(private_mode=False, storage_path=os.path.join(app.BASE, "auth", "webview"),
+                  icon=os.path.join(app.BASE, "assets", "blyatt.ico"))   # ventana y barra de tareas
     _APP_CLOSING.set()
     httpd.shutdown()
     os._exit(0)   # garantiza que ningun hilo/ventana rezagado deje el proceso vivo

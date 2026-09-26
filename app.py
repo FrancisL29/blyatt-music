@@ -1284,6 +1284,7 @@ def prewarm(ids):
 AUTH_DIR = os.path.join(BASE, "auth")
 BROWSER_FILE = os.path.join(AUTH_DIR, "browser.json")
 WEBLOGIN = None   # main.py (pywebview) inyecta aqui el launcher de la ventana de login de Google
+WEBLOGOUT = None  # main.py: borra las cookies de Google del perfil WebView2 (para poder cambiar de cuenta)
 
 # --- sesiones por dispositivo (modo servidor) ---
 # Cada dispositivo lleva una cookie "bid"; si existe auth/browser_<bid>.json esa es SU sesion.
@@ -1490,6 +1491,8 @@ def auth_logout():
         return {"ok": True, "shared": True}
     _ytm_by.pop(f, None)
     _purge_session(f)
+    if not SERVER_MODE and WEBLOGOUT:
+        WEBLOGOUT()
     try:
         os.remove(f)
     except OSError:

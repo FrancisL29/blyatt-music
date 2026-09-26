@@ -7,7 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/assets/manifest.json">
-<link rel="apple-touch-icon" href="/assets/blyatt_logo.svg">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <title>Blyatt</title>
 <link rel="stylesheet" href="/assets/phosphor/regular/style.css">
 <link rel="stylesheet" href="/assets/phosphor/fill/style.css">
@@ -669,11 +670,7 @@
           background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent, #7c5cff) 35%, #0b0b0f) 0%, #0b0b0f 70%); }
   #gate[hidden] { display: none; }
   .gate-box { width: 100%; max-width: 360px; text-align: center; display: flex; flex-direction: column; align-items: center; }
-  /* el rayo con la fuente de iconos: blyatt_logo.svg lleva un PNG con el "damero" de transparencia pintado */
-  .gate-logo { width: 84px; height: 84px; border-radius: 22px; margin-bottom: 26px; display: grid; place-items: center;
-               font-size: 2.9rem; color: var(--accent-ink, #fff);
-               background: linear-gradient(140deg, var(--accent, #7c5cff), color-mix(in srgb, var(--accent, #7c5cff) 55%, white));
-               box-shadow: 0 18px 50px color-mix(in srgb, var(--accent, #7c5cff) 45%, transparent); }
+  .gate-logo { width: 88px; height: 88px; border-radius: 24px; margin-bottom: 26px; box-shadow: 0 18px 50px rgb(0 0 0 / .6); }
   .gate-box h1 { font-size: 1.7rem; margin: 0 0 12px; }
   .gate-box p { color: rgb(255 255 255 / .72); font-size: .95rem; line-height: 1.5; margin: 0 0 30px; }
   #gateBtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; border: none; cursor: pointer;
@@ -763,7 +760,7 @@
 
 <aside>
   <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
-    <div class="bolt"><img class="blt-logo" src="/assets/blyatt_logo.svg" alt="Blyatt"><i class="ph ph-sidebar-simple blt-toggle"></i></div>
+    <div class="bolt"><img class="blt-logo" src="/assets/blyatt_logo.png" alt="Blyatt"><i class="ph ph-sidebar-simple blt-toggle"></i></div>
     <span>Blyatt</span>
   </button>
   <nav>
@@ -976,7 +973,7 @@
 
 <div id="gate" hidden role="dialog" aria-label="Iniciar sesión">
   <div class="gate-box">
-    <div class="gate-logo" aria-hidden="true"><i class="ph-fill ph-lightning"></i></div>
+    <img class="gate-logo" src="/assets/blyatt_logo.png" alt="Blyatt">
     <h1 data-i18n>Bienvenido a Blyatt</h1>
     <p data-i18n>Inicia sesión con tu cuenta de Google para cargar tu música: tus me gusta, playlists, álbumes y artistas de YouTube Music.</p>
     <button id="gateBtn" disabled><i class="ph ph-google-logo"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>

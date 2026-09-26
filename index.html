@@ -1780,8 +1780,10 @@ function songLi(s, list, i, solo) {
   li.querySelector(".t").textContent = s.title;
   li.querySelector(".a").innerHTML = expBadge(s) + metaHtml(s);
   li.querySelector(".cplays").textContent = s.plays || "";
-  if (s.plays) {   // movil/artista: las reproducciones van bajo el titulo (el artista ya se sabe)
-    const pl = document.createElement("div"); pl.className = "a pl2"; pl.textContent = s.plays;
+  if (s.plays) {   // movil/artista: bajo el titulo, como Spotify: [E] + numero completo (el artista ya se sabe)
+    const pl = document.createElement("div"); pl.className = "a pl2";
+    pl.innerHTML = expBadge(s) + '<span class="pln"></span>';
+    pl.querySelector(".pln").textContent = s.plays_n ? Number(s.plays_n).toLocaleString("en-US") : s.plays;
     li.querySelector(".meta").appendChild(pl);
   }
   li.querySelector(".cdur").textContent = s.duration || "";
@@ -1797,6 +1799,21 @@ function songLi(s, list, i, solo) {
   return li;
 }
 /* ---------- vista de artista ---------- */
+// YT solo da el total de reproducciones REDONDEADO ("3367 M" = suma de todas las versiones). Si la cancion
+// tiene una sola version, el conteo exacto de su video cae dentro del redondeo -> se muestra el exacto
+// (como Spotify); si no (video oficial + audio aparte...), se queda el total, que es el dato correcto
+function refineExactPlays(ul, items) {
+  const withN = items.filter(x => x.plays_n);
+  if (!withN.length) return;
+  fetch("/viewcounts?ids=" + withN.map(x => x.id).join(",")).then(r => r.json()).then(vc => {
+    withN.forEach(x => {
+      const v = vc[x.id];
+      if (!v || Math.abs(v - x.plays_n) >= (x.plays_u || 1)) return;
+      const el = ul.querySelector('li[data-id="' + CSS.escape(x.id) + '"] .pln');
+      if (el) el.textContent = Number(v).toLocaleString("en-US");
+    });
+  }).catch(() => {});
+}
 let _artistSeed = null, _artistId = null;
 /* imagen del artista a toda la ventana (#abg fixed, detras del sidebar glass); lo=placeholder borroso, hi=alta calidad */
 function setArtistBg(loUrl, hiUrl) {
@@ -1883,6 +1900,7 @@ function renderArtist(d) {
       const ul = document.createElement("ul"); ul.className = "asongs";
       sec.items.forEach((s, i) => ul.appendChild(songLi(s, sec.items, i)));
       el.appendChild(ul);
+      refineExactPlays(ul, sec.items);
     } else {
       h.innerHTML = '<span></span><i class="ph ph-caret-right chev"></i>';
       h.querySelector("span").textContent = sec.title;

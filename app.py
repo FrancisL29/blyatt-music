@@ -161,7 +161,11 @@ def _parse_item(item):
         if artists: out["artists"] = artists
         if album: out["album"] = album
         if dur: out["duration"] = dur
-        if plays: out["plays"] = plays
+        if plays:
+            out["plays"] = plays
+            pn = _plays_num(plays)
+            if pn:
+                out["plays_n"], out["plays_u"] = pn
         if _is_explicit(item): out["explicit"] = True
         return out
     return None
@@ -473,6 +477,53 @@ def _find_renderer(node, key):
             if r:
                 return r
     return None
+
+
+def _plays_num(text):
+    """'3367 M reproducciones' / '1,5 M' / '850 mil' / '3.3B plays' / '8492' -> (valor, precision).
+    YT solo da el total REDONDEADO (suma de todas las versiones de la cancion): la precision dice cuanto
+    puede diferir el valor real (sirve para aceptar un conteo exacto que caiga dentro)."""
+    m = re.match(r"\s*([\d.,\s\u00a0\u202f]*\d)\s*(mil\s*M|MM|B|M|mil|k|K)?", text or "")
+    if not m or not re.search(r"\d", m.group(1)):
+        return None
+    num = re.sub(r"[\s\u00a0\u202f]", "", m.group(1)); unit = (m.group(2) or "").replace(" ", "")
+    mult = {"": 1, "k": 1000, "K": 1000, "mil": 1000, "M": 10 ** 6, "milM": 10 ** 9, "MM": 10 ** 9, "B": 10 ** 9}[unit]
+    if mult == 1:
+        return (int(re.sub(r"[.,]", "", num)), 1)
+    if "," in num and "." in num:
+        num = num.replace(".", "").replace(",", ".")   # 1.234,5 (es)
+    else:
+        num = num.replace(",", ".")                    # 1,5 (es) / 3.3 (en)
+    dec = len(num.split(".")[1]) if "." in num else 0
+    try:
+        return (round(float(num) * mult), mult // (10 ** dec) or 1)
+    except ValueError:
+        return None
+
+
+def viewcounts(ids):
+    """Conteo EXACTO de reproducciones del video (player de YT Music, sin sesion; ~0.4s en paralelo).
+    Ojo: es de ESE video; el total de la pagina del artista suma todas las versiones."""
+    ids = [i for i in ids if re.fullmatch(r"[\w-]{6,20}", i or "")][:10]
+
+    def one(vid):
+        hit = _CACHE.get("vc:" + vid)
+        if hit and time.time() - hit[0] < 86400:
+            return vid, hit[1]
+        try:
+            body = {"videoId": vid, "context": CTX}
+            req = urllib.request.Request("https://music.youtube.com/youtubei/v1/player?key=" + YTM_KEY,
+                                         data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
+                                                  "Origin": "https://music.youtube.com"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                vc = int((json.loads(r.read().decode()).get("videoDetails") or {}).get("viewCount") or 0)
+        except Exception:
+            return vid, None
+        _CACHE["vc:" + vid] = (time.time(), vc)
+        return vid, vc
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        return {v: c for v, c in ex.map(one, ids) if c}
 
 
 def artist(browse_id):
@@ -2746,6 +2797,9 @@ class H(BaseHTTPRequestHandler):
                     except Exception:
                         pass
             return
+        elif u.path == "/viewcounts":
+            payload = json.dumps(viewcounts(parse_qs(u.query).get("ids", [""])[0].split(","))).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
         elif u.path == "/prewarm":
             prewarm([x for x in parse_qs(u.query).get("ids", [""])[0].split(",") if x])
             payload = b'{"ok": true}'

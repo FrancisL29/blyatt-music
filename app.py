@@ -5,9 +5,11 @@ import concurrent.futures
 import difflib
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
+import socket
 import struct
 import threading
 import time
@@ -1085,6 +1087,7 @@ AUDIO_DIR = os.path.join(CACHE_DIR, "audio")
 os.makedirs(AUDIO_DIR, exist_ok=True)
 _URLS_FILE = os.path.join(CACHE_DIR, "urls.json")
 _URL_MARGIN = 900   # no servir links a <15min de caducar: la descarga podria cortarse a mitad
+AUDIO_MAX_MB = 60   # una cancion en itag 18 ~4-10MB; mas que esto no es musica (o es abuso)
 AUDIO_CACHE_MB = int(os.environ.get("BLYATT_AUDIO_CACHE_MB") or (2048 if os.environ.get("BLYATT_HOST") else 1024))
 _urls_lock = threading.Lock()
 _id_locks, _id_locks_lock = {}, threading.Lock()
@@ -1189,6 +1192,8 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
     with up:
         ctype = up.headers.get("Content-Type", "audio/mp4")
         clen = up.headers.get("Content-Length")
+        if clen and int(clen) > AUDIO_MAX_MB * 1024 * 1024:
+            raise IOError("demasiado grande")
         client_ok = True
         if on_start:
             on_start(ctype, clen)
@@ -1201,6 +1206,8 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
                         break
                     f.write(chunk)
                     got += len(chunk)
+                    if got > AUDIO_MAX_MB * 1024 * 1024:   # sin Content-Length fiable: corta igual
+                        raise IOError("demasiado grande")
                     if client_ok and on_chunk:
                         try:
                             on_chunk(chunk)
@@ -1231,6 +1238,8 @@ def migrate_push(bid, ls):
     now = time.time()
     for k in [k for k, v in _MIGR.items() if now - v[0] > 600]:
         _MIGR.pop(k, None)
+    while len(_MIGR) >= 20:   # tope de memoria: fuera la mas antigua
+        _MIGR.pop(min(_MIGR, key=lambda k: _MIGR[k][0]), None)
     tok = base64.urlsafe_b64encode(os.urandom(24)).decode().rstrip("=")
     _MIGR[tok] = (now, bid, ls if isinstance(ls, dict) else {})
     return tok
@@ -2163,11 +2172,56 @@ def pl_set_cover(pid, img, mime):
     return {"ok": True}
 
 
+# ---------- descargas de URLs que vienen del cliente (anti-SSRF) ----------
+# El server es publico (blyatt.stream): una URL controlada por el visitante no debe poder hacer que el
+# telefono pida paginas de la red de casa (router, PC...). Solo https, solo dominios exactos permitidos
+# (sufijo con punto: "x-ytimg.com" NO pasa), IP resuelta publica, sin redirecciones y con tope de tamano.
+IMG_HOSTS = ("ytimg.com", "ggpht.com", "googleusercontent.com")
+COVER_HOSTS = IMG_HOSTS + ("scdn.co", "spotifycdn.com")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None   # una redireccion podria apuntar a la red interna
+
+
+_safe_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def _host_allowed(host, allowed):
+    host = (host or "").lower().rstrip(".")
+    return any(host == d or host.endswith("." + d) for d in allowed)
+
+
+def _public_host(host):
+    try:
+        for info in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP):
+            ip = ipaddress.ip_address(info[4][0])
+            if not ip.is_global:   # privada, loopback, link-local, reservada...
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def safe_fetch(url, allowed, timeout=15, max_bytes=8 * 1024 * 1024):
+    """(bytes, content-type) de una URL externa validada; ValueError si no es aceptable."""
+    pu = urlparse(url or "")
+    if pu.scheme != "https" or not _host_allowed(pu.hostname, allowed) or not _public_host(pu.hostname):
+        raise ValueError("URL no permitida")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with _safe_opener.open(req, timeout=timeout) as r:
+        if r.status != 200:
+            raise ValueError("respuesta %s" % r.status)
+        data = r.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("demasiado grande")
+        return data, r.headers.get_content_type() or "image/jpeg"
+
+
 def _cover_from_url(url):
     # descarga una portada externa (p.ej. i.scdn.co de Spotify) para subirla a YT
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return r.read(), r.headers.get_content_type() or "image/jpeg"
+    return safe_fetch(url, COVER_HOSTS, timeout=20)
 
 
 def imp_replace(pid, vids):
@@ -2449,6 +2503,12 @@ class H(BaseHTTPRequestHandler):
                     return self._json(lib_save(qs.get("id", [""])[0],
                                                qs.get("kind", [""])[0],
                                                qs.get("save", ["1"])[0] == "1"))
+                if u.path.startswith("/spot/") and SERVER_MODE:
+                    # la sesion de Spotify es GLOBAL (auth/spotify.json), no por dispositivo: en el server
+                    # publico cualquiera podria configurarla o usarla. El import de Spotify es de escritorio
+                    if u.path == "/spot/status":
+                        return self._json({"logged_in": False, "disabled": True})
+                    return self._json({"error": "Importar de Spotify solo está disponible en la app de escritorio"}, 403)
                 if u.path.startswith("/spot/"):
                     qs = parse_qs(u.query)
                     g = lambda k: qs.get(k, [""])[0]
@@ -2544,13 +2604,10 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/img":
             # proxy de caratulas: mismo origen para poder leer el color promedio en canvas sin taint de CORS.
             src = parse_qs(u.query).get("u", [""])[0]
-            host = urlparse(src).hostname or ""
-            if not host.endswith(("ytimg.com", "ggpht.com", "googleusercontent.com")):
+            if not _host_allowed(urlparse(src).hostname, IMG_HOSTS):
                 self.send_response(403); self.end_headers(); return
             try:
-                with urllib.request.urlopen(src, timeout=10) as resp:
-                    payload = resp.read()
-                    ctype = resp.headers.get("Content-Type", "image/jpeg")
+                payload, ctype = safe_fetch(src, IMG_HOSTS, timeout=10, max_bytes=4 * 1024 * 1024)
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Cache-Control", "max-age=86400")
@@ -2705,7 +2762,7 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/migrate/push":
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 8 * 1024 * 1024:
+            if n > 2 * 1024 * 1024:   # un localStorage real ronda cientos de KB
                 return self._json({"error": "demasiado grande"}, 413)
             try:
                 d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")

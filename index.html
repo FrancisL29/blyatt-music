@@ -622,6 +622,7 @@
              border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--muted);
              font-size: 1.25rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     #mUser img { width: 100%; height: 100%; aspect-ratio: 1; border-radius: 50%; object-fit: cover; display: block; }
+    #mUser img[hidden] { display: none; }   /* el display:block de arriba pisaba [hidden] y echaba al icono fuera del circulo */
     #mUser.hid { display: none; }
     .topbar form { margin-left: 46px; }
     .sidepanel { width: 100%; }
@@ -1924,7 +1925,8 @@ function syncMnav(v) {
 function openMobileLibrary(push = true) {
   // estado propio en el historial: volver atras desde una playlist restaura la biblioteca movil
   // completa (tarjeta "Me gusta" + avatar), no un grid generico
-  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle, cover: e.cover || PL_EMPTY_COVER })), false);
+  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle,
+    cover: e.ccover || e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : "") })), false);   // mismo criterio que renderLibrary
   if (push) pushHist({ t: "mlib" });
   // "Me gusta" como primera playlist de la biblioteca
   const grid = $("gridView").querySelector(".cardgrid");
@@ -2133,15 +2135,20 @@ async function syncYtLibrary(force = false) {
     [].concat(d.playlists || [], d.albums || [], d.artists || []).forEach(it => {
       if (!it.browseId) return;
       const ex = lib.find(x => x.id === it.browseId);
-      if (ex) {   // refresca editable y creator de entradas ya presentes
+      if (ex) {   // refresca editable, creator y portada de entradas ya presentes
         if (it.editable !== undefined && ex.editable !== it.editable) { ex.editable = it.editable; nB++; }
         if (it.creator && ex.creator !== it.creator) { ex.creator = it.creator; nB++; }
+        // playlists creadas/importadas nacen con PL_EMPTY_COVER y solo se corregian al abrirlas
+        if (it.cover && ex.cover !== it.cover) { ex.cover = it.cover; nB++; }
         return;
       }
       lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "" });
       haveB.add(it.browseId); nB++;
     });
-    if (nB) { localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+    if (nB) {
+      localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
+      if (document.body.dataset.mv === "lib") openMobileLibrary(false);   // la cuadricula movil no la repinta renderLibrary
+    }
     if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
   } catch (e) { _ytSynced = false; }
   finally { _ytSyncBusy = false; }

@@ -616,11 +616,18 @@
   /* ---------- vista "Reproduciendo" a pantalla completa (solo movil; se abre desde el mini player) ---------- */
   #npv { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; isolation: isolate;
          padding: calc(8px + env(safe-area-inset-top)) 22px calc(26px + env(safe-area-inset-bottom));
-         background: #0b0b0f; color: var(--text); overflow: hidden; }
+         background: transparent; color: var(--text); overflow: hidden; }
   #npv[hidden] { display: none; }
-  .np-bg { position: absolute; inset: 0; z-index: -1; transition: background .6s;
-           background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 58%, #000) 0%,
-                       color-mix(in srgb, var(--accent) 20%, #0b0b0f) 48%, #0b0b0f 88%); }
+  /* fondo: la cover de BAJA calidad (ya en cache por el mini player -> instantanea), difuminada.
+     Truco de rendimiento: la capa mide ~1/4 de pantalla y se escala x4; el blur se calcula sobre la
+     capa pequena (barato en GPU movil) y el escalado bilineal suaviza el resto. Dos capas = crossfade */
+  .np-bg { position: absolute; inset: 0; z-index: -1; background: #0b0b0f; overflow: hidden; }
+  .np-bgimg { position: absolute; left: -6%; top: -6%; width: 28%; height: 28%; transform-origin: 0 0; transform: scale(4);
+              background-size: cover; background-position: center; filter: blur(7px) saturate(1.35) brightness(.7);
+              opacity: 0; transition: opacity .5s ease; }
+  .np-bgimg.on { opacity: 1; }
+  .np-bg::after { content: ""; position: absolute; inset: 0;
+                  background: linear-gradient(180deg, rgb(11 11 15 / .1) 0%, rgb(11 11 15 / .45) 50%, #0b0b0f 92%); }
   .np-top { display: flex; align-items: center; justify-content: space-between; height: 52px; flex: none; }
   .np-top .iconbtn { color: var(--text); font-size: 1.55rem; padding: 8px; }
   .np-src { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: rgb(255 255 255 / .8); font-weight: 600; }
@@ -948,7 +955,7 @@
 </div>
 
 <div id="npv" hidden role="dialog" aria-label="Reproduciendo">
-  <div class="np-bg"></div>
+  <div class="np-bg"><div class="np-bgimg"></div><div class="np-bgimg"></div></div>
   <div class="np-top np-fade">
     <button id="npClose" class="iconbtn" aria-label="Cerrar"><i class="ph ph-caret-down"></i></button>
     <div class="np-src" data-i18n>Reproduciendo</div>
@@ -3322,20 +3329,45 @@ const npv = $("npv"), _mqMobile = matchMedia("(max-width: 820px)");
 var npOpen = false, _npAnims = [], _npReplace = false, _npCloseKind = null, npSeeking = false;   // var: refreshLikeUI/paintPlayer los leen al cargar, antes de este bloque
 const NP_EASE = "cubic-bezier(.22,.8,.24,1)", NP_MS = 420;
 // la cover del feed suele venir a 60-120px: pide una version grande (googleusercontent/ggpht admiten =wN-hN / =sN)
-const hiCover = u => String(u || "").replace(/=w\d+-h\d+/, "=w900-h900").replace(/=s\d+(?=-|$)/, "=s900");
+// tamano que de verdad necesita la pantalla (cover ~ min(ancho-44, 48vh) css px x dpr), tope 900
+const NP_PX = Math.min(900, Math.ceil(Math.min(innerWidth - 44, innerHeight * .48) * (devicePixelRatio || 1) / 60) * 60) || 900;
+const hiCover = u => String(u || "").replace(/=w\d+-h\d+/, `=w${NP_PX}-h${NP_PX}`).replace(/=s\d+(?=-|$)/, `=s${NP_PX}`);
+// precarga de covers en alta (vecinas en la cola): cambiar/peek de pista las encuentra ya decodificadas.
+// Map con referencias vivas (un Image suelto se recolecta) acotado a 8
+const _npPre = new Map();
+function npPreload(u) {
+  if (!u || _npPre.has(u)) return _npPre.get(u);
+  const im = new Image(); im.decoding = "async"; im.fetchPriority = "high"; im.src = u;
+  const p = im.decode().then(() => im).catch(() => null);
+  _npPre.set(u, p);
+  if (_npPre.size > 8) _npPre.delete(_npPre.keys().next().value);
+  return p;
+}
+function npPrefetchNeighbors() {
+  [qIndex + 1, qIndex - 1].forEach(i => { const q = queue[i]; if (q && q.cover) npPreload(hiCover(q.cover)); });
+}
+function npPaintBg(url) {   // crossfade entre las dos capas del fondo
+  const npb = npv.querySelector(".np-bg");
+  if (!url || npb._url === url) return;
+  npb._url = url;
+  const layers = npb.querySelectorAll(".np-bgimg");
+  npb._i = npb._i ? 0 : 1;
+  layers[npb._i].style.backgroundImage = `url("${String(url).replace(/"/g, "%22")}")`;
+  layers[npb._i].classList.add("on"); layers[1 - npb._i].classList.remove("on");
+}
 // se llama en CADA cambio de cancion, abierta o no: al abrir la vista la cover ya es la correcta
 function paintNp(s) {
   if (!s) return;
   const img = $("npCover"), hi = hiCover(s.cover);
+  npPaintBg(s.cover);
   if (img.dataset.src !== hi) {
     img.dataset.src = hi;
     img.src = s.cover || "";   // la del mini player ya esta en cache: aparece al instante (nunca la anterior)
-    if (hi && hi !== s.cover) {   // la de alta resolucion entra cuando termina de bajar, si sigue siendo esta cancion
-      const pre = img._pre = new Image();   // referencia viva: un Image suelto puede recolectarse antes del onload
-      pre.src = hi;
-      pre.decode().then(() => { if (img.dataset.src === hi) img.src = hi; }).catch(() => {});   // ya decodificada: cambio sin parpadeo
+    if (hi && hi !== s.cover) {   // la de alta entra ya decodificada (sin parpadeo) si sigue siendo esta cancion
+      npPreload(hi).then(im => { if (im && img.dataset.src === hi) img.src = hi; });
     }
   }
+  setTimeout(npPrefetchNeighbors, 400);   // qIndex se actualiza tras pintar
   $("npTitle").textContent = s.title || "";
   $("npArtist").innerHTML = $("partist").innerHTML;
   if (npOpen) syncNp();
@@ -3369,9 +3401,14 @@ function _npRun(closing) {
     const clip = `inset(${p.top}px ${innerWidth - p.right}px ${innerHeight - p.bottom}px ${p.left}px round 14px)`;
     _npAnims.push(npv.animate(kf({ clipPath: clip }, { clipPath: "inset(0px 0px 0px 0px round 0px)" }), opt));
   }
+  // el fondo opaco se funde con el cristal del mini player: al abrir aparece en la 1a mitad, al cerrar
+  // se desvanece en la 2a (antes terminaba en un rectangulo negro y saltaba al translucido)
+  _npAnims.push(npv.querySelector(".np-bg").animate(closing
+    ? [{ opacity: 1, offset: 0 }, { opacity: 1, offset: .35 }, { opacity: 0, offset: 1 }]
+    : [{ opacity: 0, offset: 0 }, { opacity: 1, offset: .45 }, { opacity: 1, offset: 1 }], opt));
   npv.querySelectorAll(".np-fade").forEach(el => _npAnims.push(el.animate(
     kf({ opacity: 0, transform: "translateY(18px)" }, { opacity: 1, transform: "none" }),
-    { duration: closing ? 200 : 340, delay: closing ? 0 : 110, easing: NP_EASE, fill: "both" })));
+    { duration: closing ? 110 : 340, delay: closing ? 0 : 110, easing: closing ? "ease-out" : NP_EASE, fill: "both" })));   // al cerrar se van antes de que la hoja llegue a la barra
   minis.forEach(m => m.style.visibility = "hidden");   // el original "viaja": no se ve doble
   // red de seguridad: si el compositor no avanza (webview sin frames) se fuerza el estado final;
   // si no, los originales del mini player quedarian ocultos para siempre

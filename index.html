@@ -2944,7 +2944,7 @@ function paintPlayer(s) {
     ? `<span class="lnk" data-art="${esc(a.id)}">${esc(a.name)}</span>`
     : `<span class="lnk" data-artq="${esc(a.name)}">${esc(a.name)}</span>`).join(", ");   // sin id: resuelve via busqueda al click
   player.classList.add("show");
-  if (npOpen) paintNp(s);
+  paintNp(s);
 }
 function paintNowPlaying(s) {
   paintPlayer(s);
@@ -3315,13 +3315,22 @@ var npOpen = false, _npAnims = [], _npReplace = false, _npCloseKind = null, npSe
 const NP_EASE = "cubic-bezier(.22,.8,.24,1)", NP_MS = 420;
 // la cover del feed suele venir a 60-120px: pide una version grande (googleusercontent/ggpht admiten =wN-hN / =sN)
 const hiCover = u => String(u || "").replace(/=w\d+-h\d+/, "=w900-h900").replace(/=s\d+(?=-|$)/, "=s900");
+// se llama en CADA cambio de cancion, abierta o no: al abrir la vista la cover ya es la correcta
 function paintNp(s) {
   if (!s) return;
-  const hi = hiCover(s.cover);
-  if ($("npCover").dataset.src !== hi) { $("npCover").dataset.src = hi; $("npCover").src = hi; }
+  const img = $("npCover"), hi = hiCover(s.cover);
+  if (img.dataset.src !== hi) {
+    img.dataset.src = hi;
+    img.src = s.cover || "";   // la del mini player ya esta en cache: aparece al instante (nunca la anterior)
+    if (hi && hi !== s.cover) {   // la de alta resolucion entra cuando termina de bajar, si sigue siendo esta cancion
+      const pre = img._pre = new Image();   // referencia viva: un Image suelto puede recolectarse antes del onload
+      pre.src = hi;
+      pre.decode().then(() => { if (img.dataset.src === hi) img.src = hi; }).catch(() => {});   // ya decodificada: cambio sin parpadeo
+    }
+  }
   $("npTitle").textContent = s.title || "";
   $("npArtist").innerHTML = $("partist").innerHTML;
-  syncNp();
+  if (npOpen) syncNp();
 }
 function syncNp() {
   $("npToggle").querySelector("i").className = audio.paused ? "ph-fill ph-play" : "ph-fill ph-pause";
@@ -3369,7 +3378,11 @@ function openNp() {
   npOpen = true; closeMenu();
   paintNp(current); npv.hidden = false; npv.style.transform = ""; document.body.classList.add("np-open");
   try { history.pushState({ t: "np" }, ""); } catch (e) {}   // boton/gesto atras de Android la cierra
-  _npRun(false).then(() => { if (npOpen) [$("pcover"), $("ptitle"), $("partist")].forEach(m => m.style.visibility = ""); });
+  _npRun(false).then(() => {
+    if (!npOpen) return;
+    [$("pcover"), $("ptitle"), $("partist")].forEach(m => m.style.visibility = "");
+    _npAnims.forEach(a => a.cancel()); _npAnims = [];   // estado final = estilos base; libera transform para el swipe
+  });
 }
 function closeNp(kind) {
   if (!npOpen) return;
@@ -3436,25 +3449,65 @@ function npTick() {
   requestAnimationFrame(npTick);
 }
 requestAnimationFrame(npTick);
-// arrastrar hacia abajo cierra (como Spotify); la barra de progreso y los botones no inician el gesto
+// gestos (como Spotify): arrastrar hacia ABAJO cierra la vista; arrastrar la cover/titulo a los LADOS cambia
+// de cancion (izquierda = siguiente, derecha = anterior). El eje se decide en los primeros 10px.
+// La barra de progreso, los botones y los links no inician gesto.
+function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguiente/anterior: rebota)
+  if (!queue.length) return -1;
+  if (dir > 0) return nextIndex();
+  if (qIndex - 1 >= 0) return qIndex - 1;
+  return repeat === "all" ? queue.length - 1 : -1;
+}
 (() => {
-  let y0 = null, dy = 0;
+  let x0 = null, y0 = 0, t0 = 0, dx = 0, dy = 0, axis = null, hZone = false;
+  const slides = () => [$("npCover"), npv.querySelector(".np-meta")];
+  const setX = (x) => slides().forEach(el => {
+    el.style.transform = x ? `translateX(${x}px)` : "";
+    el.style.opacity = x ? String(Math.max(.35, 1 - Math.abs(x) / (innerWidth * 1.1))) : "";
+  });
+  const release = (els) => { els.forEach(el => { el.getAnimations().forEach(a => a.cancel()); el.style.transform = ""; el.style.opacity = ""; }); };
   npv.addEventListener("touchstart", (e) => {
-    if (e.target.closest("input, button, .lnk") || $("lyricsPanel").classList.contains("show") || $("queue").classList.contains("show")) { y0 = null; return; }
-    y0 = e.touches[0].clientY; dy = 0;
+    if (e.target.closest("input, button, .lnk") || $("lyricsPanel").classList.contains("show") || $("queue").classList.contains("show")) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dx = dy = 0; axis = null;
+    hZone = !!e.target.closest(".np-art, .np-info");
   }, { passive: true });
   npv.addEventListener("touchmove", (e) => {
-    if (y0 == null) return;
-    dy = Math.max(0, e.touches[0].clientY - y0);
-    npv.style.transform = dy ? `translateY(${dy}px)` : "";
+    if (x0 == null) return;
+    dx = e.touches[0].clientX - x0; dy = e.touches[0].clientY - y0;
+    if (!axis && Math.hypot(dx, dy) > 10) axis = Math.abs(dx) > Math.abs(dy) ? (hZone ? "x" : "none") : (dy > 0 ? "y" : "none");
+    if (axis === "y") npv.style.transform = dy > 0 ? `translateY(${dy}px)` : "";
+    else if (axis === "x") setX(dx);
   }, { passive: true });
   npv.addEventListener("touchend", () => {
-    if (y0 == null) return;
-    y0 = null;
-    if (dy > 110) requestCloseNp("swipe");
-    else if (dy) npv.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 200, easing: NP_EASE })
-      .finished.then(() => { npv.style.transform = ""; }).catch(() => {});
-    if (dy <= 110) npv.style.transform = "";
+    if (x0 == null) return;
+    x0 = null;
+    if (axis === "y") {
+      if (dy > 110) { requestCloseNp("swipe"); return; }
+      if (dy > 0) npv.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 200, easing: NP_EASE });
+      npv.style.transform = "";
+      return;
+    }
+    if (axis !== "x") return;
+    const els = slides(), W = innerWidth;
+    const flick = Math.abs(dx) > 40 && Date.now() - t0 < 250;
+    const dir = dx < 0 ? 1 : -1;
+    const n = (Math.abs(dx) > Math.min(90, W * .22) || flick) ? npSwipeTarget(dir) : -1;
+    const from = { transform: `translateX(${dx}px)`, opacity: els[0].style.opacity || 1 };
+    if (n < 0) {   // no alcanza el umbral o no hay pista a ese lado: vuelve a su sitio
+      els.forEach(el => el.animate([from, { transform: "none", opacity: 1 }], { duration: 220, easing: NP_EASE }));
+      setX(0);
+      return;
+    }
+    // sale por el lado del gesto, cambia la pista (paintNp pinta la nueva cover al instante) y entra por el otro
+    const outs = els.map(el => el.animate([from, { transform: `translateX(${-dir * W}px)`, opacity: 0 }],
+      { duration: 170, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }));
+    setTimeout(() => outs.forEach(a => { try { if (a.playState === "running") a.finish(); } catch (e) {} }), 450);   // webview sin frames
+    outs[0].finished.then(() => {
+      qIndex = n; playSong(queue[n], false);
+      release(els);
+      els.forEach(el => el.animate([{ transform: `translateX(${dir * W * .6}px)`, opacity: 0 }, { transform: "none", opacity: 1 }],
+        { duration: 280, easing: NP_EASE }));
+    }).catch(() => release(els));
   });
 })();
 vol.addEventListener("input", () => { audio.volume = vol.value / 100; setFill(vol, vol.value); updateMute(); });

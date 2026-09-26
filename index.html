@@ -746,11 +746,16 @@
     /* artista: la foto es un BANNER horizontal a todo el ancho arriba (antes ocupaba toda la pantalla en
        vertical); el nombre se apoya sobre el borde inferior del banner (ya en el fade) y el resto va debajo */
     body { --abh: min(72vw, 360px); }   /* alto del banner: lo comparten #abg (foto) y el hero (texto) */
-    body[data-mv="artist"] #abg { bottom: auto; height: var(--abh); }
+    /* fade: la IMAGEN se desvanece a transparente (mascara) y se funde con el fondo sin borde; antes un
+       degradado encima + el blur de la capa .lo desbordando por debajo dejaban una franja con corte */
+    body[data-mv="artist"] #abg { bottom: auto; height: var(--abh); overflow: hidden;
+      -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 50%, rgb(0 0 0 / .55) 75%, transparent 100%);
+              mask-image: linear-gradient(to bottom, #000 0%, #000 50%, rgb(0 0 0 / .55) 75%, transparent 100%); }
     body[data-mv="artist"] #abg .lo, body[data-mv="artist"] #abg .hi { background-position: center 30%; }
-    body[data-mv="artist"] #abg::after { background: linear-gradient(to bottom, rgb(6 6 8 / .2) 0%, rgb(6 6 8 / 0) 35%,
-                                                                     rgb(6 6 8 / .55) 72%, var(--bg) 100%); }
-    .artist-hero2 { display: block; min-height: 0; margin: -76px -16px 14px;
+    body[data-mv="artist"] #abg::after { background: linear-gradient(to bottom, rgb(6 6 8 / .15) 0%, rgb(6 6 8 / 0) 30%, rgb(6 6 8 / .3) 100%); }
+    /* sin barra de busqueda en el artista (como en playlist/album): el hero ya no se mete debajo de ella */
+    body[data-mv="artist"] .topbar { display: none; }
+    .artist-hero2 { display: block; min-height: 0; margin: 0 -16px 14px;
                     padding: calc(var(--abh) - 58px) 16px 0; }
     .artist-hero2 .info { max-width: 100%; }
     /* canciones populares: a lo ancho, reproducciones bajo el titulo, corazon al borde derecho */
@@ -764,7 +769,7 @@
        corazon (portada | nombre | duracion + ...) */
     body[data-mv="liked"] .topbar, body[data-mv="liked"] #heading { display: none !important; }
     #likedHero { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding-top: 26px; }
-    #likedHero[hidden] { display: none; }
+    #likedHero[hidden], body:not([data-mv="liked"]) #likedHero { display: none; }
     .liked-bigcov { width: 58vw; height: 58vw; align-self: center; border-radius: 12px; display: grid; place-items: center;
                     background: linear-gradient(135deg, #4f46e5, #a855f7); color: #fff; font-size: 24vw;
                     box-shadow: 0 16px 40px rgb(0 0 0 / .45); }

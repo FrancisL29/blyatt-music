@@ -24,7 +24,8 @@
     --sb-w: 260px;   /* columna = tarjeta (240 interior) + 10px de margen por lado */
     --lyrics-w: min(560px, 42%);
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }   /* tactil: sin el rectangulo de toque de Android (el feedback es el scale de :active) */
+  :focus:not(:focus-visible) { outline: none; }   /* sin anillo de foco tras tocar; con teclado se mantiene */
   html, body { height: 100%; margin: 0; }
   body {
     color: var(--text); background: var(--bg);

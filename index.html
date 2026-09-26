@@ -1143,18 +1143,55 @@ function analyzeSilence(buf) {
   buf._eff = Math.max(0.05, (tail - lead) / sr);   // duracion del audio real (sin silencios)
   return buf;
 }
+// cache persistente de audio en el DISPOSITIVO (Cache Storage) cuando el server es remoto (app movil via
+// tunel): una cancion ya escuchada no vuelve a cruzar la red (instantanea y sin gastar cuota de ngrok).
+// En escritorio el server es local y ya tiene su propia cache en disco: duplicarla no aporta.
+const AUDIO_CACHE = (window.caches && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) ? "blyatt-audio-v1" : null;
+const AUDIO_CACHE_MAX = 150;   // ~4MB c/u -> ~600MB tope; LRU por orden de uso
+function _acTouch(id) {
+  let l; try { l = JSON.parse(localStorage.getItem("lightning.audioLRU") || "[]"); } catch (e) { l = []; }
+  l = l.filter(x => x !== id); l.push(id);
+  const drop = l.length > AUDIO_CACHE_MAX ? l.splice(0, l.length - AUDIO_CACHE_MAX) : [];
+  try { localStorage.setItem("lightning.audioLRU", JSON.stringify(l)); } catch (e) {}
+  if (drop.length) caches.open(AUDIO_CACHE).then(c => drop.forEach(x => c.delete("/stream?id=" + x))).catch(() => {});
+}
+async function _acGet(id) {
+  if (!AUDIO_CACHE) return null;
+  try {
+    const hit = await (await caches.open(AUDIO_CACHE)).match("/stream?id=" + id);
+    if (!hit) return null;
+    _acTouch(id);
+    return await hit.arrayBuffer();
+  } catch (e) { return null; }
+}
+function _acPut(id, ab) {   // copia: decodeAudioData "detacha" el ArrayBuffer original
+  if (!AUDIO_CACHE) return;
+  const copy = ab.slice(0);
+  caches.open(AUDIO_CACHE).then(c => c.put("/stream?id=" + id, new Response(copy, { headers: { "Content-Type": "audio/mp4" } })))
+    .then(() => _acTouch(id)).catch(() => {});
+}
 // reintenta cortes de red transitorios (movil con pantalla apagada, cambio wifi/datos) antes de rendirse
 async function fetchStream(id) {
+  const cached = await _acGet(id);
+  if (cached) return cached;
   let err;
   for (let i = 0; i < 4; i++) {
     try {
       const r = await fetch("/stream?id=" + id);
-      if (r.ok) return await r.arrayBuffer();
+      if (r.ok) { const ab = await r.arrayBuffer(); _acPut(id, ab); return ab; }
       err = new Error("stream");
     } catch (e) { err = e; }
     await new Promise(res => setTimeout(res, 1500 * (i + 1)));
   }
   throw err;
+}
+// el server baja a SU disco las proximas de la cola (link + bytes) sin gastar datos del tunel
+const _prewarmed = new Set();
+function prewarm(songs) {
+  const ids = songs.filter(x => x && x.id && !_prewarmed.has(x.id)).map(x => x.id).slice(0, 4);
+  if (!ids.length) return;
+  ids.forEach(id => _prewarmed.add(id));
+  fetch("/prewarm?ids=" + ids.join(",")).catch(() => {});
 }
 function getBuffer(id) {
   if (bufCache.has(id)) return bufCache.get(id);
@@ -1979,6 +2016,7 @@ function renderCollection(d) {
   }
   const ul = document.createElement("ul"); ul.className = "ctracks" + (hasPic ? " withpic" : "");
   vlist(ul, d.tracks.length, i => colTrackRow(d.tracks[i], songs, i, hasPic));
+  prewarm(songs.slice(0, 2));   // lo mas probable es tocar las primeras: el server las deja listas en disco
   cv.appendChild(ul);
   const _inCol = () => current && songs.some(x => x.id === current.id);
   const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
@@ -2997,6 +3035,7 @@ function onPlaybackStarted(s) {
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
+  if (!shuffle) prewarm([queue[qIndex + 2], queue[qIndex + 3]]);
   maybeExtendQueue();
   bumpLibrary(s);
 }

@@ -909,19 +909,40 @@ _YDL_OPTS = {
     "logger": _SilentLogger(),
     # SOLO android: es el cliente fiable (web exige PO token) y pedir dos clientes duplica la
     # latencia (yt-dlp los consulta en serie: ~3.2s vs ~1.5s). Fallback a web en _extract.
-    "extractor_args": {"youtube": {"player_client": ["android"]}},
+    # player_skip: android no necesita la pagina web, los configs ni el JS del player (no firma).
+    # Medido en el Tecno: 1.5s -> ~1s por extraccion (y sin la pagina web, una peticion menos)
+    "extractor_args": {"youtube": {"player_client": ["android"], "player_skip": ["webpage", "configs", "js"]}},
     "noplaylist": True,
 }
+# FORMATO (sep-2026): YouTube sirve el audio-solo (140/251) del cliente android SOLO por SABR ->
+# bestaudio cae al itag 18 (mp4 360p con audio, ~1.7x mas bytes). android_vr SI lista el 140
+# pero sin PO token googlevideo da 403 pasado el primer MB (probado con range). Se queda el 18.
+
+# instancias YoutubeDL reutilizables (crear una por extraccion cuesta ~0.3-0.5s en el Tecno).
+# ThreadingHTTPServer abre un hilo por peticion -> pool compartido, una instancia por uso a la vez
+import queue as _queue
+_ydl_pool = _queue.LifoQueue()
 
 
 def _extract_with(video_id, cookies_browser=None, clients=None):
-    opts = dict(_YDL_OPTS)
-    if clients:
-        opts["extractor_args"] = {"youtube": {"player_client": list(clients)}}
-    if cookies_browser:
-        opts["cookiesfrombrowser"] = (cookies_browser,)   # cookies del navegador para sortear el age-gate
-    with YoutubeDL(opts) as y:
-        info = y.extract_info("https://music.youtube.com/watch?v=" + video_id, download=False)
+    url = "https://music.youtube.com/watch?v=" + video_id
+    if clients or cookies_browser:   # variantes raras (fallback/age-gate): instancia propia
+        opts = dict(_YDL_OPTS)
+        if clients:
+            opts["extractor_args"] = {"youtube": {"player_client": list(clients)}}
+        if cookies_browser:
+            opts["cookiesfrombrowser"] = (cookies_browser,)   # cookies del navegador para sortear el age-gate
+        with YoutubeDL(opts) as y:
+            info = y.extract_info(url, download=False)
+    else:
+        try:
+            y = _ydl_pool.get_nowait()
+        except _queue.Empty:
+            y = YoutubeDL(dict(_YDL_OPTS))
+        try:
+            info = y.extract_info(url, download=False)
+        finally:
+            _ydl_pool.put(y)
     return (info.get("url") or (info.get("requested_formats") or [{}])[0].get("url")
             or info["formats"][-1]["url"])
 
@@ -1055,12 +1076,172 @@ def song_id(title, artist):
     return res[0]["id"] if res else ""
 
 
+# ---------- cache de audio: links (con su caducidad real) + bytes en disco ----------
+# Links de googlevideo: persistidos en cache/urls.json con el `expire` que trae la propia URL (~6h)
+# menos un margen; sobreviven a reinicios del server. Bytes: cache/audio/<id>.mp4 (LRU por mtime,
+# tope en MB) -> una cancion repetida no toca YouTube (ni extraccion ni descarga).
+CACHE_DIR = os.path.join(BASE, "cache")
+AUDIO_DIR = os.path.join(CACHE_DIR, "audio")
+os.makedirs(AUDIO_DIR, exist_ok=True)
+_URLS_FILE = os.path.join(CACHE_DIR, "urls.json")
+_URL_MARGIN = 900   # no servir links a <15min de caducar: la descarga podria cortarse a mitad
+AUDIO_CACHE_MB = int(os.environ.get("BLYATT_AUDIO_CACHE_MB") or (2048 if os.environ.get("BLYATT_HOST") else 1024))
+_urls_lock = threading.Lock()
+_id_locks, _id_locks_lock = {}, threading.Lock()
+
+
+def _id_lock(kind, vid):   # un lock por (tipo, cancion): play + precarga de la misma no duplican trabajo
+    with _id_locks_lock:
+        return _id_locks.setdefault((kind, vid), threading.Lock())
+
+
+def _url_expiry(u):
+    try:
+        return int(parse_qs(urlparse(u).query)["expire"][0])
+    except Exception:
+        return int(time.time()) + 3 * 3600
+
+
+def _load_urls():
+    try:
+        with open(_URLS_FILE, encoding="utf8") as f:
+            now = time.time()
+            return {k: tuple(v) for k, v in json.load(f).items() if v[1] - _URL_MARGIN > now}
+    except Exception:
+        return {}
+
+
+_URLS = _load_urls()
+
+
+def _save_urls():
+    with _urls_lock:
+        now = time.time()
+        for k in [k for k, v in _URLS.items() if v[1] - _URL_MARGIN <= now]:
+            _URLS.pop(k, None)
+        data = dict(_URLS)
+    try:
+        tmp = _URLS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf8") as f:
+            json.dump(data, f)
+        os.replace(tmp, _URLS_FILE)
+    except Exception:
+        pass
+
+
 def audio_url(video_id, fresh=False):
-    # cache 3h: la URL de googlevideo esta ligada a IP/tiempo y caduca en horas; evita re-extraer al repetir.
-    # fresh=True: el cliente reporto que la URL en cache no cargo -> la purgamos y re-extraemos.
+    # fresh=True: la URL guardada fallo (403/410: caducada o de otra IP) -> se purga y se re-extrae
     if fresh:
-        _CACHE.pop("a:" + video_id, None)
-    return cached("a:" + video_id, 10800, lambda: _extract(video_id))
+        _URLS.pop(video_id, None)
+    hit = _URLS.get(video_id)
+    if hit and hit[1] - _URL_MARGIN > time.time():
+        return hit[0]
+    with _id_lock("url", video_id):
+        hit = _URLS.get(video_id)
+        if hit and hit[1] - _URL_MARGIN > time.time():
+            return hit[0]
+        u = _extract(video_id)
+        _URLS[video_id] = (u, _url_expiry(u))
+    _save_urls()
+    return u
+
+
+def _audio_path(vid):
+    return os.path.join(AUDIO_DIR, re.sub(r"[^\w-]", "_", vid) + ".mp4")
+
+
+def _audio_evict():
+    try:
+        files = []
+        for n in os.listdir(AUDIO_DIR):
+            fp = os.path.join(AUDIO_DIR, n)
+            if n.endswith(".part"):
+                if time.time() - os.path.getmtime(fp) > 3600:   # restos de descargas cortadas
+                    os.remove(fp)
+                continue
+            st = os.stat(fp)
+            files.append((st.st_mtime, st.st_size, fp))
+        total, cap = sum(f[1] for f in files), AUDIO_CACHE_MB * 1024 * 1024
+        for _, size, fp in sorted(files):   # mas antiguo (menos usado) primero
+            if total <= cap:
+                break
+            os.remove(fp)
+            total -= size
+    except Exception:
+        pass
+
+
+def audio_fetch(vid, on_start=None, on_chunk=None):
+    """Baja el audio a la cache de disco reenviando cada trozo a on_chunk (streaming al cliente).
+    on_start(ctype, length) se llama antes del primer trozo. Si el link guardado da 403/410 se
+    re-extrae una vez. Si el cliente se va a mitad (on_chunk lanza) se termina igual la descarga:
+    la siguiente vez sale de disco."""
+    fp = _audio_path(vid)
+    part = fp + ".%d.part" % threading.get_ident()
+    for attempt in range(2):
+        src = audio_url(vid, fresh=attempt > 0)
+        try:
+            up = urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"}), timeout=30)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in (403, 410) or attempt:
+                raise
+    with up:
+        ctype = up.headers.get("Content-Type", "audio/mp4")
+        clen = up.headers.get("Content-Length")
+        client_ok = True
+        if on_start:
+            on_start(ctype, clen)
+        got = 0
+        try:
+            with open(part, "wb") as f:
+                while True:
+                    chunk = up.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+                    if client_ok and on_chunk:
+                        try:
+                            on_chunk(chunk)
+                        except Exception:
+                            client_ok = False
+            if clen and got != int(clen):
+                raise IOError("descarga incompleta")
+        except Exception:
+            try:
+                os.remove(part)   # incompleta: no se cachea
+            except OSError:
+                pass
+            raise
+    os.replace(part, fp)
+    _audio_evict()
+    return fp
+
+
+_prewarm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+_prewarm_seen = {}
+
+
+def prewarm(ids):
+    """Precarga en segundo plano (link + bytes a disco) de las proximas canciones de la cola.
+    No gasta datos del tunel (server <-> googlevideo). Dedup 10min por id."""
+    now = time.time()
+    for vid in ids[:4]:
+        if not re.fullmatch(r"[\w-]{6,20}", vid or "") or os.path.isfile(_audio_path(vid)):
+            continue
+        if now - _prewarm_seen.get(vid, 0) < 600:
+            continue
+        _prewarm_seen[vid] = now
+
+        def job(v=vid):
+            with _id_lock("dl", v):
+                if not os.path.isfile(_audio_path(v)):
+                    try:
+                        audio_fetch(v)
+                    except Exception:
+                        pass
+        _prewarm_pool.submit(job)
 
 
 # ---------- login con Google (headers de music.youtube.com via ytmusicapi) ----------
@@ -2402,32 +2583,46 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/stream":
-            # proxy de los bytes de audio (mismo origen) para poder decodificar con Web Audio (gapless real)
+            # proxy de los bytes de audio (mismo origen) para decodificar con Web Audio (gapless real).
+            # Cache en disco: repetida = lectura local; si no, se baja a disco reenviando por trozos
             vid = parse_qs(u.query).get("id", [""])[0]
+            if not re.fullmatch(r"[\w-]{6,20}", vid):
+                self.send_response(400); self.end_headers(); return
+            fp = _audio_path(vid)
+            sent = [False]
+
+            def start(ctype, clen):
+                self.send_response(200)
+                self.send_header("Content-Type", ctype or "audio/mp4")
+                self.send_header("Cache-Control", "max-age=86400")
+                if clen:
+                    self.send_header("Content-Length", str(clen))
+                self.end_headers()
+                sent[0] = True
             try:
-                src = audio_url(vid)
-                req = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=30) as up:
-                    self.send_response(200)
-                    self.send_header("Content-Type", up.headers.get("Content-Type", "audio/mp4"))
-                    self.send_header("Cache-Control", "max-age=3600")
-                    clen = up.headers.get("Content-Length")
-                    if clen:
-                        self.send_header("Content-Length", clen)
-                    self.end_headers()
-                    # relay por chunks: el cliente empieza a recibir mientras el server sigue bajando
-                    # (antes se bufereaba el archivo entero -> +1-3s de latencia en serie)
-                    while True:
-                        chunk = up.read(65536)
-                        if not chunk:
-                            break
-                        self.wfile.write(chunk)
+                with _id_lock("dl", vid):   # si la precarga ya la esta bajando, espera y sale de disco
+                    if os.path.isfile(fp):
+                        os.utime(fp)   # LRU: usada ahora
+                        start("audio/mp4", os.path.getsize(fp))
+                        with open(fp, "rb") as f:
+                            while True:
+                                chunk = f.read(262144)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                    else:
+                        audio_fetch(vid, start, self.wfile.write)
             except Exception:
-                try:
-                    self.send_response(502); self.end_headers()
-                except Exception:
-                    pass   # headers ya enviados (fallo a mitad del relay): no hay 502 posible
+                if not sent[0]:
+                    try:
+                        self.send_response(502); self.end_headers()
+                    except Exception:
+                        pass
             return
+        elif u.path == "/prewarm":
+            prewarm([x for x in parse_qs(u.query).get("ids", [""])[0].split(",") if x])
+            payload = b'{"ok": true}'
+            self.send_response(200); self.send_header("Content-Type", "application/json")
         elif u.path == "/audio":
             aqs = parse_qs(u.query)
             vid = aqs.get("id", [""])[0]
@@ -2528,6 +2723,15 @@ def serve(port=8000):
     _spot_load()   # restaura el token de Spotify persistido (si sigue vivo)
     # host configurable: escritorio usa 127.0.0.1 (privado); en servidor BLYATT_HOST=0.0.0.0 lo expone
     host = os.environ.get("BLYATT_HOST", "127.0.0.1")
+
+    def _warm():   # la 1a extraccion carga los extractores de yt-dlp (+~1s): que no la pague el usuario
+        try:
+            _ydl_pool.put(YoutubeDL(dict(_YDL_OPTS)))
+            _extract_with("jNQXAC9IVRw")
+        except Exception:
+            pass
+        _audio_evict()
+    threading.Thread(target=_warm, daemon=True).start()
     return ThreadingHTTPServer((host, port), H)
 
 

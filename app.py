@@ -1219,6 +1219,30 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
     return fp
 
 
+# ---------- migracion de origen (ngrok -> blyatt.stream) ----------
+# El WebView guarda localStorage y la cookie `bid` POR ORIGEN: al cambiar la URL de la app todo
+# quedaria en el origen viejo. La app visita el origen viejo, sube su localStorage (/migrate/push,
+# que ademas conoce su bid por la cookie) y vuelve al nuevo con un token de un solo uso;
+# /migrate/pull devuelve los datos y fija la MISMA bid en el origen nuevo (misma sesion de Google).
+_MIGR = {}
+
+
+def migrate_push(bid, ls):
+    now = time.time()
+    for k in [k for k, v in _MIGR.items() if now - v[0] > 600]:
+        _MIGR.pop(k, None)
+    tok = base64.urlsafe_b64encode(os.urandom(24)).decode().rstrip("=")
+    _MIGR[tok] = (now, bid, ls if isinstance(ls, dict) else {})
+    return tok
+
+
+def migrate_pull(tok):
+    v = _MIGR.pop(tok or "", None)
+    if not v or time.time() - v[0] > 600:
+        return None
+    return {"bid": v[1], "ls": v[2]}
+
+
 _prewarm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 _prewarm_seen = {}
 
@@ -2380,6 +2404,18 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path == "/migrate/pull":
+            d = migrate_pull(parse_qs(u.query).get("token", [""])[0])
+            payload = json.dumps({"ls": d["ls"]} if d else {"error": "token invalido o caducado"}).encode()
+            self.send_response(200 if d else 404)
+            self.send_header("Content-Type", "application/json")
+            if d and re.fullmatch(r"[0-9a-f]{16}", d["bid"] or ""):
+                self.send_header("Set-Cookie", "bid=%s; Path=/; Max-Age=63072000; SameSite=Lax" % d["bid"])
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path.startswith("/spot/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
@@ -2667,6 +2703,18 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path == "/migrate/push":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 8 * 1024 * 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+            except Exception:
+                d = {}
+            ls = {k: v for k, v in (d.get("ls") or {}).items()
+                  if isinstance(k, str) and k.startswith("lightning.") and isinstance(v, str)}
+            # sin cookie previa (_new_bid) no hay sesion que heredar
+            return self._json({"token": migrate_push("" if self._new_bid else _REQ.bid, ls)})
         if u.path == "/auth/headers":
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")

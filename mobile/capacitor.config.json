@@ -3,8 +3,11 @@
   "appName": "Blyatt",
   "webDir": "www",
   "server": {
-    "url": "https://afflicted-sixteen-stylus.ngrok-free.dev",
-    "androidScheme": "https"
+    "url": "https://blyatt.stream",
+    "androidScheme": "https",
+    "allowNavigation": [
+      "afflicted-sixteen-stylus.ngrok-free.dev"
+    ]
   },
   "android": {
     "overrideUserAgent": "Blyatt/1.0 (Android; Capacitor)",

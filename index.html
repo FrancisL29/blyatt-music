@@ -989,6 +989,38 @@
 <audio id="audio"></audio>
 
 <script>
+/* migracion de origen de la app movil (ngrok -> blyatt.stream): el WebView guarda localStorage y la
+   cookie de sesion `bid` POR ORIGEN. Primera vez en el origen nuevo: visita el viejo (allowNavigation),
+   este sube sus datos al server y vuelve con un token de un solo uso; el nuevo los recupera y el server
+   le fija la misma bid (misma sesion de Google). Va antes de todo: nada ha escrito aun en localStorage */
+(() => {
+  const OLD = "https://afflicted-sixteen-stylus.ngrok-free.dev", NEW = "https://blyatt.stream";
+  const qs = new URLSearchParams(location.search);
+  const isApp = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+  if (location.origin === OLD && qs.get("migrate") === "1") {
+    const ls = {};
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("lightning.")) ls[k] = localStorage.getItem(k); }
+    fetch("/migrate/push", { method: "POST", body: JSON.stringify({ ls }) }).then(r => r.json())
+      .then(d => location.replace(NEW + "/?migrate_token=" + encodeURIComponent(d.token || "")))
+      .catch(() => location.replace(NEW + "/?migrate_token="));
+    return;
+  }
+  if (location.origin === NEW && qs.has("migrate_token")) {
+    const tok = qs.get("migrate_token");
+    (tok ? fetch("/migrate/pull?token=" + encodeURIComponent(tok)).then(r => r.json()) : Promise.resolve({}))
+      .then(d => Object.entries(d.ls || {}).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch (e) {} }))
+      .catch(() => {})
+      .finally(() => { try { localStorage.setItem("lightning.migrated", "1"); } catch (e) {} location.replace("/"); });
+    return;
+  }
+  if (location.origin === NEW && isApp && !localStorage.getItem("lightning.migrated")) {
+    // solo si el origen viejo responde: con ngrok caido el WebView se quedaria en una pagina de error
+    const ac = new AbortController(); setTimeout(() => ac.abort(), 5000);
+    fetch(OLD + "/prewarm?ids=", { mode: "no-cors", cache: "no-store", signal: ac.signal })
+      .then(() => location.replace(OLD + "/?migrate=1"))
+      .catch(() => { try { localStorage.setItem("lightning.migrated", "1"); } catch (e) {} });
+  }
+})();
 const $ = id => document.getElementById(id);
 const player = $("player"), bg = $("bg");
 

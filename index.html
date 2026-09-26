@@ -663,6 +663,26 @@
   #npv .iconbtn.like.on { color: #ff4d6d; }
   body.np-open .sidepanel { z-index: 17; }   /* letra/cola abiertas desde la vista completa van ENCIMA */
 
+  /* pantalla de inicio de sesion obligatoria (app movil sin cuenta): encima de todo salvo los avisos */
+  #gate { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+          padding: calc(24px + env(safe-area-inset-top)) 28px calc(24px + env(safe-area-inset-bottom));
+          background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent, #7c5cff) 35%, #0b0b0f) 0%, #0b0b0f 70%); }
+  #gate[hidden] { display: none; }
+  .gate-box { width: 100%; max-width: 360px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  /* el rayo con la fuente de iconos: blyatt_logo.svg lleva un PNG con el "damero" de transparencia pintado */
+  .gate-logo { width: 84px; height: 84px; border-radius: 22px; margin-bottom: 26px; display: grid; place-items: center;
+               font-size: 2.9rem; color: var(--accent-ink, #fff);
+               background: linear-gradient(140deg, var(--accent, #7c5cff), color-mix(in srgb, var(--accent, #7c5cff) 55%, white));
+               box-shadow: 0 18px 50px color-mix(in srgb, var(--accent, #7c5cff) 45%, transparent); }
+  .gate-box h1 { font-size: 1.7rem; margin: 0 0 12px; }
+  .gate-box p { color: rgb(255 255 255 / .72); font-size: .95rem; line-height: 1.5; margin: 0 0 30px; }
+  #gateBtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; border: none; cursor: pointer;
+             padding: 15px 18px; border-radius: 999px; background: #fff; color: #111; font-size: 1rem; font-weight: 700; }
+  #gateBtn i { font-size: 1.3rem; }
+  #gateBtn:disabled { opacity: .6; cursor: default; }
+  .gate-box small { margin-top: 16px; color: rgb(255 255 255 / .5); font-size: .78rem; }
+  body.gate-on #toast { z-index: 40; }
+
   #mnav, #mUser { display: none; }
   @media (max-width: 820px) {
     html, body, main { overflow-x: hidden; }
@@ -951,6 +971,16 @@
         <input id="vol" type="range" min="0" max="100" value="100" aria-label="Volumen">
       </div>
     </div>
+  </div>
+</div>
+
+<div id="gate" hidden role="dialog" aria-label="Iniciar sesión">
+  <div class="gate-box">
+    <div class="gate-logo" aria-hidden="true"><i class="ph-fill ph-lightning"></i></div>
+    <h1 data-i18n>Bienvenido a Blyatt</h1>
+    <p data-i18n>Inicia sesión con tu cuenta de Google para cargar tu música: tus me gusta, playlists, álbumes y artistas de YouTube Music.</p>
+    <button id="gateBtn" disabled><i class="ph ph-google-logo"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>
+    <small data-i18n>Tu sesión se guarda solo en este dispositivo.</small>
   </div>
 </div>
 
@@ -2202,9 +2232,28 @@ function paintUserChip() {
   const mi = $("muimg"), mo = $("muico");
   if (mi) { mi.hidden = !ph; mo.style.display = ph ? "none" : ""; if (ph) mi.src = _authSt.photo; }
 }
+// app movil: sin cuenta de Google no se entra (pantalla obligatoria). Arranca visible en "comprobando" para
+// que no asome la app vacia mientras llega /auth/status; escritorio/navegador no la usan
+const IS_APP = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+function syncGate(checking) {
+  if (!IS_APP) return;
+  const need = checking || !_authSt.logged_in;
+  $("gate").hidden = !need; document.body.classList.toggle("gate-on", need);
+  $("gateBtn").disabled = !!checking;
+  $("gateLbl").textContent = t(checking ? "Comprobando sesión…" : _authSt.stale ? "Volver a iniciar sesión con Google" : "Continuar con Google");
+}
+syncGate(true);
+$("gateBtn").onclick = async () => {
+  $("gateBtn").disabled = true; $("gateLbl").textContent = t("Conectando…");
+  await toggleGoogleSession();   // login nativo -> /auth/cookie -> refreshAuth -> syncGate oculta la pantalla
+  if (!_authSt.logged_in) syncGate(false);   // cancelado o fallido: el boton vuelve
+};
 async function refreshAuth() {
-  try { _authSt = await jget("/auth/status"); } catch (e) {}
+  let ok = true;
+  try { _authSt = await jget("/auth/status"); } catch (e) { ok = false; }
   paintUserChip();
+  if (ok) syncGate(false);
+  else if (IS_APP) setTimeout(refreshAuth, 3000);   // sin red al abrir: reintenta, la pantalla sigue en "comprobando"
   if (_authSt.logged_in) syncYtLibrary();
   else if (_authSt.stale) {   // cookies rotadas: intenta refresco silencioso desde el perfil WebView2
     try {
@@ -2323,9 +2372,10 @@ function closeGModal() { $("gmodal").hidden = true; }
 async function toggleGoogleSession() {
   if (!_authSt.available) { toast("Instala ytmusicapi: py -m pip install ytmusicapi"); return; }
   if (_authSt.logged_in && _authSt.own !== false) {
-    await jget("/auth/logout"); toast("Sesión de Google cerrada");
-    _ytSynced = false;
-    await refreshAuth();
+    const ok = await askModal({ title: "¿Cerrar sesión?", icon: "ph-sign-out", okLabel: "Cerrar sesión", danger: true,
+      message: "Se borrarán de este dispositivo tus me gusta, biblioteca y recientes guardados. En tu cuenta de YouTube Music siguen intactos." });
+    if (!ok) return;
+    await signOutClean();
     return;
   }
   if (_authSt.logged_in) {   // sesion compartida de la casa: no se cierra, se sustituye con la propia
@@ -2351,6 +2401,17 @@ async function toggleGoogleSession() {
   // modo navegador (py app.py): fallback al modal de headers
   $("gwait").hidden = true; $("ghdrs").value = "";
   $("gmodal").hidden = false;
+}
+// datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents"];
+async function signOutClean() {
+  try { await jget("/auth/logout"); } catch (e) {}
+  // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"
+  // recapturaria al instante la misma cuenta y seria imposible entrar con otra
+  const gp = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.GoogleLogin;
+  if (gp && gp.logout) { try { await gp.logout(); } catch (e) {} }
+  ACCOUNT_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+  location.reload();   // la UI arranca limpia; en la app aparece la pantalla de inicio de sesion
 }
 function openUserMenu(btn) {
   const r = btn.getBoundingClientRect();

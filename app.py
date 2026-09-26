@@ -1309,6 +1309,13 @@ def _bid_file():
     return BROWSER_FILE
 
 
+def _purge_session(file):
+    # todo lo cacheado con esa sesion (ytlib, acct, sess_alive, col:<playlist privada>...): prefijo "<archivo>|"
+    pre = file + "|"
+    for k in [k for k in list(_CACHE) if isinstance(k, str) and k.startswith(pre)]:
+        _CACHE.pop(k, None)
+
+
 def _sk(key, file=None):
     # clave de cache ligada a la sesion efectiva (los datos con sesion no se comparten entre cuentas)
     return "%s|%s" % (file or _bid_file(), key)
@@ -1375,8 +1382,7 @@ def save_browser_cookie(cookie_header, user_agent=None, target=None):
     with open(tgt, "w", encoding="utf8") as f:
         json.dump(hdrs, f, indent=1)
     _ytm_by.pop(tgt, None)
-    _CACHE.pop(_sk("sess_alive", tgt), None)
-    _CACHE.pop(_sk("ytlib", tgt), None)
+    _purge_session(tgt)   # puede ser OTRA cuenta en el mismo archivo: nada de la anterior debe sobrevivir
     return _session_alive()
 
 
@@ -1483,8 +1489,7 @@ def auth_logout():
         # dispositivo sin sesion propia: no puede borrar la sesion de la casa (compartida)
         return {"ok": True, "shared": True}
     _ytm_by.pop(f, None)
-    for k in ("ytlib", "sess_alive", "acct"):
-        _CACHE.pop(_sk(k, f), None)
+    _purge_session(f)
     try:
         os.remove(f)
     except OSError:

@@ -2315,8 +2315,17 @@ def _yt_artists(x):
     return ", ".join(a.get("name", "") for a in (x.get("artists") or []) if a.get("name"))
 
 
-def yt_library():
-    # biblioteca real de YT Music del usuario: me gusta + playlists + artistas + albumes (4 fetch en paralelo)
+def yt_library(parts=None):
+    # biblioteca real de YT Music del usuario: me gusta + playlists + artistas + albumes (en paralelo).
+    # parts (carga por etapas tras iniciar sesion): "lib" = playlists+artistas+albumes (~1s en el Tecno);
+    # "head" = solo los ~100 me gusta mas recientes (siempre marcado parcial); "liked" = todos (~10s).
+    # Sin parts = todo, como siempre.
+    want = {"liked", "playlists", "artists", "albums"}
+    if parts:
+        want = set()
+        if "lib" in parts:
+            want |= {"playlists", "artists", "albums"}
+        want |= {p for p in parts if p in ("liked", "head")}
     y = ytm()
     if not y:
         return {"error": "Sin sesión de Google"}
@@ -2330,7 +2339,7 @@ def yt_library():
 
     truncated = []
 
-    def _liked_ids_raw():
+    def _liked_ids_raw(max_pages=40):
         # shape innertube 2025: videoId ya no viene en playlistItemData (ytmusicapi 1.12 lo parsea
         # None en TODAS las pistas) sino en el watchEndpoint de cada fila. Se pagina VLLM a mano y
         # se devuelven los ids EN ORDEN (None si la fila no es reproducible) para alinear por indice.
@@ -2364,26 +2373,37 @@ def yt_library():
             tok = [None]
             scan(r, ids, tok)
             pages += 1
-            if not tok[0] or pages > 40:
+            if not tok[0] or pages >= max_pages:
                 break
             r = y._send_request("browse", {"continuation": tok[0]})
         return ids
 
-    def liked():
+    def liked(head=False):
+        # En el server la sesion suele recibir el shape nuevo (videoId en null): el paginado crudo del
+        # rescate corre EN PARALELO con ytmusicapi en vez de despues (Tecno: ~20s -> ~10s)
+        rescue = None
+        if SERVER_MODE:
+            rescue = concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(_liked_ids_raw, 1 if head else 40)
         d = None
-        for _ in range(3):   # TODOS los likes (paginado por continuations; fallan esporadicamente)
-            try:
-                d = y.get_liked_songs(limit=None)
-                break
-            except Exception:
-                time.sleep(1)
-        if d is None:
-            d = y.get_liked_songs(limit=200)   # ultimo recurso: mejor 200 que nada
-            truncated.append("liked")   # lista INCOMPLETA: el frontend no debe reconciliar bajas con ella
+        if head:
+            d = y.get_liked_songs(limit=100)
+            truncated.append("liked")   # solo la cabeza: nunca reconciliar bajas con ella
+        else:
+            for _ in range(3):   # TODOS los likes (paginado por continuations; fallan esporadicamente)
+                try:
+                    d = y.get_liked_songs(limit=None)
+                    break
+                except Exception:
+                    time.sleep(1)
+            if d is None:
+                d = y.get_liked_songs(limit=200)   # ultimo recurso: mejor 200 que nada
+                truncated.append("liked")   # lista INCOMPLETA: el frontend no debe reconciliar bajas con ella
         tracks = d.get("tracks") or []
         if tracks and sum(1 for t in tracks if t.get("videoId")) < len(tracks) / 2:
             try:
-                ids = _liked_ids_raw()
+                ids = rescue.result() if rescue else _liked_ids_raw(1 if head else 40)
+                if head:
+                    tracks = tracks[:len(ids)]   # la 1a pagina cruda trae ~100: se alinea el prefijo
                 if len(ids) == len(tracks):
                     for t, vid in zip(tracks, ids):
                         t["videoId"] = t.get("videoId") or vid
@@ -2439,8 +2459,11 @@ def yt_library():
                 for a in y.get_library_albums(limit=50) if a.get("browseId")]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        futs = {k: ex.submit(f) for k, f in
-                (("liked", liked), ("playlists", playlists), ("artists", artists), ("albums", albums))}
+        jobs = [(k, f) for k, f in (("liked", liked), ("playlists", playlists), ("artists", artists),
+                                    ("albums", albums)) if k in want]
+        if "head" in want and "liked" not in want:
+            jobs.append(("liked", lambda: liked(True)))
+        futs = {k: ex.submit(f) for k, f in jobs}
         out = {}
         for k, f in futs.items():
             try:
@@ -2492,6 +2515,9 @@ class H(BaseHTTPRequestHandler):
                 if u.path == "/auth/logout":
                     return self._json(auth_logout())
                 if u.path == "/ytlib":
+                    parts = [p for p in parse_qs(u.query).get("parts", [""])[0].split(",") if p]
+                    if parts:   # carga por etapas (primer login): siempre fresca, no toca la cache completa
+                        return self._json(yt_library(parts))
                     k = _sk("ytlib")
                     if parse_qs(u.query).get("fresh"):
                         _CACHE.pop(k, None)   # abrir "Me gusta" fuerza re-fetch real de la cuenta

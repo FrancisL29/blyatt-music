@@ -2191,8 +2191,12 @@ function renderHome(force) {
     ra = homeSec(hv, "Artistas recomendados"); skelCards(ra.row, 8, true);
     rb = homeSec(hv, "Álbumes recomendados"); skelCards(rb.row, 8);
   }
+  if (!seedId && _firstSyncing) {   // la cuenta esta cargando: esqueletos de lo que va a aparecer
+    skelCards(homeSec(hv, "Para ti").row, 8);
+    skelCards(homeSec(hv, "Artistas recomendados").row, 8, true);
+  }
   const nr = homeSec(hv, "Nuevos Lanzamientos"); skelCards(nr.row, 8);   // siempre la ultima seccion
-  if (!seedId) {
+  if (!seedId && !_firstSyncing) {
     const p = document.createElement("div"); p.className = "lempty";
     p.textContent = t("Reproduce tu primera canción y llenaremos Inicio con recomendaciones para ti.");
     hv.appendChild(p);
@@ -2251,7 +2255,10 @@ async function refreshAuth() {
   paintUserChip();
   if (ok) syncGate(false);
   else if (IS_APP) setTimeout(refreshAuth, 3000);   // sin red al abrir: reintenta, la pantalla sigue en "comprobando"
-  if (_authSt.logged_in) syncYtLibrary();
+  if (_authSt.logged_in) {
+    if (!getLibrary().length && !getLiked().length) firstSync();   // cuenta recien conectada
+    else syncYtLibrary();
+  }
   else if (_authSt.stale) {   // cookies rotadas: intenta refresco silencioso desde el perfil WebView2
     try {
       const r = await jget("/auth/weblogin?silent=1");
@@ -2278,6 +2285,23 @@ function pollAuth(tries, quiet) {
   }, 3000);
 }
 let _ytSynced = false, _ytSyncBusy = false, _likedSyncQ = false;
+var _firstSyncing = false;   // var: renderHome lo consulta
+// primer login (o tras cerrar sesion): el dispositivo no tiene nada de la cuenta. En vez de esperar
+// la biblioteca COMPLETA (~10-20s en el server del telefono: 1300+ me gusta), primero la biblioteca y
+// los ~100 me gusta mas recientes (~2-3s) para pintar Inicio y la biblioteca; el resto en segundo plano
+async function firstSync() {
+  if (_firstSyncing) return;
+  _firstSyncing = true;
+  if (view === "home") renderHome(true);   // esqueletos de "cargando", no la portada de invitado
+  toast(t("Cargando tu biblioteca…"));
+  _ytSyncBusy = false;
+  await syncYtLibrary(true, "lib,head", true);
+  _firstSyncing = false;
+  if (view === "home") renderHome(true);   // ya hay me gusta: "Para ti" y recomendados con semilla real
+  refreshLikeUI();
+  _ytSynced = false;
+  syncYtLibrary(true, "", true).then(() => { refreshLikeUI(); if (view === "liked") render(getLiked(), "liked"); });
+}
 async function syncLikedWithAccount() {
   // sync robusto al abrir "Me gusta": no depende de que /auth/status ya haya llegado (arranque
   // en frio de la app movil) ni pierde el force si el sync inicial esta en curso
@@ -2296,7 +2320,9 @@ async function syncLikedWithAccount() {
     }
   } finally { _likedSyncQ = false; }
 }
-async function syncYtLibrary(force = false) {
+// parts: carga por etapas del primer login ("lib,head" = biblioteca + me gusta recientes, rapido).
+// quiet: sin el toast de resumen (el primer login muestra sus propios avisos)
+async function syncYtLibrary(force = false, parts = "", quiet = false) {
   // fusiona la biblioteca de YT Music en las estructuras locales: likes -> lightning.liked,
   // playlists/albumes/artistas -> lightning.library (sidebar). Aditivo, sin duplicados.
   // force: re-fetch saltando caches (front y server) y reconcilia BAJAS de likes (la cuenta manda)
@@ -2304,7 +2330,7 @@ async function syncYtLibrary(force = false) {
   _ytSynced = true; _ytSyncBusy = true;
   let _failed = null;
   try {
-    const d = await jget("/ytlib" + (force ? "?fresh=1" : ""));
+    const d = await jget("/ytlib" + (parts ? "?parts=" + encodeURIComponent(parts) : force ? "?fresh=1" : ""));
     if (d.error) { _ytSynced = false; return null; }
     _failed = Array.isArray(d._partial) ? d._partial : d._partial ? ["liked", "playlists", "artists", "albums"] : [];
     let liked = getLiked();
@@ -2360,7 +2386,7 @@ async function syncYtLibrary(force = false) {
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       if (document.body.dataset.mv === "lib") openMobileLibrary(false);   // la cuadricula movil no la repinta renderLibrary
     }
-    if (addL.length || nB) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
+    if (!quiet && (addL.length || nB)) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
   } catch (e) { _ytSynced = false; }
   finally { _ytSyncBusy = false; }
   return _failed;

@@ -149,7 +149,7 @@ public class MediaControlsPlugin extends Plugin {
                 | PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
                 | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS | PlaybackStateCompat.ACTION_SEEK_TO)
             .addCustomAction("like", liked ? "Quitar me gusta" : "Me gusta",
-                liked ? android.R.drawable.btn_star_big_on : android.R.drawable.btn_star_big_off)
+                liked ? R.drawable.ic_np_heart : R.drawable.ic_np_heart_outline)
             .setState(playing ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED,
                 positionMs, playing ? 1f : 0f);
         session.setPlaybackState(st.build());
@@ -160,7 +160,7 @@ public class MediaControlsPlugin extends Plugin {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder nb = new NotificationCompat.Builder(getContext(), CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_np_note)
             .setContentTitle(title)
             .setContentText(artist)
             .setLargeIcon(cover)
@@ -168,12 +168,12 @@ public class MediaControlsPlugin extends Plugin {
             .setOnlyAlertOnce(true)
             .setOngoing(playing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(liked ? android.R.drawable.btn_star_big_on : android.R.drawable.btn_star_big_off,
+            .addAction(liked ? R.drawable.ic_np_heart : R.drawable.ic_np_heart_outline,
                 "Me gusta", btn("like", 4))
-            .addAction(android.R.drawable.ic_media_previous, "Anterior", btn("prev", 1))
-            .addAction(playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
+            .addAction(R.drawable.ic_np_prev, "Anterior", btn("prev", 1))
+            .addAction(playing ? R.drawable.ic_np_pause : R.drawable.ic_np_play,
                 playing ? "Pausa" : "Reproducir", btn(playing ? "pause" : "play", 2))
-            .addAction(android.R.drawable.ic_media_next, "Siguiente", btn("next", 3))
+            .addAction(R.drawable.ic_np_next, "Siguiente", btn("next", 3))
             .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
                 .setMediaSession(session.getSessionToken())
                 .setShowActionsInCompactView(1, 2, 3));

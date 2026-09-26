@@ -169,6 +169,8 @@
        padding: 8px 12px; border-radius: 10px; cursor: pointer; transition: background .15s; }
   li.card { grid-template-columns: auto 1fr auto; }
   li > .cplays { color: var(--muted); font-size: .82rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .meta .pl2 { display: none; }
+  #likedHero { display: none; }
   li > .cdur { color: var(--muted); font-size: .82rem; white-space: nowrap; }
   li > .cdots { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1.15rem;
                 padding: 4px; opacity: 0; transition: opacity .15s, color .15s; }
@@ -741,7 +743,42 @@
     .rtile .rliked { display: grid; place-items: center; font-size: 1.35rem; color: #fff; background: linear-gradient(135deg, #4f46e5, #a855f7); }
     .rtile .rt { font-size: .8rem; font-weight: 700; line-height: 1.25; overflow: hidden; display: -webkit-box;
                  -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-    .artist-hero2 { min-height: 46vh; padding: 0 20px 22px; margin: -76px -28px 16px; }
+    /* artista: la foto es un BANNER horizontal a todo el ancho arriba (antes ocupaba toda la pantalla en
+       vertical); el nombre se apoya sobre el borde inferior del banner (ya en el fade) y el resto va debajo */
+    body { --abh: min(72vw, 360px); }   /* alto del banner: lo comparten #abg (foto) y el hero (texto) */
+    body[data-mv="artist"] #abg { bottom: auto; height: var(--abh); }
+    body[data-mv="artist"] #abg .lo, body[data-mv="artist"] #abg .hi { background-position: center 30%; }
+    body[data-mv="artist"] #abg::after { background: linear-gradient(to bottom, rgb(6 6 8 / .2) 0%, rgb(6 6 8 / 0) 35%,
+                                                                     rgb(6 6 8 / .55) 72%, var(--bg) 100%); }
+    .artist-hero2 { display: block; min-height: 0; margin: -76px -16px 14px;
+                    padding: calc(var(--abh) - 58px) 16px 0; }
+    .artist-hero2 .info { max-width: 100%; }
+    /* canciones populares: a lo ancho, reproducciones bajo el titulo, corazon al borde derecho */
+    #artistView .asongs { margin-right: -6px; }
+    #artistView .asongs > li { grid-template-columns: 44px minmax(0, 1fr) 34px; gap: 12px; padding: 6px 0; }
+    #artistView .asongs > li > .cplays, #artistView .asongs > li > .cdur, #artistView .asongs > li > .cdots { display: none; }
+    #artistView .asongs .meta .a:not(.pl2) { display: none; }
+    #artistView .asongs .meta .pl2 { display: block; }
+    #artistView .asongs .row-like { opacity: 1; justify-self: end; font-size: 1.3rem; }
+    /* Me gusta = misma estructura que una playlist: cabecera con portada grande y filas sin numero ni
+       corazon (portada | nombre | duracion + ...) */
+    body[data-mv="liked"] .topbar, body[data-mv="liked"] #heading { display: none !important; }
+    #likedHero { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding-top: 26px; }
+    #likedHero[hidden] { display: none; }
+    .liked-bigcov { width: 58vw; height: 58vw; align-self: center; border-radius: 12px; display: grid; place-items: center;
+                    background: linear-gradient(135deg, #4f46e5, #a855f7); color: #fff; font-size: 24vw;
+                    box-shadow: 0 16px 40px rgb(0 0 0 / .45); }
+    .liked-bigcov .covplay { opacity: 0; }
+    body[data-mv="liked"] #r { margin-right: -8px; }
+    body[data-mv="liked"] #r > li { grid-template-columns: 42px minmax(0, 1fr) auto 18px; gap: 10px; padding: 6px 0; }
+    body[data-mv="liked"] #r > li > .cplays, body[data-mv="liked"] #r > li > .row-like { display: none; }
+    body[data-mv="liked"] #r > li > .cdots { opacity: 1; justify-self: end; padding: 0; }
+    body[data-mv="liked"] #r .cover-wrap, body[data-mv="liked"] #r .cover-wrap img { width: 42px; height: 42px; }
+    /* busqueda: filtros en UNA fila con scroll horizontal (antes se apilaban en varias) */
+    .tabs { flex-wrap: nowrap; overflow-x: auto; margin-left: -16px; margin-right: -16px; padding: 0 16px;
+            scrollbar-width: none; overscroll-behavior-x: contain; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: none; }
     .artist-hero2 h1 { font-size: 2.4rem; }
     .artist-hero2 .info { max-width: 100%; }
     .hero-back { left: 20px; }
@@ -843,6 +880,10 @@
     </div>
   </div>
   <h2 id="heading" style="display:none"></h2>
+  <div id="likedHero" class="col-hero" hidden>
+    <div class="cov liked-bigcov"><i class="ph-fill ph-heart"></i><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div>
+    <div><div class="ct" data-i18n>Playlist</div><h1 data-i18n>Me gusta</h1><div class="cmeta" id="likedCount"></div></div>
+  </div>
   <ul id="r"></ul>
   <div id="empty" class="empty"><i class="ph ph-magnifying-glass"></i><span data-i18n>Busca algo para empezar.</span></div>
   <div id="homeView"></div>
@@ -1734,6 +1775,10 @@ function songLi(s, list, i, solo) {
   li.querySelector(".t").textContent = s.title;
   li.querySelector(".a").innerHTML = expBadge(s) + metaHtml(s);
   li.querySelector(".cplays").textContent = s.plays || "";
+  if (s.plays) {   // movil/artista: las reproducciones van bajo el titulo (el artista ya se sabe)
+    const pl = document.createElement("div"); pl.className = "a pl2"; pl.textContent = s.plays;
+    li.querySelector(".meta").appendChild(pl);
+  }
   li.querySelector(".cdur").textContent = s.duration || "";
   if (s.type === "video") li.classList.add("vid");   // miniatura 16:9
   if (current && current.id === s.id) li.classList.add("playing");
@@ -2144,6 +2189,8 @@ function setView(v, push = true) {
   $("r").style.display = isHome ? "none" : "";
   $("empty").style.display = isHome ? "none" : "";
   const label = v === "liked" ? "Me gusta" : v === "recientes" ? "Reproducidos recientemente" : "";
+  $("likedHero").hidden = v !== "liked";   // movil: cabecera tipo playlist (en escritorio el CSS la oculta)
+  if (v === "liked") paintLikedCount();
   $("heading").textContent = t(label);
   $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar/Inicio
   if (isHome) { renderHome(); refreshRecentGrid(); }
@@ -2154,6 +2201,15 @@ function setView(v, push = true) {
   showTop();   // al cambiar de vista, reaparece topbar (y en buscar/inicio queda fija)
   syncMnav(v);
 }
+function paintLikedCount() {
+  const n = getLiked().length;
+  $("likedCount").textContent = n + " " + t(n === 1 ? "canción" : "canciones");
+}
+// tocar la portada de Me gusta: reproduce la lista (aleatorio respeta shuffle), como en una playlist
+$("likedHero").querySelector(".covplay").onclick = () => {
+  const l = getLiked(); if (!l.length) return;
+  playFromList(l, shuffle ? Math.floor(Math.random() * l.length) : 0);
+};
 function syncMnav(v) {
   document.body.dataset.mv = v;   // permite CSS por vista en movil (p.ej. ocultar topbar en collection)
   // movil: el campo de busqueda enfocado (autofocus al abrir) cuenta como "escribiendo" y la barra nunca
@@ -3376,6 +3432,7 @@ function refreshLikeUI() {
   const on = current && isLiked(current.id);
   const b = $("like"); b.classList.toggle("on", !!on);
   b.querySelector("i").className = (on ? "ph-fill" : "ph") + " ph-heart";
+  if (view === "liked") paintLikedCount();
   const la = document.querySelector('.lib-item[data-view="liked"] .la2');
   if (la) la.textContent = getLiked().length + " " + t("canciones");
   if (npOpen) syncNp();

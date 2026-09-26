@@ -2831,8 +2831,20 @@ $("fixdone").onclick = async () => {
 // al volver la app/pestana a primer plano, re-sincroniza con la cuenta (la fuente de verdad):
 // escritorio y movil convergen solos aunque el otro dispositivo haya importado/likeado
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && _authSt.logged_in) syncYtLibrary(true);
+  if (document.hidden) return;
+  accessAlive().then(ok => { if (ok && _authSt.logged_in) syncYtLibrary(true); });
 });
+// Cloudflare Access (blyatt.stream protegido por login de email): con la sesion de Access caducada la
+// API responde con una redireccion al login de Cloudflare y los fetch fallan en silencio. Al volver a la
+// app se comprueba y se recarga la pagina: la navegacion completa muestra el login dentro de la app
+async function accessAlive() {
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) return true;   // escritorio: sin Access
+  try {
+    const r = await fetch("/auth/status", { redirect: "manual", cache: "no-store" });
+    if (r.type === "opaqueredirect") { location.reload(); return false; }
+  } catch (e) {}
+  return true;
+}
 
 function openPlPicker(s, x, y, li) {
   if (!_authSt.logged_in) { toast("Inicia sesión con Google para usar playlists"); return; }

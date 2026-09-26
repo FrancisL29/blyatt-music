@@ -6,7 +6,8 @@
     "url": "https://blyatt.stream",
     "androidScheme": "https",
     "allowNavigation": [
-      "afflicted-sixteen-stylus.ngrok-free.dev"
+      "afflicted-sixteen-stylus.ngrok-free.dev",
+      "*.cloudflareaccess.com"
     ]
   },
   "android": {

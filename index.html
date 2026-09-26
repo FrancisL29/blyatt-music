@@ -710,7 +710,28 @@
     main { padding: 0 16px 210px; }
     .artist-hero2 { margin: -76px -16px 16px; }
     .topbar form { max-width: none; }
-    .hrow, .arow { column-gap: 12px; }
+    /* carruseles horizontales (Inicio y artista): tarjetas algo mas grandes y la siguiente asomando
+       (indica que hay scroll); a sangre hasta el borde de la pantalla como Spotify */
+    .hrow, .arow { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; margin: 0 -16px; padding: 0 16px 4px;
+                   scroll-snap-type: x mandatory; scroll-padding-left: 16px; overscroll-behavior-x: contain; scrollbar-width: none; }
+    .hrow::-webkit-scrollbar, .arow::-webkit-scrollbar { display: none; }
+    .hrow > .ccard, .arow > .ccard { flex: 0 0 42vw; max-width: 180px; padding: 0; scroll-snap-align: start; }
+    .hrow > .ccard:hover, .arow > .ccard:hover { background: none; }
+    /* biblioteca y cuadriculas: 3 por fila, texto compacto */
+    .cardgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
+    .cardgrid > .ccard { padding: 0; }
+    .cardgrid > .ccard .t { font-size: .8rem; margin-top: 6px; }
+    .cardgrid > .ccard .a { font-size: .7rem; }
+    .gridhead { font-size: 1.45rem; margin-bottom: 16px; }
+    /* Recientes: cuadricula de 2 columnas de fichas compactas (portada + nombre) */
+    .rgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .rtile { display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 8px 0 0; border: none; border-radius: 6px;
+             overflow: hidden; background: rgb(255 255 255 / .08); color: var(--text); text-align: left; cursor: pointer; }
+    .rtile:active { background: rgb(255 255 255 / .16); }
+    .rtile img, .rtile .rliked { width: 54px; height: 54px; flex: none; object-fit: cover; }
+    .rtile .rliked { display: grid; place-items: center; font-size: 1.35rem; color: #fff; background: linear-gradient(135deg, #4f46e5, #a855f7); }
+    .rtile .rt { font-size: .8rem; font-weight: 700; line-height: 1.25; overflow: hidden; display: -webkit-box;
+                 -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .artist-hero2 { min-height: 46vh; padding: 0 20px 22px; margin: -76px -28px 16px; }
     .artist-hero2 h1 { font-size: 2.4rem; }
     .artist-hero2 .info { max-width: 100%; }
@@ -1775,6 +1796,7 @@ function renderArtist(d) {
   hero.innerHTML = '<div class="hero-bg lo"></div><div class="hero-bg hi"></div><div class="info"><h1></h1><div class="maud"></div><div class="bio"></div></div>';
   const seedCover = _artistSeed && _artistSeed.cover;
   setArtistBg(seedCover || d.image || "", d.image || null);
+  _ctxMeta.art = { kind: "artist", id: _artistId, title: d.name || "", cover: seedCover || d.image || "" };
   hero.querySelector("h1").textContent = d.name || "Artista";
   const maud = hero.querySelector(".maud"); maud.textContent = d.subtitle || ""; if (!d.subtitle) maud.style.display = "none";
   const bio = hero.querySelector(".bio"); bio.textContent = d.description || "";
@@ -2036,6 +2058,7 @@ function renderCollection(d) {
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
   const heroCover = (libE && libE.ccover) || d.cover || (d.kind === "playlist" ? PL_EMPTY_COVER : "");
+  _ctxMeta.col = { kind: d.kind === "album" ? "album" : "playlist", id: _colId, title: d.title || "", cover: heroCover };
   if (heroCover) {
     hero.querySelector("img").src = heroCover;
     bg.style.backgroundImage = `url("${heroCover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
@@ -2100,7 +2123,7 @@ function setView(v, push = true) {
   const label = v === "liked" ? "Me gusta" : v === "recientes" ? "Reproducidos recientemente" : "";
   $("heading").textContent = t(label);
   $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar/Inicio
-  if (isHome) renderHome();
+  if (isHome) { renderHome(); refreshRecentGrid(); }
   else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
   // "Me gusta" se re-sincroniza con la cuenta cada vez que se abre (pinta lo local al instante,
   // el sync re-renderiza si hay cambios)
@@ -2124,7 +2147,7 @@ function openMobileLibrary(push = true) {
   const grid = $("gridView").querySelector(".cardgrid");
   const c = document.createElement("div"); c.className = "ccard";
   c.innerHTML = '<div style="width:100%;aspect-ratio:1;border-radius:10px;display:grid;place-items:center;' +
-    'background:linear-gradient(135deg,#4f46e5,#a855f7);font-size:2.6rem;color:#fff"><i class="ph-fill ph-heart"></i></div>' +
+    'background:linear-gradient(135deg,#4f46e5,#a855f7);font-size:2rem;color:#fff"><i class="ph-fill ph-heart"></i></div>' +
     '<div class="t"></div><div class="a"></div>';
   c.querySelector(".t").textContent = t("Me gusta");
   c.querySelector(".a").textContent = getLiked().length + " " + t("canciones");
@@ -2173,6 +2196,41 @@ function sortReleases(list) {
   };
   return list.map((it, i) => [score(it), i, it]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
+// hasta 8: contextos recientes y, si faltan, canciones del historial (los que venian de antes del registro)
+function recentTiles() {
+  const out = getRecentCtx().slice(0, 8);
+  const have = new Set(out.map(e => e.kind + ":" + e.id));
+  for (const s of getRecents()) {
+    if (out.length >= 8) break;
+    if (!s || !s.id || have.has("song:" + s.id)) continue;
+    have.add("song:" + s.id);
+    out.push({ kind: "song", id: s.id, title: s.title, artist: s.artist, cover: s.cover });
+  }
+  return out;
+}
+function recentTile(e) {
+  const b = document.createElement("button"); b.className = "rtile";
+  if (e.kind === "liked") b.innerHTML = '<span class="rliked"><i class="ph-fill ph-heart"></i></span>';
+  else { const im = document.createElement("img"); im.alt = ""; im.src = e.cover || PL_EMPTY_COVER; b.appendChild(im); }
+  const tt = document.createElement("span"); tt.className = "rt"; tt.textContent = e.title || ""; b.appendChild(tt);
+  b.onclick = () => {
+    if (e.kind === "liked") setView("liked");
+    else if (e.kind === "artist") openArtist(e.id, true, { cover: e.cover, title: e.title });
+    else if (e.kind === "song") playFromList([{ id: e.id, title: e.title, artist: e.artist, cover: e.cover, artists: e.artists }], 0);
+    else openCollection(e.id, true, { title: e.title, cover: e.cover, kind: e.kind === "album" ? "albums" : "playlists" });
+  };
+  return b;
+}
+// al volver a Inicio: solo la cuadricula de Recientes se pone al dia (el resto de Inicio no se re-descarga)
+function refreshRecentGrid() {
+  if (!matchMedia("(max-width: 820px)").matches) return;
+  const g = document.querySelector("#homeView .rgrid"), tiles = recentTiles();
+  if (!tiles.length) return;
+  // primera reproduccion (no existia la seccion) o Inicio se pinto sin semilla ("Reproduce tu primera
+  // cancion..."): ahora hay con que recomendar -> Inicio completo
+  if (!g || document.querySelector("#homeView > .lempty")) { renderHome(true); return; }
+  g.innerHTML = ""; tiles.forEach(e => g.appendChild(recentTile(e)));
+}
 function renderHome(force) {
   const hv = $("homeView");
   if (!force && hv.children.length) return;   // solo pinta al entrar a la app o refresco manual (Inicio x2)
@@ -2181,7 +2239,13 @@ function renderHome(force) {
   _homeSeedId = seedId;
   hv.innerHTML = "";
   const recents = getRecents();
-  if (recents.length) {
+  const tiles = matchMedia("(max-width: 820px)").matches ? recentTiles() : null;
+  if (tiles && tiles.length) {
+    const sec = document.createElement("section"); sec.className = "home-sec";
+    const g = document.createElement("div"); g.className = "rgrid";
+    tiles.forEach(e => g.appendChild(recentTile(e)));
+    sec.appendChild(g); hv.appendChild(sec);
+  } else if (!tiles && recents.length) {
     const r = homeSec(hv, "Recientes");
     fillCards(r.sec, r.row, recents.slice(0, 12).map(s => ({ id: s.id, title: s.title, subtitle: s.artist, cover: s.cover })), false, true);
   }
@@ -2426,7 +2490,7 @@ async function toggleGoogleSession() {
   $("gmodal").hidden = false;
 }
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
-const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents"];
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx"];
 async function signOutClean() {
   try { await jget("/auth/logout"); } catch (e) {}
   // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"
@@ -3102,7 +3166,24 @@ function skeletons(n) {
 
 /* ---------- reproduccion + cola ---------- */
 let playToken = 0;
+// "Recientes" estilo Spotify: lo que se reprodujo recientemente como CONTEXTO (playlist, album, Me gusta,
+// artista) o como sencillo si se toco una cancion suelta. Solo cuenta lo que inicia el usuario
+// (playFromList); el avance automatico dentro del mismo contexto no lo mueve
+var _ctxMeta = { col: null, art: null };   // var: renderCollection/renderArtist lo rellenan
+const getRecentCtx = () => store("lightning.recentCtx", "[]");
+function recordCtx(song) {
+  let e;
+  if (view === "collection" && _ctxMeta.col && _ctxMeta.col.id === _colId) e = _ctxMeta.col;
+  else if (view === "liked") e = { kind: "liked", id: "liked", title: t("Me gusta") };
+  else if (view === "artist" && _ctxMeta.art && _ctxMeta.art.id === _artistId) e = _ctxMeta.art;
+  else if (song && song.id) e = { kind: "song", id: song.id, title: song.title, artist: song.artist, cover: song.cover, artists: song.artists };
+  if (!e) return;
+  const l = getRecentCtx().filter(x => !(x.kind === e.kind && x.id === e.id));
+  l.unshift(Object.assign({}, e, { ts: Date.now() }));
+  try { localStorage.setItem("lightning.recentCtx", JSON.stringify(l.slice(0, 16))); } catch (err) {}
+}
 function playFromList(list, i) {
+  recordCtx(list[i]);
   queue = list.slice(); qIndex = i;
   if (current && current.id === list[i].id) { togglePlay(); return; }
   playSong(list[i], true);

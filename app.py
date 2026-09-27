@@ -1278,19 +1278,23 @@ def _audio_evict():
 def _mp4_ok(path):
     # un mp4 reproducible tiene datos (mdat/moof) ademas de la cabecera (moov): los "stubs" no
     try:
+        size = os.path.getsize(path)
         with open(path, "rb") as f:
             if f.read(8)[4:] != b"ftyp":
                 return True   # no es mp4 (webm...): no se juzga
             f.seek(0)
             while True:
+                pos = f.tell()
                 h = f.read(8)
                 if len(h) < 8:
                     return False
                 n, t = struct.unpack(">I4s", h)
                 if n == 1:
                     n = struct.unpack(">Q", f.read(8))[0] - 8
-                if t == b"moof" or (t == b"mdat" and (n == 0 or n > 4096)):   # el stub trae un mdat VACIO (8 bytes)
+                if t == b"moof":
                     return True
+                if t == b"mdat":   # el stub declara un mdat de MB pero el archivo acaba en su cabecera
+                    return size - pos > 4096 and (n == 0 or size - pos >= n)
                 if n < 8:
                     return False
                 f.seek(n - 8, 1)

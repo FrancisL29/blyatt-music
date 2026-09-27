@@ -1317,21 +1317,35 @@ async function _acGet(id) {
     return await hit.arrayBuffer();
   } catch (e) { return null; }
 }
-function _acPut(id, ab) {   // copia: decodeAudioData "detacha" el ArrayBuffer original
+function _acPut(id, copy) {
   if (!AUDIO_CACHE) return;
-  const copy = ab.slice(0);
   caches.open(AUDIO_CACHE).then(c => c.put("/stream?id=" + id, new Response(copy, { headers: { "Content-Type": "audio/mp4" } })))
     .then(() => _acTouch(id)).catch(() => {});
 }
+// decodifica y SOLO entonces guarda en el dispositivo: un archivo roto no se queda cacheado para siempre.
+// Si la copia local no decodifica se borra y se pide de nuevo al server (que ya valida lo que sirve)
+async function loadAudio(id) {
+  for (let i = 0; ; i++) {
+    const cached = i ? null : await _acGet(id);
+    const ab = cached || await fetchStream(id);
+    const copy = AUDIO_CACHE && !cached ? ab.slice(0) : null;   // decodeAudioData "detacha" el original
+    try {
+      const buf = await AC.decodeAudioData(ab);
+      if (copy) _acPut(id, copy);
+      return buf;
+    } catch (e) {
+      if (!cached) throw e;
+      caches.open(AUDIO_CACHE).then(c => c.delete("/stream?id=" + id)).catch(() => {});
+    }
+  }
+}
 // reintenta cortes de red transitorios (movil con pantalla apagada, cambio wifi/datos) antes de rendirse
 async function fetchStream(id) {
-  const cached = await _acGet(id);
-  if (cached) return cached;
   let err;
   for (let i = 0; i < 4; i++) {
     try {
       const r = await fetch("/stream?id=" + id);
-      if (r.ok) { const ab = await r.arrayBuffer(); _acPut(id, ab); return ab; }
+      if (r.ok) return await r.arrayBuffer();
       err = new Error("stream");
     } catch (e) { err = e; }
     await new Promise(res => setTimeout(res, 1500 * (i + 1)));
@@ -1348,7 +1362,7 @@ function prewarm(songs) {
 }
 function getBuffer(id) {
   if (bufCache.has(id)) return bufCache.get(id);
-  const p = fetchStream(id).then(ab => AC.decodeAudioData(ab)).then(analyzeSilence);
+  const p = loadAudio(id).then(analyzeSilence);
   bufCache.set(id, p); bufOrder.push(id);
   while (bufOrder.length > 3) { const old = bufOrder.shift(); if (old !== id) bufCache.delete(old); }   // PCM decodificado pesa: cache pequena
   p.catch(() => bufCache.delete(id));

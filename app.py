@@ -11,6 +11,7 @@ import os
 import re
 import socket
 import struct
+import subprocess
 import threading
 import time
 import urllib.error
@@ -1274,6 +1275,74 @@ def _audio_evict():
         pass
 
 
+def _mp4_ok(path):
+    # un mp4 reproducible tiene datos (mdat/moof) ademas de la cabecera (moov): los "stubs" no
+    try:
+        with open(path, "rb") as f:
+            if f.read(8)[4:] != b"ftyp":
+                return True   # no es mp4 (webm...): no se juzga
+            f.seek(0)
+            while True:
+                h = f.read(8)
+                if len(h) < 8:
+                    return False
+                n, t = struct.unpack(">I4s", h)
+                if t in (b"mdat", b"moof"):
+                    return True
+                if n == 1:
+                    n = struct.unpack(">Q", f.read(8))[0] - 8
+                if n < 8:
+                    return False
+                f.seek(n - 8, 1)
+    except Exception:
+        return False
+
+
+def _is_stub(u):
+    # sep-2026: en algunos temas YouTube sirve el itag 18 SOLO con la cabecera (~130KB para 4 min,
+    # sin audio: ese audio ya solo va por SABR) -> "Unable to decode audio data" en el cliente.
+    # El link trae clen (bytes) y dur (s): un mp4 real ronda 16KB/s
+    try:
+        q = parse_qs(urlparse(u).query)
+        clen, dur = int(q["clen"][0]), float(q["dur"][0])
+        return dur > 0 and clen / dur < 4000
+    except Exception:
+        return False
+
+
+def _hls_audio(video_id, dst):
+    """Tema con itag 18 roto: el HLS de web_safari (video+audio AAC 128k, necesita sesion y runtime
+    JS) y ffmpeg se queda solo con el audio (-c:a copy, ~3s). Medido en el Tecno: ~15s en total."""
+    for cf in _session_cookiefiles()[:2]:
+        try:
+            opts = dict(_YDL_OPTS)
+            opts.update(format="93/94/92/91/95/96", cookiefile=cf, js_runtimes={"deno": {}, "node": {}},
+                        extractor_args={"youtube": {"player_client": ["web_safari"]}})
+            with YoutubeDL(opts) as y:
+                m3u8 = y.extract_info("https://music.youtube.com/watch?v=" + video_id, download=False)["url"]
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", m3u8, "-vn", "-c:a", "copy",
+                                "-movflags", "+faststart", "-f", "mp4", dst], capture_output=True, timeout=240)
+            if r.returncode == 0 and _mp4_ok(dst):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _stub_fallback(vid, part):
+    """Devuelve un link alternativo, o None si ya dejo el audio en `part` (via HLS)."""
+    if _hls_audio(vid, part):
+        return None
+    for a in _alt_ids(vid)[:4]:   # sin sesion/ffmpeg: otra subida del mismo tema
+        try:
+            u = _extract_with(a)
+            if not _is_stub(u):
+                return u
+        except Exception:
+            continue
+    raise IOError("audio no disponible")
+
+
 def audio_fetch(vid, on_start=None, on_chunk=None):
     """Baja el audio a la cache de disco reenviando cada trozo a on_chunk (streaming al cliente).
     on_start(ctype, length) se llama antes del primer trozo. Si el link guardado da 403/410 se
@@ -1283,6 +1352,18 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
     part = fp + ".%d.part" % threading.get_ident()
     for attempt in range(2):
         src = audio_url(vid, fresh=attempt > 0)
+        if _is_stub(src):
+            src = _stub_fallback(vid, part)
+            if src is None:   # HLS ya en disco: se sirve desde ahi
+                os.replace(part, fp)
+                _audio_evict()
+                if on_start:
+                    on_start("audio/mp4", os.path.getsize(fp))
+                if on_chunk:
+                    with open(fp, "rb") as f:
+                        for chunk in iter(lambda: f.read(262144), b""):
+                            on_chunk(chunk)
+                return fp
         try:
             up = urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"}), timeout=30)
             break
@@ -1315,6 +1396,8 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
                             client_ok = False
             if clen and got != int(clen):
                 raise IOError("descarga incompleta")
+            if not _mp4_ok(part):   # cabecera sin audio: no se cachea (el cliente no la puede decodificar)
+                raise IOError("audio sin datos")
         except Exception:
             try:
                 os.remove(part)   # incompleta: no se cachea
@@ -2828,6 +2911,8 @@ class H(BaseHTTPRequestHandler):
                 sent[0] = True
             try:
                 with _id_lock("dl", vid):   # si la precarga ya la esta bajando, espera y sale de disco
+                    if os.path.isfile(fp) and not _mp4_ok(fp):   # stub cacheado antes del fix: se re-baja
+                        os.remove(fp)
                     if os.path.isfile(fp):
                         os.utime(fp)   # LRU: usada ahora
                         start("audio/mp4", os.path.getsize(fp))

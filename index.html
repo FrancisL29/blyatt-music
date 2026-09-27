@@ -705,11 +705,15 @@
   /* fondo: la cover de BAJA calidad (ya en cache por el mini player -> instantanea), difuminada.
      Truco de rendimiento: la capa mide ~1/4 de pantalla y se escala x4; el blur se calcula sobre la
      capa pequena (barato en GPU movil) y el escalado bilineal suaviza el resto. Dos capas = crossfade */
-  .np-bg { position: absolute; inset: 0; z-index: -1; background: #0b0b0f; overflow: hidden; }
+  .np-bg { position: absolute; inset: 0; z-index: -1; background: #0b0b0f; overflow: hidden; will-change: opacity; }
   .np-bgimg { position: absolute; left: -6%; top: -6%; width: 28%; height: 28%; transform-origin: 0 0; transform: scale(4);
               background-size: cover; background-position: center; filter: blur(7px) saturate(1.35) brightness(.7);
-              opacity: 0; transition: opacity .5s ease; }
+              opacity: 0; transition: opacity .5s ease; will-change: opacity, transform; backface-visibility: hidden; }
   .np-bgimg.on { opacity: 1; }
+  /* capas de GPU PERMANENTES en lo que se anima: al acabar una animacion el navegador quitaba la capa y
+     re-rasterizaba (el blur del fondo es caro) -> un frame vacio = parpadeo al abrir y al cambiar de pista */
+  #npv { will-change: clip-path, transform; }
+  #npCover, #npPeek, .np-meta, #npPeekMeta, #npTitle, #npArtist, #npv .np-fade { will-change: transform; backface-visibility: hidden; }
   .np-bg::after { content: ""; position: absolute; inset: 0;
                   background: linear-gradient(180deg, rgb(11 11 15 / .1) 0%, rgb(11 11 15 / .45) 50%, #0b0b0f 92%); }
   .np-top { display: flex; align-items: center; justify-content: space-between; height: 52px; flex: none; }
@@ -749,14 +753,15 @@
 
   /* hoja inferior (temporizador): sube desde abajo; se cierra tocando fuera, deslizando o con Esc */
   .bsheet { position: fixed; inset: 0; z-index: 35; display: flex; align-items: flex-end; justify-content: center;
-            background: rgb(0 0 0 / 0); transition: background .3s; }
+            background: rgb(0 0 0 / 0); transition: background .3s; will-change: background-color; }
   .bsheet[hidden] { display: none; }
   .bsheet.open { background: rgb(0 0 0 / .55); }
   .bs-panel { position: relative; width: 100%; max-width: 460px; box-sizing: border-box; max-height: 88vh; overflow-y: auto;
               padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0;
               background: #16161c; border: 1px solid rgb(255 255 255 / .08); border-bottom: none;
               box-shadow: 0 -18px 50px rgb(0 0 0 / .5);
-              transform: translateY(100%); transition: transform .34s cubic-bezier(.16,1,.3,1); }
+              transform: translateY(100%); transition: transform .34s cubic-bezier(.16,1,.3,1);
+              will-change: transform; backface-visibility: hidden; }
   .bsheet.open .bs-panel { transform: none; }
   .bs-grab { width: 40px; height: 4px; border-radius: 99px; background: rgb(255 255 255 / .22); margin: 0 auto 14px; }
   .bs-head { display: flex; align-items: center; gap: 14px; padding: 2px 4px 14px; }
@@ -1224,7 +1229,7 @@
     <div class="np-src" data-i18n>Reproduciendo</div>
     <button id="npMore" class="iconbtn" aria-label="Opciones"><i class="ph ph-dots-three-vertical"></i></button>
   </div>
-  <div class="np-art"><img id="npCover" alt=""><img id="npPeek" alt="" hidden></div>
+  <div class="np-art"><img id="npCover" decoding="sync" alt=""><img id="npPeek" alt="" hidden></div>
   <div class="np-info">
     <div class="np-meta"><div id="npTitle"></div><div id="npArtist"></div></div>
     <div id="npPeekMeta" hidden><div class="pt"></div><div class="pa"></div></div>
@@ -3837,7 +3842,17 @@ async function scheduleGaplessNext() {       // programa la siguiente pista samp
 }
 // avance automatico sin huecos: la siguiente ya viene sonando, solo actualizamos UI/cola
 eng.onAdvance = (song) => { qIndex = (song._idx != null) ? song._idx : plannedNextIndex(); onPlaybackStarted(song); };
-eng.onEnded = () => { if (sleepEOT) { sleepStop(true); return; } playNext(true); };
+// fin sin siguiente (temporizador "final de la cancion" o fin de la cola): el motor ya se paro solo, pero sin
+// avisar a la UI (iconos, barra, notificacion seguian en "reproduciendo" y el tiempo volvia a un offset viejo).
+// Se deja la pista en pausa y al PRINCIPIO, y se repinta todo.
+function _endAtStart() {
+  audio.pause(); eng.playing = false; audio.currentTime = 0;
+  if (eng.onState) eng.onState();
+}
+eng.onEnded = () => {
+  if (sleepEOT) { _endAtStart(); sleepStop(false); toast(t("Temporizador: música en pausa")); return; }
+  playNext(true);
+};
 eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; syncPlayIcons(); if (npOpen) syncNp(); };
 function syncPlayIcons() {
   const cp = document.querySelector(".covplay"); if (cp && cp._sync) cp._sync();
@@ -3864,7 +3879,7 @@ function nextIndex() {
 function playNext(auto) {
   if (repeat === "one" && auto) { audio.currentTime = 0; audio.play(); return; }
   const n = nextIndex();
-  if (n === -1) { if (auto) { audio.pause(); } return; }
+  if (n === -1) { if (auto) _endAtStart(); return; }
   qIndex = n; playSong(queue[qIndex], auto);   // auto (fin natural)=inmediato; click de usuario=debounce
 }
 function playPrev() {
@@ -4251,19 +4266,32 @@ const hiCover = u => String(u || "").replace(/=w\d+-h\d+/, `=w${NP_PX}-h${NP_PX}
 const _npPre = new Map();
 function npPreload(u) {
   if (!u || _npPre.has(u)) return _npPre.get(u);
-  const im = new Image(); im.decoding = "async"; im.fetchPriority = "high"; im.src = u;
-  const p = im.decode().then(() => im).catch(() => null);
+  // directo y, si falla (googleusercontent a veces rechaza las de alta), via proxy /img como el resto de caratulas.
+  // p._url = la URL que SI cargo (los consumidores usan esa: nunca un intento fallido visible)
+  const load = (src) => { const im = new Image(); im.decoding = "async"; im.fetchPriority = "high"; im.src = src; return im.decode().then(() => im); };
+  const p = load(u).catch(() => u.indexOf("/img?u=") === -1 ? load("/img?u=" + encodeURIComponent(u)) : null)
+    .then(im => { if (im) { p._ok = true; p._url = im.src; } return im; }).catch(() => null);
   _npPre.set(u, p);
-  if (_npPre.size > 8) _npPre.delete(_npPre.keys().next().value);
+  if (_npPre.size > 24) _npPre.delete(_npPre.keys().next().value);   // actual + vecinas (alta y baja) + fondo
   return p;
 }
-function npPrefetchNeighbors() {
-  [qIndex + 1, qIndex - 1].forEach(i => { const q = queue[i]; if (q && q.cover) npPreload(hiCover(q.cover)); });
+function npPrefetchNeighbors() {   // cover en alta (centro/peek) + la de baja (fondo difuminado) de las vecinas
+  [qIndex + 1, qIndex - 1].forEach(i => { const q = queue[i]; if (q && q.cover) { npPreload(hiCover(q.cover)); npPreload(q.cover); } });
 }
 function npPaintBg(url) {   // crossfade entre las dos capas del fondo
   const npb = npv.querySelector(".np-bg");
   if (!url || npb._url === url) return;
   npb._url = url;
+  const pre = npPreload(url);
+  // imagen aun no lista: se espera (max ~1.2s) y se cruza cuando esta decodificada; el fondo actual se mantiene
+  if (pre && !pre._ok) {
+    Promise.race([pre, new Promise(r => setTimeout(r, 1200))]).then(() => { if (npb._url === url) _npSwapBg(npb, url); });
+    return;
+  }
+  _npSwapBg(npb, url);
+}
+function _npSwapBg(npb, url) {
+  const pre = _npPre.get(url); if (pre && pre._url) url = pre._url;
   const layers = npb.querySelectorAll(".np-bgimg");
   npb._i = npb._i ? 0 : 1;
   layers[npb._i].style.backgroundImage = `url("${String(url).replace(/"/g, "%22")}")`;
@@ -4276,9 +4304,12 @@ function paintNp(s) {
   npPaintBg(s.cover);
   if (img.dataset.src !== hi) {
     img.dataset.src = hi;
-    img.src = s.cover || "";   // la del mini player ya esta en cache: aparece al instante (nunca la anterior)
+    // alta ya decodificada (vecina precargada): directa, sin pasar por la de baja; si no, la del mini player
+    // (en cache: aparece al instante, nunca la anterior) y la de alta entra cuando este lista
+    const pre = hi && _npPre.get(hi);
+    img.src = (pre && pre._ok ? pre._url : s.cover) || "";
     if (hi && hi !== s.cover) {   // la de alta entra ya decodificada (sin parpadeo) si sigue siendo esta cancion
-      npPreload(hi).then(im => { if (im && img.dataset.src === hi) img.src = hi; });
+      npPreload(hi).then(im => { if (im && img.dataset.src === hi) img.src = im.src; });
     }
   }
   setTimeout(npPrefetchNeighbors, 400);   // qIndex se actualiza tras pintar
@@ -4340,7 +4371,10 @@ function openNp() {
   _npRun(false).then(() => {
     if (!npOpen) return;
     [$("pcover"), $("ptitle"), $("partist")].forEach(m => m.style.visibility = "");
-    _npAnims.forEach(a => a.cancel()); _npAnims = [];   // estado final = estilos base; libera transform para el swipe
+    // la hoja (clip-path) y el fondo difuminado (opacity) quedan en su estado final (identico al base): cancelarlas
+    // obligaba a re-rasterizar el blur = parpadeo. El resto (cover/textos: el swipe los mueve) se suelta
+    const keep = new Set([npv, npv.querySelector(".np-bg")]);
+    _npAnims = _npAnims.filter(a => { const el = a.effect && a.effect.target; if (keep.has(el)) return true; a.cancel(); return false; });
   });
 }
 function closeNp(kind) {
@@ -4435,7 +4469,10 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
     if (shownFor === n) return;
     shownFor = n;
     const s = queue[n];
-    peek.src = hiCover(s.cover) || s.cover || "";
+    const hi = hiCover(s.cover);
+    // la de alta solo si ya esta decodificada; si no, la del feed (en cache por las listas) -> nunca un hueco
+    const pre = hi && _npPre.get(hi);
+    peek.src = (pre && pre._ok ? pre._url : s.cover) || hi || "";
     pmeta.querySelector(".pt").textContent = s.title || "";
     pmeta.querySelector(".pa").textContent = s.artist || (s.artists || []).map(a => a.name).join(", ");
     peek.hidden = pmeta.hidden = false;
@@ -4497,9 +4534,10 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
     setTimeout(() => anims.forEach(a => { try { if (a.playState === "running") a.finish(); } catch (e) {} }), 500);   // webview sin frames
     anims[0].finished.catch(() => {}).then(() => {
       if (go) {
-        const shown = peek.src;
-        qIndex = n; playSong(queue[n], false);   // paintNp pone la cover nueva...
-        if (peek.complete && peek.naturalWidth) cover.src = shown;   // ...y si la del peek ya estaba lista se usa esa: el centro no cambia de imagen
+        const shown = peek.src, ready = peek.complete && peek.naturalWidth;
+        // la del peek (ya decodificada) pasa al centro ANTES de repintar: paintNp ve la misma URL y no toca la imagen
+        if (ready) cover.src = shown;   // paintNp elige esa misma URL (alta precargada o la del feed): sin cambio visible
+        qIndex = n; playSong(queue[n], false);
       }
       reset();   // en el mismo frame: la actual vuelve al centro ya con la pista nueva, el peek se oculta
     });

@@ -667,14 +667,64 @@ def _int_or_none(v):   # 116 / "116" / "1.234" / match de regex -> int
         return None
 
 
+def _raw_list_ids(y, browse_id, max_pages=40):
+    """shape innertube 2025: videoId ya no viene en playlistItemData (ytmusicapi 1.12 lo parsea None
+    en TODAS las pistas) sino en el watchEndpoint de cada fila. Se pagina la lista a mano y se devuelven
+    los ids EN ORDEN (None si la fila no es reproducible) para alinear por indice con ytmusicapi."""
+    def scan(o, ids, tok):
+        if isinstance(o, dict):
+            if "musicResponsiveListItemRenderer" in o:
+                m, vid = o["musicResponsiveListItemRenderer"], [None]
+
+                def fw(x):
+                    if isinstance(x, dict):
+                        if "watchEndpoint" in x and x["watchEndpoint"].get("videoId"):
+                            vid[0] = vid[0] or x["watchEndpoint"]["videoId"]
+                        for v in x.values():
+                            fw(v)
+                    elif isinstance(x, list):
+                        for v in x:
+                            fw(v)
+                fw(m)
+                ids.append(vid[0])
+                return
+            if "continuationCommand" in o:
+                tok[0] = o["continuationCommand"].get("token") or tok[0]
+            for v in o.values():
+                scan(v, ids, tok)
+        elif isinstance(o, list):
+            for v in o:
+                scan(v, ids, tok)
+    ids, pages = [], 0
+    r = y._send_request("browse", {"browseId": browse_id})
+    while True:
+        tok = [None]
+        scan(r, ids, tok)
+        pages += 1
+        if not tok[0] or pages >= max_pages:
+            break
+        r = y._send_request("browse", {"continuation": tok[0]})
+    return ids
+
+
 def _collection_auth(pid):
     # playlists con sesion: get_playlist autenticado (las PRIVADAS son invisibles al browse anonimo)
     y = ytm()
     if not y:
         return None
     d = y.get_playlist(pid, limit=5000)   # tope de YouTube: 5000 (antes 500 cortaba las grandes)
+    raw = d.get("tracks") or []
+    if raw and sum(1 for t in raw if t.get("videoId")) < len(raw) / 2:
+        # shape nuevo (p.ej. playlists oficiales RDCLAK...): ytmusicapi las da SIN videoId -> 0 canciones
+        try:
+            ids = _raw_list_ids(y, "VL" + pid, 60)
+            if len(ids) >= len(raw):
+                for t, vid in zip(raw, ids):
+                    t["videoId"] = t.get("videoId") or vid
+        except Exception:
+            pass
     tracks = []
-    for t in d.get("tracks") or []:
+    for t in raw:
         if not t.get("videoId"):
             continue
         tr = {"index": "", "title": t.get("title", ""), "artist": _yt_artists(t),
@@ -2760,51 +2810,12 @@ def yt_library(parts=None):
 
     truncated = []
 
-    def _liked_ids_raw(max_pages=40):
-        # shape innertube 2025: videoId ya no viene en playlistItemData (ytmusicapi 1.12 lo parsea
-        # None en TODAS las pistas) sino en el watchEndpoint de cada fila. Se pagina VLLM a mano y
-        # se devuelven los ids EN ORDEN (None si la fila no es reproducible) para alinear por indice.
-        def scan(o, ids, tok):
-            if isinstance(o, dict):
-                if "musicResponsiveListItemRenderer" in o:
-                    m, vid = o["musicResponsiveListItemRenderer"], [None]
-
-                    def fw(x):
-                        if isinstance(x, dict):
-                            if "watchEndpoint" in x and x["watchEndpoint"].get("videoId"):
-                                vid[0] = vid[0] or x["watchEndpoint"]["videoId"]
-                            for v in x.values():
-                                fw(v)
-                        elif isinstance(x, list):
-                            for v in x:
-                                fw(v)
-                    fw(m)
-                    ids.append(vid[0])
-                    return
-                if "continuationCommand" in o:
-                    tok[0] = o["continuationCommand"].get("token") or tok[0]
-                for v in o.values():
-                    scan(v, ids, tok)
-            elif isinstance(o, list):
-                for v in o:
-                    scan(v, ids, tok)
-        ids, pages = [], 0
-        r = y._send_request("browse", {"browseId": "VLLM"})
-        while True:
-            tok = [None]
-            scan(r, ids, tok)
-            pages += 1
-            if not tok[0] or pages >= max_pages:
-                break
-            r = y._send_request("browse", {"continuation": tok[0]})
-        return ids
-
     def liked(head=False):
         # En el server la sesion suele recibir el shape nuevo (videoId en null): el paginado crudo del
         # rescate corre EN PARALELO con ytmusicapi en vez de despues (Tecno: ~20s -> ~10s)
         rescue = None
         if SERVER_MODE:
-            rescue = concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(_liked_ids_raw, 1 if head else 40)
+            rescue = concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(_raw_list_ids, y, "VLLM", 1 if head else 40)
         d = None
         if head:
             d = y.get_liked_songs(limit=100)
@@ -2822,7 +2833,7 @@ def yt_library(parts=None):
         tracks = d.get("tracks") or []
         if tracks and sum(1 for t in tracks if t.get("videoId")) < len(tracks) / 2:
             try:
-                ids = rescue.result() if rescue else _liked_ids_raw(1 if head else 40)
+                ids = rescue.result() if rescue else _raw_list_ids(y, "VLLM", 1 if head else 40)
                 if head:
                     tracks = tracks[:len(ids)]   # la 1a pagina cruda trae ~100: se alinea el prefijo
                 if len(ids) == len(tracks):

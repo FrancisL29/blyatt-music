@@ -302,7 +302,7 @@
   @media (max-width: 820px) {
     #impmodal { align-items: flex-end; }
     #impmodal .gbox { width: 100%; max-width: none; max-height: 92vh; box-sizing: border-box; border-radius: 24px 24px 0 0;
-                      padding: 26px 18px calc(18px + env(safe-area-inset-bottom)); animation: impSheet .34s cubic-bezier(.16,1,.3,1); }
+                      padding: 26px 18px calc(18px + var(--sab)); animation: impSheet .34s cubic-bezier(.16,1,.3,1); }
     #impmodal .gbox::before { content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
                               width: 40px; height: 4px; border-radius: 99px; background: rgb(255 255 255 / .22); }
     .impgrid { grid-template-columns: repeat(2, 1fr); }
@@ -699,9 +699,15 @@
 
   /* ---------- vista "Reproduciendo" a pantalla completa (solo movil; se abre desde el mini player) ---------- */
   #npv { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; isolation: isolate;
-         padding: calc(8px + env(safe-area-inset-top)) 22px calc(26px + env(safe-area-inset-bottom));
+         padding: calc(8px + var(--sat)) 22px calc(26px + var(--sab));
          background: transparent; color: var(--text); overflow: hidden; }
   #npv[hidden] { display: none; }
+  /* barras del sistema: en iPhone/navegador salen de env(); la app Android (pantalla completa, barra de estado
+     transparente) inyecta --sat/--sab con la altura real de sus barras (MainActivity) */
+  :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+  /* velo bajo la barra de estado: la hora e iconos siguen legibles sobre portadas claras al hacer scroll */
+  body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: calc(var(--sat) * 1.5); z-index: 12;   /* 0 en escritorio */
+                 pointer-events: none; background: linear-gradient(180deg, rgb(0 0 0 / .42), rgb(0 0 0 / 0)); }
   /* fondo: la cover de BAJA calidad (ya en cache por el mini player -> instantanea), difuminada.
      Truco de rendimiento: la capa mide ~1/4 de pantalla y se escala x4; el blur se calcula sobre la
      capa pequena (barato en GPU movil) y el escalado bilineal suaviza el resto. Dos capas = crossfade */
@@ -757,7 +763,7 @@
   .bsheet[hidden] { display: none; }
   .bsheet.open { background: rgb(0 0 0 / .55); }
   .bs-panel { position: relative; width: 100%; max-width: 460px; box-sizing: border-box; max-height: 88vh; overflow-y: auto;
-              padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0;
+              padding: 12px 16px calc(16px + var(--sab)); border-radius: 24px 24px 0 0;
               background: #16161c; border: 1px solid rgb(255 255 255 / .08); border-bottom: none;
               box-shadow: 0 -18px 50px rgb(0 0 0 / .5);
               transform: translateY(100%); transition: transform .34s cubic-bezier(.16,1,.3,1);
@@ -785,7 +791,7 @@
   .bs-off[hidden] { display: none; }
   /* pantalla de inicio de sesion obligatoria (app movil sin cuenta): encima de todo salvo los avisos */
   #gate { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
-          padding: calc(24px + env(safe-area-inset-top)) 28px calc(24px + env(safe-area-inset-bottom));
+          padding: calc(24px + var(--sat)) 28px calc(24px + var(--sab));
           background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent, #7c5cff) 35%, #0b0b0f) 0%, #0b0b0f 70%); }
   #gate[hidden] { display: none; }
   .gate-box { width: 100%; max-width: 360px; text-align: center; display: flex; flex-direction: column; align-items: center; }
@@ -809,12 +815,12 @@
     #backBtn { display: none !important; }   /* en movil navega el boton fisico/gesto de Android */
     /* iPhone (app de inicio, barra de estado translucida): nada fijo arriba debe quedar bajo el notch.
        env() vale 0 en Android y en navegadores sin notch */
-    .topbar { padding-top: calc(20px + env(safe-area-inset-top)); }
-    #mUser, body[data-mv="lib"] #mAdd { top: calc(22px + env(safe-area-inset-top)) !important; }
-    body[data-mv="collection"] main, body[data-mv="liked"] main { padding-top: env(safe-area-inset-top); }
+    .topbar { padding-top: calc(20px + var(--sat)); }
+    #mUser, body[data-mv="lib"] #mAdd { top: calc(22px + var(--sat)) !important; }
+    body[data-mv="collection"] main, body[data-mv="liked"] main { padding-top: var(--sat); }
     /* iPhone instalado: sin boton ni gesto de "atras" del sistema -> boton flotante propio */
     #iosBack.on { display: flex; align-items: center; justify-content: center; position: fixed;
-                  top: calc(22px + env(safe-area-inset-top)); left: 14px; z-index: 6; width: 38px; height: 38px; padding: 0;
+                  top: calc(22px + var(--sat)); left: 14px; z-index: 6; width: 38px; height: 38px; padding: 0;
                   border-radius: 50%; border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--text);
                   font-size: 1.2rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     #mUser { display: flex; align-items: center; justify-content: center; position: fixed;
@@ -840,14 +846,14 @@
     /* fade negro estilo Spotify: lo que pasa por debajo se aprecia a traves del degradado */
     #mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; flex-direction: row;
             justify-content: space-around; align-items: flex-end;
-            padding: 34px 0 calc(6px + env(safe-area-inset-bottom));
+            padding: 34px 0 calc(6px + var(--sab));
             background: linear-gradient(to top, rgb(0 0 0 / .96) 0%, rgb(0 0 0 / .88) 45%, rgb(0 0 0 / 0) 100%);
             border-top: none; pointer-events: none; }
     #mnav button { border: none; background: none; color: var(--muted); font-size: 1.45rem;
                    padding: 8px 18px; border-radius: 12px; cursor: pointer; line-height: 1; pointer-events: auto; }
     #mnav button.active { color: var(--accent, #fff); }
     #mnav #muimg { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; }
-    #player { left: 8px; right: 8px; bottom: calc(58px + env(safe-area-inset-bottom));
+    #player { left: 8px; right: 8px; bottom: calc(58px + var(--sab));
               padding: 10px 14px 8px; border-radius: 14px; }
     main { padding: 0 16px 210px; }
     .artist-hero2 { margin: -76px -16px 16px; }

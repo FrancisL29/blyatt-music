@@ -13,5 +13,11 @@
   "android": {
     "overrideUserAgent": "Blyatt/1.0 (Android; Capacitor)",
     "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "disable",
+      "style": "DARK"
+    }
   }
 }

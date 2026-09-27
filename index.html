@@ -206,6 +206,13 @@
   .impgrid button:hover { background: rgb(255 255 255 / .09); border-color: rgb(255 255 255 / .22); }
   .impgrid button i { font-size: 1.7rem; }
   #impmodal .gbox { width: min(720px, 94vw); }
+  .spotguide ol { list-style: decimal; margin: 0 0 14px; padding-left: 20px; line-height: 1.55; color: rgb(255 255 255 / .85); font-size: .92rem; }
+  .spotguide li { display: list-item; margin-bottom: 6px; padding: 0; }
+  .spotguide .askrow { justify-content: flex-start; flex-wrap: wrap; }
+  .spotguide .gbtn i { vertical-align: -2px; margin-right: 4px; }
+  .spotguide .ghint { margin: 12px 0 0; }
+  .splink { margin-top: 14px; border: none; background: none; padding: 0; color: var(--muted); font-size: .8rem;
+            text-decoration: underline; cursor: pointer; text-align: left; }
   .implist { max-height: min(58vh, 560px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
              border: 1px solid var(--line); border-radius: 12px; padding: 6px; background: rgb(255 255 255 / .02); }
   .implist h4 { margin: 12px 8px 6px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em;
@@ -226,6 +233,7 @@
   .impall { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px 8px; border-radius: 9px;
             cursor: pointer; font-size: .84rem; font-weight: 600; border: 1px solid var(--line); background: rgb(255 255 255 / .04); }
   .impall:hover { background: rgb(255 255 255 / .07); }
+  .impall[hidden], #impgo[hidden] { display: none; }
   .impall input { accent-color: var(--accent); width: 15px; height: 15px; }
   .impall .cnt { margin-left: auto; font-weight: 400; font-size: .76rem; color: var(--muted); }
   #impbusy { padding: 26px 0 6px; }
@@ -1018,7 +1026,7 @@
         <button class="gbtn" id="fixdone" data-i18n>Listo</button>
       </div>
     </div>
-    <input type="file" id="impfile" accept=".csv" multiple hidden>
+    <input type="file" id="impfile" accept=".csv,.zip,text/csv,application/zip" multiple hidden>
   </div>
 </div>
 
@@ -1261,6 +1269,20 @@ const EN = {
   "Reproducidos recientemente": "Recently played",
   "Configuración: próximamente": "Settings: coming soon", "próximamente": "coming soon",
   "Historial": "History", "Cerrar": "Close", "Cola": "Queue",
+  "Abre Exportify e inicia sesión con tu cuenta de Spotify.": "Open Exportify and sign in with your Spotify account.",
+  "Pulsa «Export All» para bajar todo en un .zip (incluye «Liked Songs»), o exporta playlists sueltas.":
+    "Tap “Export All” to download everything as a .zip (includes “Liked Songs”), or export single playlists.",
+  "Vuelve aquí y elige el .zip o los .csv descargados.": "Come back here and choose the downloaded .zip or .csv files.",
+  "Abrir Exportify": "Open Exportify", "Elegir archivos": "Choose files",
+  "«Liked Songs» se importa como tus Me gusta; cada playlist se crea en tu cuenta de YouTube Music.":
+    "“Liked Songs” is imported as your likes; each playlist is created in your YouTube Music account.",
+  "Conectar directamente con la API de Spotify (requiere Premium en la cuenta dueña de la app)":
+    "Connect directly to the Spotify API (requires Premium on the app owner's account)",
+  "Spotify exige Premium en la cuenta dueña de la app de desarrollador para usar su API. Usa Exportify (atrás → Spotify).":
+    "Spotify requires Premium on the developer app owner's account to use its API. Use Exportify (back → Spotify).",
+  "Elige qué importar («Liked Songs» va a tus Me gusta; cada otro archivo será una playlist en tu cuenta):":
+    "Choose what to import (“Liked Songs” goes to your likes; every other file becomes a playlist in your account):",
+  "No se encontraron canciones en los archivos elegidos.": "No songs found in the chosen files.",
   "Continuar sin cuenta": "Continue without an account", "Vincular con un código": "Link with a code",
   "Vincular dispositivo": "Link a device", "Vincular": "Link", "Listo": "Done", "Código": "Code",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
@@ -2925,7 +2947,7 @@ document.querySelectorAll(".impgrid button").forEach(b => {
   b.onclick = () => importFrom(b.dataset.platform);
 });
 function importFrom(platform) {
-  if (platform === "spotify") { spotFlow(); return; }
+  if (platform === "spotify") { spotChooser(); return; }
   if (platform === "csv") { $("impfile").click(); return; }
   // TODO: resto de plataformas
   toast(t("Importar desde") + " " + (IMP_NAMES[platform] || platform) + ": " + t("próximamente"));
@@ -2966,19 +2988,58 @@ function csvTracks(rows) {
     .map(r => [(r[ti] || "").trim(), (r[ai] || "").trim()])
     .filter(t => t[0]);
 }
+// lector ZIP minimo (Exportify "Export All"): directorio central + DecompressionStream("deflate-raw")
+async function unzipCsvs(file) {
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("ZIP inválido");
+  const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const out = [], dec = new TextDecoder();
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const loc = dv.getUint32(p + 42, true), name = dec.decode(buf.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (!/\.csv$/i.test(name) || /(^|\/)(__MACOSX|\.)/.test(name)) continue;
+    const start = loc + 30 + dv.getUint16(loc + 26, true) + dv.getUint16(loc + 28, true);
+    const raw = buf.subarray(start, start + csize);
+    let text;
+    if (method === 0) text = dec.decode(raw);
+    else if (method === 8) text = await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+    else continue;
+    out.push({ name: name.split("/").pop(), text });
+  }
+  return out;
+}
+const _isLikedCsv = (name) => /^(liked[ _-]?songs|canciones[ _-]que[ _-]te[ _-]gustan|tus[ _-]me[ _-]gusta)(\.csv)?$/i.test(name.trim());
 $("impfile").onchange = async (e) => {
   const files = [...e.target.files]; e.target.value = "";
   if (!files.length) return;
   _csvData.clear();
-  $("imphint").textContent = t("Elige qué archivos importar (cada CSV será una playlist en tu cuenta):");
+  $("imphint").textContent = t("Elige qué importar («Liked Songs» va a tus Me gusta; cada otro archivo será una playlist en tu cuenta):");
+  $("impgo").hidden = false;
   const box = $("implist"); box.innerHTML = "";
+  const docs = [];
   for (const f of files) {
-    const tracks = csvTracks(parseCSV(await f.text()));
-    const id = "csv" + _csvData.size;
-    const title = f.name.replace(/\.csv$/i, "").replace(/_/g, " ");
-    _csvData.set(id, { title, tracks });
-    box.appendChild(_improw("csv", id, title, tracks.length + " canciones", "", true));
+    try {
+      if (/\.zip$/i.test(f.name) || f.type === "application/zip") docs.push(...await unzipCsvs(f));
+      else docs.push({ name: f.name, text: await f.text() });
+    } catch (err) { toast(f.name + ": " + (err.message || err)); }
   }
+  docs.sort((a, b) => _isLikedCsv(b.name.replace(/\.csv$/i, "")) - _isLikedCsv(a.name.replace(/\.csv$/i, "")));   // Me gusta primero
+  for (const f of docs) {
+    const tracks = csvTracks(parseCSV(f.text));
+    if (!tracks.length) continue;
+    const id = "csv" + _csvData.size;
+    const base = f.name.replace(/\.csv$/i, "");
+    const liked = _isLikedCsv(base);
+    const title = liked ? t("Me gusta") : base.replace(/_/g, " ");
+    _csvData.set(id, { title, tracks, liked });
+    box.appendChild(_improw("csv", id, title, tracks.length + " " + t("canciones"), "", true));
+  }
+  if (!_csvData.size) $("imphint").textContent = t("No se encontraron canciones en los archivos elegidos.");
   $("impprog").hidden = true; $("impgo").disabled = false;
   $("impallrow").hidden = !box.querySelector("input");
   _impSync();
@@ -2997,15 +3058,40 @@ function _impBusy(on) {
 }
 $("impcancel").onclick = () => {
   _impCancel = true;
-  jget("/spot/cancel").catch(() => {});
+  jget("/imp/cancel").catch(() => {});
   _impBusy(false);
   $("impmodal").hidden = true;
   toast(t("Importación cancelada"));
 };
 $("impback").onclick = () => _impStep(1);
+/* Spotify: su API ya solo responde a apps de desarrollador cuyo DUENO tiene Premium (403 "Active premium
+   subscription required for the owner of the app"). Via universal: Exportify (app aprobada por Spotify)
+   exporta playlists y "Liked Songs" a CSV/ZIP y aqui se importan. La conexion directa queda en escritorio. */
+const EXPORTIFY = "https://exportify.app/";
+function spotChooser() {
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  $("imphint").textContent = "";
+  $("impprog").hidden = true; $("impallrow").hidden = true; $("impgo").hidden = true;   // la guia no importa nada por si sola
+  const box = $("implist"); box.innerHTML = "";
+  const g = document.createElement("div"); g.className = "spotguide";
+  g.innerHTML = `<ol>
+      <li>${esc(t("Abre Exportify e inicia sesión con tu cuenta de Spotify."))}</li>
+      <li>${esc(t("Pulsa «Export All» para bajar todo en un .zip (incluye «Liked Songs»), o exporta playlists sueltas."))}</li>
+      <li>${esc(t("Vuelve aquí y elige el .zip o los .csv descargados."))}</li>
+    </ol>
+    <div class="askrow"><button class="gbtn ghost" id="spOpen"><i class="ph ph-arrow-square-out"></i> ${esc(t("Abrir Exportify"))}</button>
+    <button class="gbtn" id="spPick"><i class="ph ph-file-arrow-up"></i> ${esc(t("Elegir archivos"))}</button></div>
+    <p class="ghint">${esc(t("«Liked Songs» se importa como tus Me gusta; cada playlist se crea en tu cuenta de YouTube Music."))}</p>`
+    + (local ? `<button class="splink" id="spDirect">${esc(t("Conectar directamente con la API de Spotify (requiere Premium en la cuenta dueña de la app)"))}</button>` : "");
+  box.appendChild(g);
+  g.querySelector("#spOpen").onclick = () => window.open(EXPORTIFY, "_blank", "noopener");
+  g.querySelector("#spPick").onclick = () => $("impfile").click();
+  if (local) g.querySelector("#spDirect").onclick = () => spotFlow();
+  _impStep(2);
+}
 async function spotFlow() {
   $("imphint").textContent = t("Conectando con Spotify...");
-  $("implist").innerHTML = ""; $("impprog").hidden = true; $("impgo").disabled = false;
+  $("implist").innerHTML = ""; $("impprog").hidden = true; $("impgo").disabled = false; $("impgo").hidden = false;
   $("impallrow").hidden = true;
   _impStep(2);
   try {
@@ -3034,6 +3120,7 @@ async function spotFlow() {
     }
     $("imphint").textContent = t("Cargando biblioteca de Spotify...");
     const d = await jget("/spot/lib");
+    if (d.error === "premium") throw t("Spotify exige Premium en la cuenta dueña de la app de desarrollador para usar su API. Usa Exportify (atrás → Spotify).");
     if (d.error) throw d.error;
     renderSpotPicker(d);
   } catch (e) { $("imphint").textContent = "Error: " + e; }
@@ -3120,7 +3207,7 @@ $("impgo").onclick = async () => {
   const en = lang === "en";
   const pt = setInterval(async () => {
     try {
-      const p = await jget("/spot/progress");
+      const p = await jget("/imp/progress");
       if (p.active && p.total) {
         $("impblabel").textContent = en ? `Importing "${p.label}": ${p.done}/${p.total} songs...` : `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
         $("impbar").style.width = Math.round(p.done / p.total * 100) + "%";
@@ -3136,7 +3223,7 @@ $("impgo").onclick = async () => {
       let r;
       if (s.kind === "csv") {
         const d = _csvData.get(s.id);
-        r = await (await fetch("/impcsv", { method: "POST", body: JSON.stringify({ title: d.title, tracks: d.tracks }) })).json();
+        r = await (await fetch("/impcsv", { method: "POST", body: JSON.stringify({ title: d.title, tracks: d.tracks, liked: !!d.liked }) })).json();
       } else {
         r = await jget("/spot/import?kind=" + s.kind + "&id=" + encodeURIComponent(s.id) + "&title=" + encodeURIComponent(s.title)
           + (s.kind === "playlist" && s.cover ? "&cover=" + encodeURIComponent(s.cover) : ""));
@@ -3151,7 +3238,7 @@ $("impgo").onclick = async () => {
         const lib = getLibrary().filter(x => x.id !== entry.id); lib.unshift(entry);
         localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       }
-      if (s.kind === "liked") addLikedLocal((r.tracks || []).filter(x => x.match)
+      if (s.kind === "liked" || (s.kind === "csv" && (_csvData.get(s.id) || {}).liked)) addLikedLocal((r.tracks || []).filter(x => x.match)
         .map(x => ({ id: x.match.id, title: x.match.title, artist: x.match.artist, cover: x.match.cover, duration: x.match.duration })));
       if ((r.tracks || []).length) fixQueue.push({ pid: r.playlist_id || null, title: r.title || s.title, tracks: r.tracks, changed: false });
     } catch (e) { failN++; fails.push(`"${s.title}": ${e}`); }

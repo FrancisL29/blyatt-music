@@ -2411,7 +2411,11 @@ def _spot_req(path, tok=None):
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code != 429:
-                _spot_dbg("req %s HTTP %s: %s" % (path[:30], e.code, e.read().decode("utf-8", "replace")[:100]))
+                try:
+                    e.spot_body = e.read().decode("utf-8", "replace")[:300]   # spot_lib lo usa para explicar el error
+                except Exception:
+                    e.spot_body = ""
+                _spot_dbg("req %s HTTP %s: %s" % (path[:30], e.code, e.spot_body[:100]))
                 raise
             ra = int(e.headers.get("Retry-After") or 2)
             time.sleep(min(ra, 60) + 3)   # esperar el RA COMPLETO: insistir antes lo re-arma a 60s
@@ -2449,6 +2453,18 @@ def spot_lib():
         far = ex.submit(_spot_all, "me/following?type=artist&limit=50", "artists")
         fli = ex.submit(_spot_req, "me/tracks?limit=1")
     out = {"playlists": [], "albums": [], "artists": [], "liked": 0}
+    errs = []
+    for f in (fpl, fal, far, fli):
+        e = f.exception()
+        if e is not None:
+            errs.append(e)
+    if errs and len(errs) == 4:
+        body = ""
+        body = getattr(errs[0], "spot_body", "") or str(errs[0])
+        if "premium" in body.lower():
+            # 2026: Spotify exige Premium al DUENO de la app de desarrollador para usar su API
+            return {"error": "premium", "detail": "Spotify exige que la cuenta dueña de la app de desarrollador tenga Premium"}
+        return {"error": "Spotify rechazó la petición: " + (body or repr(errs[0]))[:160]}
     try:
         # shape dev-mode 2025: el total viaja en "items.total" (ya no existe "tracks" en me/playlists)
         out["playlists"] = [{"id": p["id"], "title": p.get("name") or "(sin nombre)", "cover": _spot_img(p),
@@ -2558,6 +2574,55 @@ def _match_all(y, pairs):
     return [{"title": pairs[i][0], "artists": pairs[i][1], "match": rep[i]} for i in range(len(pairs))]
 
 
+def _import_liked(y, vids):
+    """Da "me gusta" a vids en la cuenta. YT descarta rate_song en silencio bajo cuota (rafagas
+    pierden ~90%). Estrategia: pasadas convergentes — likear lo pendiente (3 workers, pausa corta),
+    esperar a que YT materialice (consistencia eventual, espera creciente), re-verificar contra la
+    cuenta y repetir SOLO lo que falta. Re-import reanuda gratis (skip de ya-likeados)."""
+    def _liked_now():
+        try:
+            return {t.get("videoId") for t in (y.get_liked_songs(limit=None).get("tracks") or [])
+                    if t.get("videoId")}
+        except Exception:
+            return None
+    have = _liked_now() or set()
+    todo = [v for v in vids if v not in have]
+    after = have
+
+    def like(v):
+        if not _imp_cancel:
+            try:
+                y.rate_song(v, "LIKE")
+            except Exception:
+                pass
+            _imp_prog["done"] += 1
+            time.sleep(0.1)
+    for pase in range(1, 7):
+        if not todo or _imp_cancel:
+            break
+        _imp_prog.update(done=0, total=len(todo))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            list(ex.map(like, todo))
+        time.sleep(min(5 * pase, 20))   # deja materializar antes de verificar
+        chk = _liked_now()
+        if chk is None:
+            break
+        after = chk
+        remaining = [v for v in todo if v not in after]
+        if len(remaining) == len(todo):   # pase sin avance: cuota dura, enfriar y reintentar
+            time.sleep(40)
+            after = _liked_now() or after
+            remaining = [v for v in todo if v not in after]
+            if len(remaining) == len(todo):
+                break
+        todo = remaining
+    # purga ytlib de TODAS las sesiones del mismo usuario: el proximo sync de cualquier
+    # dispositivo (movil incluido) ve el estado final, no una foto a mitad de import
+    for k in [k for k in list(_CACHE) if str(k).endswith("|ytlib")]:
+        _CACHE.pop(k, None)
+    return sum(1 for v in vids if v in after or v in have)
+
+
 def spot_import(kind, sid, title, cover=""):
     global _imp_cancel
     y = ytm()
@@ -2594,52 +2659,7 @@ def spot_import(kind, sid, title, cover=""):
         pid = None
         added = len(vids)
         if kind == "liked":
-            # YT descarta rate_song en silencio bajo cuota (rafagas pierden ~90%). Estrategia:
-            # pasadas convergentes — likear lo pendiente (3 workers, pausa corta), esperar a que
-            # YT materialice (consistencia eventual, espera creciente), re-verificar contra la
-            # cuenta y repetir SOLO lo que falta. Re-import reanuda gratis (skip de ya-likeados).
-            def _liked_now():
-                try:
-                    return {t.get("videoId") for t in (y.get_liked_songs(limit=None).get("tracks") or [])
-                            if t.get("videoId")}
-                except Exception:
-                    return None
-            have = _liked_now() or set()
-            todo = [v for v in vids if v not in have]
-            after = have
-
-            def like(v):
-                if not _imp_cancel:
-                    try:
-                        y.rate_song(v, "LIKE")
-                    except Exception:
-                        pass
-                    _imp_prog["done"] += 1
-                    time.sleep(0.1)
-            for pase in range(1, 7):
-                if not todo or _imp_cancel:
-                    break
-                _imp_prog.update(done=0, total=len(todo))
-                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-                    list(ex.map(like, todo))
-                time.sleep(min(5 * pase, 20))   # deja materializar antes de verificar
-                chk = _liked_now()
-                if chk is None:
-                    break
-                after = chk
-                remaining = [v for v in todo if v not in after]
-                if len(remaining) == len(todo):   # pase sin avance: cuota dura, enfriar y reintentar
-                    time.sleep(40)
-                    after = _liked_now() or after
-                    remaining = [v for v in todo if v not in after]
-                    if len(remaining) == len(todo):
-                        break
-                todo = remaining
-            added = sum(1 for v in vids if v in after or v in have)
-            # purga ytlib de TODAS las sesiones del mismo usuario: el proximo sync de cualquier
-            # dispositivo (movil incluido) ve el estado final, no una foto a mitad de import
-            for k in [k for k in list(_CACHE) if str(k).endswith("|ytlib")]:
-                _CACHE.pop(k, None)
+            added = _import_liked(y, vids)
         else:
             if not vids:
                 return {"error": "Ninguna canción encontrada en YT Music"}
@@ -2788,6 +2808,7 @@ def import_csv(body):
     try:
         d = json.loads(body)
         title = (d.get("title") or "Importada").strip()
+        liked = bool(d.get("liked"))
         pairs = [(t[0], t[1] if len(t) > 1 else "") for t in d.get("tracks") or [] if t and t[0]]
     except Exception:
         return {"error": "CSV inválido"}
@@ -2803,6 +2824,11 @@ def import_csv(body):
         vids = [t["match"]["id"] for t in report if t["match"]]
         if not vids:
             return {"error": "Ninguna canción encontrada en YT Music"}
+        if liked:
+            added = _import_liked(y, vids)
+            _CACHE.pop(_sk("ytlib"), None)
+            return {"ok": True, "added": added, "missed": len(report) - len(vids),
+                    "tracks": report, "playlist_id": None, "title": "Me gusta"}
         pid = _yt_make_playlist(y, title, vids)
         _CACHE.pop(_sk("ytlib"), None)
         return {"ok": True, "added": len(vids), "missed": len(report) - len(vids),
@@ -2977,7 +3003,7 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
-        if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path.startswith("/spot/") or u.path in ("/ytlib", "/rate", "/libsave"):
+        if u.path.startswith("/auth/") or u.path.startswith("/pl") or u.path.startswith("/spot/") or u.path.startswith("/imp/") or u.path in ("/ytlib", "/rate", "/libsave"):
             try:
                 if u.path == "/auth/status":
                     if parse_qs(u.query).get("fresh"):
@@ -3013,6 +3039,11 @@ class H(BaseHTTPRequestHandler):
                     return self._json(lib_save(qs.get("id", [""])[0],
                                                qs.get("kind", [""])[0],
                                                qs.get("save", ["1"])[0] == "1"))
+                if u.path == "/imp/progress":
+                    return self._json(_imp_prog)
+                if u.path == "/imp/cancel":
+                    globals()["_imp_cancel"] = True
+                    return self._json({"ok": True})
                 if u.path.startswith("/spot/") and SERVER_MODE:
                     # la sesion de Spotify es GLOBAL (auth/spotify.json), no por dispositivo: en el server
                     # publico cualquiera podria configurarla o usarla. El import de Spotify es de escritorio

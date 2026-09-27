@@ -642,6 +642,15 @@
   .savebtn:hover { background: linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .06)); }
   .savebtn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .morebtn { padding: 8px 12px; }
+  .shufbtn { position: relative; }
+  .shufbtn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+                background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .shufbtn.on::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px;
+                       border-radius: 50%; background: var(--accent); }
+  @media (max-width: 820px) {   /* aleatorio a la derecha, como Spotify (el bloque de texto ocupa todo el ancho) */
+    .col-hero > div:last-child { align-self: stretch; width: 100%; box-sizing: border-box; }
+    .col-actions .shufbtn { margin-left: auto; }
+  }
   .covplay { position: absolute; inset: 0; display: grid; place-items: center; border: none; cursor: pointer;
              background: rgb(0 0 0 / .4); color: #fff; font-size: 3.4rem; border-radius: 12px; opacity: 0; transition: opacity .2s; }
   .cov:hover .covplay { opacity: 1; }
@@ -738,6 +747,37 @@
   #npv .iconbtn.like.on { color: #ff4d6d; }
   body.np-open .sidepanel { z-index: 17; }   /* letra/cola abiertas desde la vista completa van ENCIMA */
 
+  /* hoja inferior (temporizador): sube desde abajo; se cierra tocando fuera, deslizando o con Esc */
+  .bsheet { position: fixed; inset: 0; z-index: 35; display: flex; align-items: flex-end; justify-content: center;
+            background: rgb(0 0 0 / 0); transition: background .3s; }
+  .bsheet[hidden] { display: none; }
+  .bsheet.open { background: rgb(0 0 0 / .55); }
+  .bs-panel { position: relative; width: 100%; max-width: 460px; box-sizing: border-box; max-height: 88vh; overflow-y: auto;
+              padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0;
+              background: #16161c; border: 1px solid rgb(255 255 255 / .08); border-bottom: none;
+              box-shadow: 0 -18px 50px rgb(0 0 0 / .5);
+              transform: translateY(100%); transition: transform .34s cubic-bezier(.16,1,.3,1); }
+  .bsheet.open .bs-panel { transform: none; }
+  .bs-grab { width: 40px; height: 4px; border-radius: 99px; background: rgb(255 255 255 / .22); margin: 0 auto 14px; }
+  .bs-head { display: flex; align-items: center; gap: 14px; padding: 2px 4px 14px; }
+  .bs-ico { flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 1.35rem;
+            color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .bs-head h3 { margin: 0; font-size: 1.1rem; }
+  .bs-head p { margin: 3px 0 0; font-size: .84rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bs-opts { display: flex; flex-direction: column; gap: 2px; }
+  .bs-opts button { display: flex; align-items: center; gap: 14px; width: 100%; padding: 13px 12px; border: none; border-radius: 12px;
+                    background: none; color: var(--text); font: inherit; font-size: .95rem; text-align: left; cursor: pointer; }
+  .bs-opts button:hover { background: rgb(255 255 255 / .05); }
+  .bs-opts button:active { background: rgb(255 255 255 / .08); }
+  .bs-opts button > i:first-child { font-size: 1.2rem; color: var(--muted); }
+  .bs-opts button span { flex: 1; }
+  .bs-opts .ck { font-size: 1.1rem; color: var(--accent); opacity: 0; }
+  .bs-opts button.on { color: var(--accent); font-weight: 600; }
+  .bs-opts button.on > i:first-child, .bs-opts button.on .ck { color: var(--accent); opacity: 1; }
+  .bs-off { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 10px; padding: 13px;
+            border-radius: 14px; border: 1px solid rgb(248 113 113 / .3); background: rgb(248 113 113 / .1); color: #fca5a5;
+            font: inherit; font-size: .95rem; font-weight: 600; cursor: pointer; }
+  .bs-off[hidden] { display: none; }
   /* pantalla de inicio de sesion obligatoria (app movil sin cuenta): encima de todo salvo los avisos */
   #gate { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
           padding: calc(24px + env(safe-area-inset-top)) 28px calc(24px + env(safe-area-inset-bottom));
@@ -981,7 +1021,7 @@
   <h2 id="heading" style="display:none"></h2>
   <div id="likedHero" class="col-hero" hidden>
     <div class="cov liked-bigcov"><i class="ph-fill ph-heart"></i><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div>
-    <div><div class="ct" data-i18n>Playlist</div><h1 data-i18n>Me gusta</h1><div class="cmeta" id="likedCount"></div></div>
+    <div><div class="ct" data-i18n>Playlist</div><h1 data-i18n>Me gusta</h1><div class="cmeta" id="likedCount"></div><div class="col-actions" id="likedActs"></div></div>
   </div>
   <ul id="r"></ul>
   <div id="empty" class="empty"><i class="ph ph-magnifying-glass"></i><span data-i18n>Busca algo para empezar.</span></div>
@@ -1162,6 +1202,18 @@
     <button id="gateBtn" disabled><i class="ph ph-google-logo" id="gateIco"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>
     <button id="gateAlt" hidden data-i18n>Continuar sin cuenta</button>
     <small id="gateHint" data-i18n>Tu sesión se guarda solo en este dispositivo.</small>
+  </div>
+</div>
+
+<div id="sleepSheet" class="bsheet" hidden>
+  <div class="bs-panel" role="dialog" aria-label="Temporizador">
+    <div class="bs-grab"></div>
+    <div class="bs-head">
+      <span class="bs-ico"><i class="ph-fill ph-moon"></i></span>
+      <div><h3 data-i18n>Temporizador</h3><p id="sleepStatus"></p></div>
+    </div>
+    <div class="bs-opts" id="sleepOpts"></div>
+    <button class="bs-off" id="sleepOff" hidden><i class="ph ph-timer"></i><span data-i18n>Desactivar temporizador</span></button>
   </div>
 </div>
 
@@ -1350,6 +1402,14 @@ const EN = {
   "Elige qué importar («Liked Songs» va a tus Me gusta; cada otro archivo será una playlist en tu cuenta):":
     "Choose what to import (“Liked Songs” goes to your likes; every other file becomes a playlist in your account):",
   "No se encontraron canciones en los archivos elegidos.": "No songs found in the chosen files.",
+  "Temporizador": "Sleep timer", "Elige cuándo pausar la música": "Choose when to pause the music",
+  "La música se pausará al final de esta canción": "Music will pause at the end of this song",
+  "La música se pausará en": "Music will pause in", "Temporizador: música en pausa": "Sleep timer: music paused",
+  "Se pausará al final de la canción": "Will pause at the end of the song", "Se pausará en": "Will pause in",
+  "Temporizador desactivado": "Sleep timer off", "Desactivar temporizador": "Turn off timer",
+  "5 minutos": "5 minutes", "10 minutos": "10 minutes", "15 minutos": "15 minutes", "30 minutos": "30 minutes",
+  "45 minutos": "45 minutes", "1 hora": "1 hour", "Final de la canción": "End of song",
+  "Aleatorio": "Shuffle", "Aleatorio activado": "Shuffle on", "Aleatorio desactivado": "Shuffle off",
   "Continuar sin cuenta": "Continue without an account", "Vincular con un código": "Link with a code",
   "Vincular dispositivo": "Link a device", "Vincular": "Link", "Listo": "Done", "Código": "Code",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
@@ -1642,7 +1702,9 @@ if (IOS_WEB) (() => {
 const seek = $("seek"), vol = $("vol"), toggleIcon = $("toggle").querySelector("i");
 let current = null, lastResults = [], view = "buscar";
 let queue = [], qIndex = -1, shuffle = false, repeat = "off";  // repeat: off | all | one
-let sleepMin = 0, sleepTimer = null;
+try { shuffle = localStorage.getItem("lightning.shuffle") === "1"; } catch (e) {}
+let queueOrig = null;   // orden original de la cola mientras el aleatorio esta activo (para restaurarlo)
+let sleepEnd = 0, sleepEOT = false, sleepTimer = null;   // temporizador: hora de fin o "al final de la cancion"
 
 /* ---------- almacenamiento ---------- */
 const store = (k, d) => JSON.parse(localStorage.getItem(k) || d);
@@ -1716,6 +1778,14 @@ function renderLibrary() {
     b.oncontextmenu = (ev) => { ev.preventDefault(); openCardMenu(e, ev.clientX, ev.clientY); };
     box.appendChild(b);
   });
+}
+function shufBtn() {   // aleatorio en la cabecera de album/playlist/Me gusta: mismo modo que el del reproductor
+  const b = document.createElement("button"); b.className = "savebtn morebtn shufbtn";
+  b.setAttribute("aria-label", t("Aleatorio")); b.title = t("Aleatorio");
+  b.innerHTML = '<i class="ph ph-shuffle"></i>';
+  b.onclick = (e) => { e.stopPropagation(); setShuffle(!shuffle); toast(t(shuffle ? "Aleatorio activado" : "Aleatorio desactivado")); };
+  b.classList.toggle("on", shuffle); b.setAttribute("aria-pressed", shuffle ? "true" : "false");
+  return b;
 }
 function saveBtn(entryFn) {   // boton Guardar/En tu biblioteca (vistas de artista/album/playlist)
   const b = document.createElement("button"); b.className = "savebtn";
@@ -2405,6 +2475,7 @@ function renderCollection(d) {
       title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover, editable: _colEditable }, r.left, r.bottom + 6, more);
   };
   act.appendChild(more);
+  act.appendChild(shufBtn());
   hero.lastElementChild.appendChild(act);
   cv.appendChild(hero);
   if (d.description) { const p = document.createElement("p"); p.className = "col-desc"; p.textContent = d.description; cv.appendChild(p); }
@@ -2458,6 +2529,7 @@ function paintLikedCount() {
   const n = getLiked().length;
   $("likedCount").textContent = n + " " + t(n === 1 ? "canción" : "canciones");
 }
+$("likedActs").appendChild(shufBtn());
 // tocar la portada de Me gusta: reproduce la lista (aleatorio respeta shuffle), como en una playlist
 $("likedHero").querySelector(".covplay").onclick = () => {
   const l = getLiked(); if (!l.length) return;
@@ -3659,6 +3731,7 @@ function recordCtx(song) {
 function playFromList(list, i) {
   recordCtx(list[i]);
   queue = list.slice(); qIndex = i;
+  if (shuffle) { queueOrig = list.slice(); shuffleQueue(i); }   // la elegida suena primero, el resto barajado
   if (current && current.id === list[i].id) { togglePlay(); return; }
   playSong(list[i], true);
 }
@@ -3712,13 +3785,14 @@ async function _engStart(s, tok) {
   }
 }
 function onPlaybackStarted(s) {
+  sleepCheck();
   paintPlayer(s);
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
   applyAccent(s.cover); pushRecent(current); refreshLikeUI(); markPlaying();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
-  if (!shuffle) prewarm([queue[qIndex + 2], queue[qIndex + 3]]);
+  prewarm([queue[qIndex + 2], queue[qIndex + 3]]);
   maybeExtendQueue();
   bumpLibrary(s);
 }
@@ -3737,6 +3811,7 @@ async function maybeExtendQueue() {
     add.forEach(x => { x._rec = true; });
     if (add.length) {
       queue.push(...add);
+    if (queueOrig) queueOrig.push(...add);
       scheduleGaplessNext();   // por si estabamos en la ultima pista sin siguiente programada
       if ($("queue").classList.contains("show")) renderQueue();
     }
@@ -3744,7 +3819,7 @@ async function maybeExtendQueue() {
   finally { _recBusy = false; }
 }
 function plannedNextIndex() {
-  if (shuffle || !queue.length) return -1;   // aleatorio: el siguiente no es deterministico
+  if (!queue.length) return -1;   // con aleatorio la cola YA esta barajada: el siguiente es el de la cola
   return qIndex + 1 < queue.length ? qIndex + 1 : (repeat === "all" ? 0 : -1);
 }
 function _gaplessSong() {
@@ -3754,6 +3829,7 @@ function _gaplessSong() {
   return null;
 }
 async function scheduleGaplessNext() {       // programa la siguiente pista sample-accurate (gapless real)
+  if (sleepEOT) { _clearGapless(); return; }   // temporizador "al final de la cancion": no encadenar
   const s = _gaplessSong();
   if (!s) { _clearGapless(); return; }
   await resolveAtv(s);
@@ -3761,7 +3837,7 @@ async function scheduleGaplessNext() {       // programa la siguiente pista samp
 }
 // avance automatico sin huecos: la siguiente ya viene sonando, solo actualizamos UI/cola
 eng.onAdvance = (song) => { qIndex = (song._idx != null) ? song._idx : plannedNextIndex(); onPlaybackStarted(song); };
-eng.onEnded = () => playNext(true);
+eng.onEnded = () => { if (sleepEOT) { sleepStop(true); return; } playNext(true); };
 eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; syncPlayIcons(); if (npOpen) syncNp(); };
 function syncPlayIcons() {
   const cp = document.querySelector(".covplay"); if (cp && cp._sync) cp._sync();
@@ -3782,8 +3858,6 @@ function togglePlay() {
 
 function nextIndex() {
   if (!queue.length) return -1;
-  if (shuffle) { if (queue.length === 1) return qIndex;
-    let n; do { n = Math.floor(Math.random() * queue.length); } while (n === qIndex); return n; }
   if (qIndex + 1 < queue.length) return qIndex + 1;
   return repeat === "all" ? 0 : -1;
 }
@@ -3802,7 +3876,49 @@ function playPrev() {
 $("toggle").onclick = togglePlay;
 $("next").onclick = () => playNext(false);
 $("prev").onclick = playPrev;
-$("shuffle").onclick = () => { shuffle = !shuffle; $("shuffle").classList.toggle("on", shuffle); };
+/* aleatorio: al activarlo se BARAJA la cola (Fisher-Yates con crypto.getRandomValues: un orden nuevo cada vez);
+   la que suena queda primera, las recomendaciones al final. Al desactivarlo vuelve el orden original. */
+function _rnd(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+function _fisherYates(arr) {
+  for (let i = arr.length - 1; i > 0; i--) { const j = _rnd(i + 1); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+  return arr;
+}
+function shuffleQueue(startIdx) {
+  if (!queue.length) return;
+  const cur = queue[startIdx >= 0 ? startIdx : 0];
+  const rest = queue.filter(x => x !== cur);
+  queue = [cur, ..._fisherYates(rest.filter(x => !x._rec)), ...rest.filter(x => x._rec)];
+  qIndex = 0;
+}
+function syncShuffleUI() {
+  [$("shuffle"), $("npShuffle"), ...document.querySelectorAll(".shufbtn")].forEach(b => {
+    if (!b) return; b.classList.toggle("on", shuffle); b.setAttribute("aria-pressed", shuffle ? "true" : "false");
+  });
+}
+function setShuffle(on) {
+  shuffle = !!on;
+  try { localStorage.setItem("lightning.shuffle", shuffle ? "1" : "0"); } catch (e) {}
+  if (shuffle) {
+    queueOrig = queue.slice();
+    if (queue.length) shuffleQueue(qIndex);
+  } else if (queueOrig && queue.length) {
+    // orden original; lo anadido mientras tanto: "a continuacion" tras la actual, recomendaciones al final
+    const cur = queue[qIndex], inQ = new Set(queue), inO = new Set(queueOrig);
+    const base = queueOrig.filter(x => inQ.has(x) && x !== cur);
+    const extra = queue.filter(x => !inO.has(x) && x !== cur);
+    let ci = queueOrig.filter(x => inQ.has(x)).indexOf(cur);
+    if (ci < 0) ci = 0;
+    base.splice(ci, 0, cur, ...extra.filter(x => !x._rec));
+    queue = [...base, ...extra.filter(x => x._rec)]; qIndex = queue.indexOf(cur);
+    queueOrig = null;
+  } else queueOrig = null;
+  syncShuffleUI();
+  if (current) { scheduleGaplessNext(); prewarm([queue[qIndex + 1], queue[qIndex + 2]]); }
+  if ($("queue").classList.contains("show")) renderQueue();
+  if (npOpen) syncNp();
+}
+$("shuffle").onclick = () => setShuffle(!shuffle);
+syncShuffleUI();
 $("repeat").onclick = () => {
   repeat = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
   const b = $("repeat"); b.classList.toggle("on", repeat !== "off");
@@ -3961,12 +4077,82 @@ function renderQueue() {
   }
 }
 $("histBtn").onclick = () => { qMode = qMode === "history" ? "queue" : "history"; renderQueue(); };
-$("sleep").onclick = () => {
-  sleepMin = sleepMin === 0 ? 15 : sleepMin === 15 ? 30 : sleepMin === 30 ? 60 : 0;
-  clearTimeout(sleepTimer); $("sleep").classList.toggle("on", sleepMin > 0);
-  if (sleepMin > 0) { toast(`Pausa en ${sleepMin} min`); sleepTimer = setTimeout(() => { audio.pause(); $("sleep").classList.remove("on"); sleepMin = 0; }, sleepMin * 60000); }
-  else toast("Temporizador desactivado");
-};
+/* temporizador de apagado: hoja que sube desde abajo con los tiempos, "final de la cancion" y desactivar */
+const SLEEP_OPTS = [[5, "5 minutos"], [10, "10 minutos"], [15, "15 minutos"], [30, "30 minutos"], [45, "45 minutos"],
+                    [60, "1 hora"], [-1, "Final de la canción"]];
+let sleepSel = 0, _sleepTick = null;
+const sleepActive = () => sleepEOT || sleepEnd > Date.now();
+function _fmtLeft(ms) {
+  const sec = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), ss = sec % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(ss).padStart(2, "0");
+}
+function syncSleepUI() {
+  const on = sleepActive();
+  [$("sleep"), $("npSleep")].forEach(b => b && b.classList.toggle("on", on));
+  const st = $("sleepStatus");
+  if (st) st.textContent = !on ? t("Elige cuándo pausar la música")
+    : sleepEOT ? t("La música se pausará al final de esta canción")
+    : t("La música se pausará en") + " " + _fmtLeft(sleepEnd - Date.now());
+  $("sleepOff").hidden = !on;
+  document.querySelectorAll("#sleepOpts button").forEach(b => b.classList.toggle("on", on && +b.dataset.min === sleepSel));
+}
+function sleepStop(fire) {
+  clearTimeout(sleepTimer); sleepTimer = null;
+  const wasEOT = sleepEOT; sleepEnd = 0; sleepEOT = false; sleepSel = 0;
+  if (fire) { audio.pause(); toast(t("Temporizador: música en pausa")); }
+  syncSleepUI();
+  if (wasEOT && !fire && current) scheduleGaplessNext();
+}
+function sleepSet(min) {   // min > 0: minutos; -1: al terminar la cancion actual
+  clearTimeout(sleepTimer); sleepTimer = null;
+  sleepSel = min; sleepEOT = min === -1; sleepEnd = min > 0 ? Date.now() + min * 60000 : 0;
+  if (min > 0) sleepTimer = setTimeout(() => sleepStop(true), min * 60000);
+  if (sleepEOT) _clearGapless();   // sin siguiente programada: al acabar la cancion se para
+  syncSleepUI(); closeSleepSheet();
+  toast(sleepEOT ? t("Se pausará al final de la canción") : t("Se pausará en") + " " + t((SLEEP_OPTS.find(o => o[0] === min) || [0, min + " min"])[1]));
+}
+// en segundo plano el navegador retrasa los timers: se comprueba tambien en cada cambio de pista
+const sleepCheck = () => { if (sleepEnd && Date.now() >= sleepEnd) sleepStop(true); };
+function openSleepSheet() {
+  const sh = $("sleepSheet"); sh.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => sh.classList.add("open")));
+  syncSleepUI(); clearInterval(_sleepTick); _sleepTick = setInterval(syncSleepUI, 1000);
+}
+function closeSleepSheet() {
+  const sh = $("sleepSheet"); if (sh.hidden) return;
+  sh.classList.remove("open"); clearInterval(_sleepTick);
+  const p = sh.querySelector(".bs-panel"); p.style.transform = "";
+  setTimeout(() => { if (!sh.classList.contains("open")) sh.hidden = true; }, 320);
+}
+(() => {
+  const box = $("sleepOpts");
+  SLEEP_OPTS.forEach(([min, label]) => {
+    const b = document.createElement("button"); b.dataset.min = min;
+    b.innerHTML = `<i class="ph ${min === -1 ? "ph-music-note" : "ph-timer"}"></i><span>${esc(t(label))}</span><i class="ph ph-check ck"></i>`;
+    b.onclick = () => sleepSet(min);
+    box.appendChild(b);
+  });
+  $("sleepOff").onclick = () => { sleepStop(false); toast(t("Temporizador desactivado")); closeSleepSheet(); };
+  const sh = $("sleepSheet"), panel = sh.querySelector(".bs-panel");
+  sh.onclick = (e) => { if (e.target === sh) closeSleepSheet(); };
+  // deslizar hacia abajo para cerrar (desde el asa o la cabecera)
+  let y0 = null, dy = 0;
+  panel.querySelectorAll(".bs-grab, .bs-head").forEach(h => {
+    h.addEventListener("touchstart", (e) => { y0 = e.touches[0].clientY; dy = 0; panel.style.transition = "none"; }, { passive: true });
+  });
+  panel.addEventListener("touchmove", (e) => {
+    if (y0 === null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0); panel.style.transform = `translateY(${dy}px)`;
+  }, { passive: true });
+  panel.addEventListener("touchend", () => {
+    if (y0 === null) return;
+    y0 = null; panel.style.transition = "";
+    if (dy > 90) closeSleepSheet(); else panel.style.transform = "";
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSleepSheet(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) sleepCheck(); });
+})();
+$("sleep").onclick = openSleepSheet;
 $("addpl").onclick = (e) => {
   e.stopPropagation();   // sin esto el click llega a document y closeMenu() mata el menu recien abierto
   if (!current) { toast("Nada en reproducción"); return; }
@@ -4104,10 +4290,10 @@ function syncNp() {
   $("npToggle").querySelector("i").className = audio.paused ? "ph-fill ph-play" : "ph-fill ph-pause";
   const liked = !!(current && isLiked(current.id));
   $("npLike").classList.toggle("on", liked); $("npLike").querySelector("i").className = (liked ? "ph-fill" : "ph") + " ph-heart";
-  $("npShuffle").classList.toggle("on", shuffle);
+  syncShuffleUI();
   $("npRepeat").classList.toggle("on", repeat !== "off");
   $("npRepeat").querySelector("i").className = "ph " + (repeat === "one" ? "ph-repeat-once" : "ph-repeat");
-  $("npSleep").classList.toggle("on", sleepMin > 0);
+  $("npSleep").classList.toggle("on", sleepActive());
   $("npLyrics").classList.toggle("on", $("lyricsPanel").classList.contains("show"));
   $("npQueue").classList.toggle("on", $("queue").classList.contains("show"));
 }
@@ -4188,10 +4374,10 @@ $("npClose").onclick = () => requestCloseNp();
 $("npToggle").onclick = () => { togglePlay(); syncNp(); };
 $("npPrev").onclick = () => playPrev();
 $("npNext").onclick = () => playNext(false);
-$("npShuffle").onclick = () => { $("shuffle").click(); syncNp(); };
+$("npShuffle").onclick = () => setShuffle(!shuffle);
 $("npRepeat").onclick = () => { $("repeat").click(); syncNp(); };
 $("npLike").onclick = () => { if (current) toggleLike(current); };
-$("npSleep").onclick = () => { $("sleep").click(); syncNp(); };
+$("npSleep").onclick = openSleepSheet;
 $("npLyrics").onclick = () => { $("lyricsBtn").click(); syncNp(); };
 $("npQueue").onclick = () => { $("queueBtn").click(); syncNp(); };
 ["lyricsClose", "queueClose"].forEach(id => $(id).addEventListener("click", () => setTimeout(syncNp)));

@@ -977,14 +977,19 @@ import queue as _queue
 _ydl_pool = _queue.LifoQueue()
 
 
-def _extract_with(video_id, cookies_browser=None, clients=None):
+def _extract_with(video_id, cookies_browser=None, clients=None, cookiefile=None):
     url = "https://music.youtube.com/watch?v=" + video_id
-    if clients or cookies_browser:   # variantes raras (fallback/age-gate): instancia propia
+    if clients or cookies_browser or cookiefile:   # variantes raras (fallback/age-gate): instancia propia
         opts = dict(_YDL_OPTS)
         if clients:
             opts["extractor_args"] = {"youtube": {"player_client": list(clients)}}
         if cookies_browser:
             opts["cookiesfrombrowser"] = (cookies_browser,)   # cookies del navegador para sortear el age-gate
+        if cookiefile:
+            # con cuenta los clientes validos (web_music/tv) firman los links con el JS del player:
+            # hace falta un runtime JS (node/deno) + el paquete yt-dlp-ejs; android no admite cookies
+            opts["cookiefile"] = cookiefile
+            opts["js_runtimes"] = {"deno": {}, "node": {}}
         with YoutubeDL(opts) as y:
             info = y.extract_info(url, download=False)
     else:
@@ -1089,6 +1094,38 @@ def _alt_ids(video_id):
         return []
 
 
+def _session_cookiefiles():
+    """Cookies de las sesiones de YouTube guardadas, en formato Netscape para yt-dlp. Primero la del
+    dispositivo que pide; luego cualquier otra (solo se usan para sacar el link de audio)."""
+    own = getattr(_REQ, "bid", "")
+    srcs = sorted((os.path.join(AUTH_DIR, n) for n in os.listdir(AUTH_DIR)
+                   if re.fullmatch(r"browser(_[0-9a-f]{16})?\.json", n)) if os.path.isdir(AUTH_DIR) else [],
+                  key=lambda p: not (own and p.endswith("_%s.json" % own)))
+    out = []
+    for src in srcs:
+        dst = src[:-5] + ".ytdlp.txt"
+        try:
+            if not os.path.isfile(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
+                with open(src, encoding="utf8") as f:
+                    ck = {k.lower(): v for k, v in json.load(f).items()}.get("cookie", "")
+                rows = ["# Netscape HTTP Cookie File"]
+                for p in ck.split(";"):
+                    k, _, v = p.strip().partition("=")
+                    if k and v:
+                        rows.append("\t".join((".youtube.com", "TRUE", "/", "TRUE", "2147483647", k, v)))
+                if len(rows) == 1:
+                    continue
+                with open(dst, "w", encoding="utf8") as f:
+                    f.write("\n".join(rows) + "\n")
+            out.append(dst)
+        except Exception:
+            continue
+    return out
+
+
+_RESTRICTED = ("age", "sign in", "error code: 152", "inappropriate", "confirm your")
+
+
 def _extract(video_id):
     # id ya conocido como age-gated: directo al alt que funciono (evita ~5s del intento fallido)
     hit = _CACHE.get("alt:" + video_id)
@@ -1097,11 +1134,23 @@ def _extract(video_id):
             return _extract_with(hit[1])
         except Exception:
             _CACHE.pop("alt:" + video_id, None)
+    gated = _CACHE.get("gated:" + video_id)   # ya se sabe restringido: sin el intento android (~1s)
     try:
+        if gated and time.time() - gated[0] < 7 * 86400:
+            raise RuntimeError("age")
         return _extract_with(video_id)
     except Exception as e:
-        if "age" not in str(e).lower() and "sign in" not in str(e).lower():
+        if not any(s in str(e).lower() for s in _RESTRICTED):
             return _extract_with(video_id, clients=["web", "android"])   # raro: android fallo sin age-gate
+        # explicitas / con restriccion de edad (YouTube exige cuenta): el tema REAL con la sesion
+        # guardada. Lento en el Tecno (~10s, node resuelve el reto del player) pero solo 1 vez:
+        # despues sale de la cache de links (~6h) o de la de disco
+        _CACHE["gated:" + video_id] = (time.time(), 1)
+        for cf in _session_cookiefiles()[:2]:
+            try:
+                return _extract_with(video_id, clients=["web_music"], cookiefile=cf)
+            except Exception:
+                continue
         # subidas alternativas del mismo tema: extrae en paralelo, gana la de mayor similitud que funcione
         alts = _alt_ids(video_id)
         if alts:

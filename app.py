@@ -2494,31 +2494,56 @@ def spot_lib():
     return out
 
 
-def _spot_match(y, title, artists):
-    # mejor match de YT Music para una pista de Spotify (titulo+artista, similitud difflib).
-    # Devuelve {id,title,artist,cover,duration} o None (el resolutor manual muestra que se eligio)
-    try:
-        res = y.search((title + " " + artists).strip(), filter="songs", limit=5) or []
-    except Exception:
-        return None
-    tl, al = title.lower(), artists.lower()
+def _mnorm(t):
+    # comparable: sin acentos, sin "(feat. X)" / "- Remastered 2011" / "(Radio Edit)", solo alfanumerico
+    import unicodedata
+    t = unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode().lower()
+    t = re.sub(r"[\(\[](feat|ft|with|con|prod)\.?\s[^\)\]]*[\)\]]", " ", t)
+    t = re.sub(r"\s-\s.*\b(remaster(ed)?|version|edit|mix|mono|stereo|live|en vivo|acoustic)\b.*$", " ", t)
+    t = re.sub(r"[\(\[][^\)\]]*\b(remaster(ed)?|version|edit|mono|stereo)\b[^\)\]]*[\)\]]", " ", t)
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def _spot_match(y, title, artists, dur_ms=None):
+    """Mejor match de YT Music para una pista de Spotify/CSV. Usa la busqueda PROPIA de la app: desde
+    2026 ytmusicapi (search con sesion) devuelve videoId=None y el album como artista -> 0 matches.
+    Puntua titulo (similitud normalizada) + artista principal + duracion si el CSV la trae.
+    Devuelve {id,title,artist,cover,duration} o None (el resolutor manual muestra lo elegido)."""
+    want_t = _mnorm(title)
+    want_a = [_mnorm(x) for x in re.split(r"\s*[,;&]\s*|\s+(?:feat\.?|ft\.?|x)\s+", artists or "") if x.strip()]
+    first = (artists or "").split(",")[0].split(";")[0].strip()
+
+    def score(r):
+        rt = _mnorm(r.get("title"))
+        sc = difflib.SequenceMatcher(None, want_t, rt).ratio()
+        if want_t and (want_t in rt or rt in want_t):
+            sc = max(sc, .85)
+        names = [_mnorm(a.get("name", "")) for a in r.get("artists") or []] or [_mnorm(r.get("artist"))]
+        if want_a and any(w and (w == n or w in n or n in w) for w in want_a for n in names if n):
+            sc += .3
+        elif want_a:
+            sc -= .35   # mismo titulo de OTRO artista: no (el resolutor deja elegirlo a mano)
+        rd, cd = _dur_secs(r.get("duration")), (dur_ms or 0) / 1000.0
+        if rd and cd:
+            sc += .15 if abs(rd - cd) <= 4 else (-.25 if abs(rd - cd) > 20 else 0)
+        return sc
+
     best, bs = None, 0.0
-    for r in res[:5]:
-        vid = r.get("videoId")
-        if not vid:
-            continue
-        s = difflib.SequenceMatcher(None, tl, (r.get("title") or "").lower()).ratio()
-        ra = ", ".join(a.get("name", "") for a in r.get("artists") or []).lower()
-        if ra and al and (ra.split(",")[0].strip() in al or al.split(",")[0].strip() in ra):
-            s += .25
-        if s > bs:
-            bs, best = s, r
-    if bs < .55 or not best:
+    for q in ((title + " " + first).strip(), (title + " " + (artists or "")).strip(), title):
+        try:
+            res = [r for r in (search(q, "songs") or [])[:6] if r.get("id")]
+        except Exception:
+            res = []
+        for r in res:
+            sc = score(r)
+            if sc > bs:
+                bs, best = sc, r
+        if bs >= 1.0:   # titulo + artista claros: no hace falta otra busqueda
+            break
+    if not best or bs < .75:
         return None
-    return {"id": best["videoId"], "title": best.get("title", ""),
-            "artist": ", ".join(a.get("name", "") for a in best.get("artists") or []),
-            "cover": (best.get("thumbnails") or [{}])[-1].get("url", ""),
-            "duration": best.get("duration") or ""}
+    return {"id": best["id"], "title": best.get("title", ""), "artist": best.get("artist", ""),
+            "cover": best.get("cover", ""), "duration": best.get("duration") or ""}
 
 
 def _spot_pl_items(sid):
@@ -2567,11 +2592,11 @@ def _match_all(y, pairs):
         if _imp_cancel:
             _imp_prog["done"] += 1
             return
-        rep[i] = _spot_match(y, pairs[i][0], pairs[i][1])
+        rep[i] = _spot_match(y, pairs[i][0], pairs[i][1], pairs[i][2] if len(pairs[i]) > 2 else None)
         _imp_prog["done"] += 1
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(work, range(len(pairs))))
-    return [{"title": pairs[i][0], "artists": pairs[i][1], "match": rep[i]} for i in range(len(pairs))]
+    return [{"title": pairs[i][0], "artists": pairs[i][1], "match": rep[i]} for i in range(len(pairs))]   # (pares con 3er elem = ms)
 
 
 def _import_liked(y, vids):
@@ -2634,16 +2659,14 @@ def spot_import(kind, sid, title, cover=""):
     _imp_prog.update(active=True, label=title or kind, done=0, total=0)
     try:
         if kind == "artist":
-            res = y.search(title, filter="artists", limit=5) or []
-            bid = next((r.get("browseId") for r in res if r.get("browseId")), None)
+            bid = next((r.get("browseId") for r in search(title, "artists") or [] if r.get("browseId")), None)
             if not bid:
                 return {"error": "No encontrado en YT Music: " + title}
             y.subscribe_artists([bid])
             _CACHE.pop(_sk("ytlib"), None)
             return {"ok": True, "added": 1, "missed": []}
         if kind == "album":
-            r = (y.search(title, filter="albums", limit=5) or [{}])[0]
-            bid = r.get("browseId")
+            bid = next((r.get("browseId") for r in search(title, "albums") or [] if r.get("browseId")), None)
             if not bid:
                 return {"error": "No encontrado en YT Music: " + title}
             lib_save(bid, "albums", True)
@@ -2809,7 +2832,8 @@ def import_csv(body):
         d = json.loads(body)
         title = (d.get("title") or "Importada").strip()
         liked = bool(d.get("liked"))
-        pairs = [(t[0], t[1] if len(t) > 1 else "") for t in d.get("tracks") or [] if t and t[0]]
+        pairs = [(str(t[0]), str(t[1]) if len(t) > 1 else "", _int_or_none(t[2]) if len(t) > 2 else None)
+                 for t in d.get("tracks") or [] if t and t[0]][:10000]
     except Exception:
         return {"error": "CSV inválido"}
     if not pairs:

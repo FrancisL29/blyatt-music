@@ -199,55 +199,117 @@
   #gmodal, #plmodal, #askmodal, #impmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
   #askmodal { z-index: 40; }   /* askModal puede abrirse SOBRE impmodal (p.ej. pedir Client ID) */
   #gmodal[hidden], #plmodal[hidden], #askmodal[hidden], #impmodal[hidden] { display: none; }
+  /* ===== importar biblioteca ===== */
+  #impmodal .gbox { width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; overscroll-behavior: contain; }
+  #impmodal h3 { font-size: 1.12rem; margin-bottom: 16px; }
   .impgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .impgrid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px;
-    border-radius: 12px; border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .04);
-    color: var(--text); font: inherit; font-size: .84rem; cursor: pointer; transition: background .15s, border-color .15s; }
-  .impgrid button:hover { background: rgb(255 255 255 / .09); border-color: rgb(255 255 255 / .22); }
-  .impgrid button i { font-size: 1.7rem; }
-  #impmodal .gbox { width: min(720px, 94vw); }
-  .spotguide ol { list-style: decimal; margin: 0 0 14px; padding-left: 20px; line-height: 1.55; color: rgb(255 255 255 / .85); font-size: .92rem; }
-  .spotguide li { display: list-item; margin-bottom: 6px; padding: 0; }
-  .spotguide .askrow { justify-content: flex-start; flex-wrap: wrap; }
-  .spotguide .gbtn i { vertical-align: -2px; margin-right: 4px; }
-  .spotguide .ghint { margin: 12px 0 0; }
-  .splink { margin-top: 14px; border: none; background: none; padding: 0; color: var(--muted); font-size: .8rem;
-            text-decoration: underline; cursor: pointer; text-align: left; }
-  .implist { max-height: min(58vh, 560px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
-             border: 1px solid var(--line); border-radius: 12px; padding: 6px; background: rgb(255 255 255 / .02); }
-  .implist h4 { margin: 12px 8px 6px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em;
+  .impgrid button { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px 16px;
+    border-radius: 16px; border: 1px solid rgb(255 255 255 / .08); background: rgb(255 255 255 / .04);
+    color: var(--text); font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer;
+    transition: background .15s, border-color .15s, transform .12s; }
+  .impgrid button:hover { background: rgb(255 255 255 / .08); border-color: rgb(255 255 255 / .18); }
+  .impgrid button:active { transform: scale(.97); }
+  .impgrid button i { font-size: 1.55rem; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+    background: rgb(255 255 255 / .07); }
+  .impgrid [data-platform="spotify"] i { color: #1ed760; background: rgb(30 215 96 / .12); }
+  .impgrid [data-platform="apple"] i { color: #fa4a64; background: rgb(250 74 100 / .12); }
+  .impgrid [data-platform="amazon"] i { color: #3ad3dc; background: rgb(58 211 220 / .12); }
+  .impgrid [data-platform="deezer"] i { color: #b565ff; background: rgb(181 101 255 / .12); }
+  .impgrid [data-platform="csv"] i { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  /* guia Spotify -> Exportify */
+  .spbrand { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 2px 0 18px; font-size: 1.9rem; }
+  .spbrand .ph-spotify-logo { color: #1ed760; }
+  .spbrand .ph-youtube-logo { color: #ff3d3d; }
+  .spbrand .ph-arrow-right { font-size: 1.1rem; color: var(--muted); }
+  .spsteps { display: flex; flex-direction: column; gap: 12px; margin: 0 0 18px; }
+  .spstep { display: flex; gap: 12px; align-items: flex-start; font-size: .92rem; line-height: 1.45; color: rgb(255 255 255 / .86); }
+  .spstep b { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: .78rem;
+    background: rgb(30 215 96 / .14); color: #1ed760; margin-top: -1px; }
+  .spbtns { display: flex; gap: 10px; }
+  .spbtns .gbtn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 14px; }
+  .spbtns .gbtn i { font-size: 1.1rem; }
+  .spnote { margin: 14px 0 0; font-size: .8rem; color: var(--muted); line-height: 1.45; }
+  .splink { display: block; margin: 12px auto 0; border: none; background: none; padding: 4px; color: var(--muted); font-size: .76rem;
+            text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: center; }
+  /* lista seleccionable: tarjetas con arte + check redondo */
+  .implist { max-height: min(52vh, 520px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px; }
+  .implist.free { max-height: none; overflow: visible; padding: 0; }   /* guia: sin caja con scroll */
+  .implist h4 { margin: 14px 4px 4px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em;
                 display: flex; align-items: center; gap: 8px; }
   .implist h4::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  .implist h4:first-child { margin-top: 4px; }
-  .improw { display: flex; align-items: center; gap: 12px; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
-  .improw:hover { background: rgb(255 255 255 / .05); }
-  .gbox .improw input, .gbox .impall input, .gbox .implist h4 input { accent-color: var(--accent); flex: none; width: 15px; height: 15px; margin: 0; padding: 0; }
-  .implist h4 input { cursor: pointer; }
-  .improw img { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; background: #1a1a20; flex: none; }
+  .implist h4:first-child { margin-top: 2px; }
+  .improw { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 14px; cursor: pointer;
+            background: rgb(255 255 255 / .035); border: 1px solid rgb(255 255 255 / .06); transition: background .15s, border-color .15s; }
+  .improw:hover { background: rgb(255 255 255 / .06); }
+  .improw:has(> input:checked) { background: color-mix(in srgb, var(--accent) 9%, transparent);
+                                 border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .gbox .improw > input, .gbox .impall > input, .gbox .implist h4 input {
+    appearance: none; -webkit-appearance: none; flex: none; width: 22px; height: 22px; margin: 0; padding: 0; border-radius: 50%;
+    border: 2px solid rgb(255 255 255 / .3); background: transparent center / 13px no-repeat; cursor: pointer; transition: .15s; }
+  .gbox .improw > input { order: 9; margin-left: auto; }
+  .gbox .improw > input:checked, .gbox .impall > input:checked, .gbox .implist h4 input:checked {
+    border-color: var(--accent); background-color: var(--accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  .gbox .impall > input:indeterminate { border-color: var(--accent); background-color: var(--accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
+  .improw img, .improw .art { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: #1a1a20; flex: none; }
+  .improw .art { display: grid; place-items: center; font-size: 1.35rem; color: rgb(255 255 255 / .7); background: rgb(255 255 255 / .07); }
+  .improw .art.liked { color: #fff; background: linear-gradient(135deg, #4a26d6, #9d8cf5); }
   .improw.artist img { border-radius: 50%; }
-  .improw .it { min-width: 0; }
-  .improw .it b { display: block; font-size: .89rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .improw .it span { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-  .improw .pub { flex: none; margin-left: auto; font-size: .68rem; color: var(--muted); border: 1px solid var(--line);
-                 border-radius: 99px; padding: 2px 8px; }
-  .impall { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px 8px; border-radius: 9px;
-            cursor: pointer; font-size: .84rem; font-weight: 600; border: 1px solid var(--line); background: rgb(255 255 255 / .04); }
-  .impall:hover { background: rgb(255 255 255 / .07); }
-  .impall[hidden], #impgo[hidden] { display: none; }
-  .impall input { accent-color: var(--accent); width: 15px; height: 15px; }
-  .impall .cnt { margin-left: auto; font-weight: 400; font-size: .76rem; color: var(--muted); }
-  #impbusy { padding: 26px 0 6px; }
-  .impspin { width: 42px; height: 42px; margin: 0 auto; border-radius: 50%;
-             border: 3px solid rgb(255 255 255 / .12); border-top-color: var(--accent);
-             animation: impspin .8s linear infinite; }
-  @keyframes impspin { to { transform: rotate(360deg); } }
-  .impbarwrap { height: 6px; border-radius: 99px; background: rgb(255 255 255 / .08); overflow: hidden; }
-  #impbar { height: 100%; width: 0%; border-radius: 99px; background: var(--accent); transition: width .4s ease; }
-  .fixrow .cands { margin: 2px 0 6px 28px; border-left: 2px solid var(--line); padding-left: 6px; }
-  .fixrow .mline { font-size: .72rem; color: var(--muted); }
+  .improw .it { min-width: 0; flex: 1; }
+  .improw .it b { display: block; font-size: .95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .improw .it span { font-size: .8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; margin-top: 2px; }
+  .improw .pub { flex: none; font-size: .68rem; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; }
+  .impall { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 4px 12px 4px 4px; cursor: pointer;
+            font-size: .88rem; font-weight: 600; }
+  .impall > input { order: 9; }
+  .impall .cnt { margin-left: auto; font-weight: 500; font-size: .8rem; color: var(--muted); }
+  .impall[hidden], #impgo[hidden], #impprog[hidden] { display: none; }
+  #impgo:disabled { opacity: .45; cursor: default; }
+  /* importando */
+  #impbusy { padding: 18px 0 4px; text-align: center; }
+  .imppct { font-size: 2.9rem; font-weight: 800; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .imppct small { font-size: 1.2rem; font-weight: 700; color: var(--muted); margin-left: 2px; }
+  #impblabel { margin: 12px 0 14px; font-size: .92rem; color: rgb(255 255 255 / .85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .impbarwrap { height: 8px; border-radius: 99px; background: rgb(255 255 255 / .08); overflow: hidden; }
+  #impbar { height: 100%; width: 0%; border-radius: 99px; transition: width .4s ease;
+            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)); }
+  .impbsub { margin: 10px 0 0; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1em; }
+  /* tarjeta de resultado */
+  .impres { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 18px 16px;
+            margin: 0 0 14px; border-radius: 16px; background: rgb(255 255 255 / .04); border: 1px solid rgb(255 255 255 / .07); }
+  .impres .rico { font-size: 2.3rem; line-height: 1; }
+  .impres.ok .rico { color: #34d399; } .impres.warn .rico { color: #fbbf24; } .impres.err .rico { color: #f87171; }
+  .impres .rt { font-weight: 700; font-size: 1rem; }
+  .impres .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .impres .chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; font-weight: 600; padding: 4px 10px; border-radius: 99px;
+                  background: rgb(255 255 255 / .07); color: rgb(255 255 255 / .85); }
+  .impres .chip.ok { background: rgb(52 211 153 / .14); color: #6ee7b7; }
+  .impres .chip.miss { background: rgb(251 191 36 / .13); color: #fcd34d; }
+  .impres .chip.err { background: rgb(248 113 113 / .14); color: #fca5a5; }
+  .impres .errs { margin: 2px 0 0; padding: 0; list-style: none; font-size: .78rem; color: var(--muted); line-height: 1.45; }
+  .impres .errs li { display: block; }
+  /* revisar resultado (versiones / no encontradas) */
+  .fixrow .improw { cursor: pointer; }
+  .fixrow .cands { margin: 6px 0 4px 20px; border-left: 2px solid var(--line); padding-left: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .fixrow .cands[hidden] { display: none; }
+  .fixrow .mline { font-size: .74rem; color: var(--muted); }
   .fixrow:not(.miss) .mline { color: color-mix(in srgb, var(--accent) 75%, #fff); }
-  .fixrow.miss > .improw .mline { color: #e0788a; }
+  .fixrow.miss > .improw { border-color: rgb(248 113 113 / .25); }
+  .fixrow.miss > .improw .mline { color: #f87171; }
   .fixrow.miss > .improw .pub { color: var(--text); border-color: rgb(255 255 255 / .3); }
+  /* movil: hoja inferior */
+  @media (max-width: 820px) {
+    #impmodal { align-items: flex-end; }
+    #impmodal .gbox { width: 100%; max-width: none; max-height: 92vh; box-sizing: border-box; border-radius: 24px 24px 0 0;
+                      padding: 26px 18px calc(18px + env(safe-area-inset-bottom)); animation: impSheet .34s cubic-bezier(.16,1,.3,1); }
+    #impmodal .gbox::before { content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+                              width: 40px; height: 4px; border-radius: 99px; background: rgb(255 255 255 / .22); }
+    .impgrid { grid-template-columns: repeat(2, 1fr); }
+    .implist { max-height: 50vh; }
+    .spbtns { flex-direction: column; }
+  }
+  @keyframes impSheet { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
   .askrow { display: flex; gap: 10px; }
   .askrow .gbtn { flex: 1; }
   .gbtn.ghost { background: rgb(255 255 255 / .07); color: var(--text); border: 1px solid rgb(255 255 255 / .12); }
@@ -1002,24 +1064,26 @@
       <p class="ghint" data-i18n style="margin:12px 0 0">Las canciones se buscarán en YouTube Music y se añadirán a tu cuenta.</p>
     </div>
     <div id="impstep2" hidden>
-      <p class="ghint" id="imphint" style="margin:0 0 10px"></p>
+      <p class="ghint" id="imphint" style="margin:0 0 12px"></p>
+      <div id="impprog" hidden></div>
       <label class="impall" id="impallrow" hidden><input type="checkbox" id="impall"><span data-i18n>Seleccionar todo</span><span class="cnt" id="impcnt"></span></label>
       <div id="implist" class="implist"></div>
-      <p class="ghint" id="impprog" style="margin:10px 0 0" hidden></p>
       <div class="askrow" style="margin-top:14px">
         <button class="gbtn ghost" id="impback" data-i18n>Volver</button>
         <button class="gbtn" id="impgo" data-i18n>Importar selección</button>
       </div>
     </div>
     <div id="impbusy" hidden>
-      <div class="impspin"></div>
-      <p class="ghint" id="impblabel" style="text-align:center;margin:14px 0 10px"></p>
+      <div class="imppct"><span id="imppct">0</span><small>%</small></div>
+      <p class="ghint" id="impblabel"></p>
       <div class="impbarwrap"><div id="impbar"></div></div>
+      <p class="impbsub" id="impbsub"></p>
       <div class="askrow" style="margin-top:18px;justify-content:center">
         <button class="gbtn danger" id="impcancel" data-i18n>Cancelar</button>
       </div>
     </div>
     <div id="impstep3" hidden>
+      <div id="fixres"></div>
       <p class="ghint" id="fixhint" style="margin:0 0 10px"></p>
       <div id="fixlist" class="implist"></div>
       <div class="askrow" style="margin-top:14px">
@@ -1273,7 +1337,10 @@ const EN = {
   "Pulsa «Export All» para bajar todo en un .zip (incluye «Liked Songs»), o exporta playlists sueltas.":
     "Tap “Export All” to download everything as a .zip (includes “Liked Songs”), or export single playlists.",
   "Vuelve aquí y elige el .zip o los .csv descargados.": "Come back here and choose the downloaded .zip or .csv files.",
-  "Abrir Exportify": "Open Exportify", "Elegir archivos": "Choose files",
+  "Abrir Exportify": "Open Exportify", "Elegir archivos": "Choose files", "Importar": "Import",
+  "Importación completada": "Import complete", "Importación completada con avisos": "Import complete with warnings",
+  "No se pudo importar": "Couldn't import", "añadida": "added", "añadidas": "added", "no encontradas": "not found", "no encontrada": "not found", "canción": "song",
+  "fallo": "failed", "fallos": "failed",
   "«Liked Songs» se importa como tus Me gusta; cada playlist se crea en tu cuenta de YouTube Music.":
     "“Liked Songs” is imported as your likes; each playlist is created in your YouTube Music account.",
   "Conectar directamente con la API de Spotify (requiere Premium en la cuenta dueña de la app)":
@@ -2981,11 +3048,13 @@ function csvTracks(rows) {
   const head = rows[0].map(h => h.toLowerCase().trim());
   let ti = head.findIndex(h => h === "track name" || h === "title" || h === "nombre de la pista");
   let ai = head.findIndex(h => h.startsWith("artist name") || h === "artist" || h.startsWith("nombre del artista"));
+  const di = head.findIndex(h => h.includes("duration (ms)") || h === "duration_ms" || h.startsWith("duración"));
   const hasHead = ti !== -1;
   if (ti === -1) ti = 1;          // layout exportify: 1 = Track Name
   if (ai === -1) ai = 3;          // 3 = Artist Name(s)
+  // la duracion (si viene) ayuda a elegir la version correcta en YT Music
   return rows.slice(hasHead ? 1 : 0)
-    .map(r => [(r[ti] || "").trim(), (r[ai] || "").trim()])
+    .map(r => { const t = [(r[ti] || "").trim(), (r[ai] || "").trim()]; const ms = di >= 0 ? parseInt(r[di], 10) : 0; if (ms > 0) t.push(ms); return t; })
     .filter(t => t[0]);
 }
 // lector ZIP minimo (Exportify "Export All"): directorio central + DecompressionStream("deflate-raw")
@@ -3019,7 +3088,7 @@ $("impfile").onchange = async (e) => {
   if (!files.length) return;
   _csvData.clear();
   $("imphint").textContent = t("Elige qué importar («Liked Songs» va a tus Me gusta; cada otro archivo será una playlist en tu cuenta):");
-  $("impgo").hidden = false;
+  $("impgo").hidden = false; $("imphint").hidden = false; $("impprog").hidden = true; $("implist").classList.remove("free");
   const box = $("implist"); box.innerHTML = "";
   const docs = [];
   for (const f of files) {
@@ -3037,7 +3106,7 @@ $("impfile").onchange = async (e) => {
     const liked = _isLikedCsv(base);
     const title = liked ? t("Me gusta") : base.replace(/_/g, " ");
     _csvData.set(id, { title, tracks, liked });
-    box.appendChild(_improw("csv", id, title, tracks.length + " " + t("canciones"), "", true));
+    box.appendChild(_improw("csv", id, title, tracks.length + " " + t(tracks.length === 1 ? "canción" : "canciones"), "", true, "", liked ? "heart" : "playlist"));
   }
   if (!_csvData.size) $("imphint").textContent = t("No se encontraron canciones en los archivos elegidos.");
   $("impprog").hidden = true; $("impgo").disabled = false;
@@ -3046,6 +3115,19 @@ $("impfile").onchange = async (e) => {
   _impStep(2);
 };
 
+function impResultCard(okN, missN, failN, fails) {
+  const state = !okN ? "err" : (missN || failN) ? "warn" : "ok";
+  const el = document.createElement("div"); el.className = "impres " + state;
+  const ico = { ok: "ph-check-circle", warn: "ph-warning-circle", err: "ph-x-circle" }[state];
+  const title = { ok: "Importación completada", warn: "Importación completada con avisos", err: "No se pudo importar" }[state];
+  const chip = (cls, icon, txt) => `<span class="chip ${cls}"><i class="ph ${icon}"></i>${esc(txt)}</span>`;
+  el.innerHTML = `<i class="rico ph-fill ${ico}"></i><div class="rt">${esc(t(title))}</div><div class="chips">`
+    + (okN ? chip("ok", "ph-check", okN + " " + t(okN === 1 ? "añadida" : "añadidas")) : "")
+    + (missN ? chip("miss", "ph-magnifying-glass", missN + " " + t(missN === 1 ? "no encontrada" : "no encontradas")) : "")
+    + (failN ? chip("err", "ph-x", failN + " " + t(failN === 1 ? "fallo" : "fallos")) : "")
+    + `</div>` + (fails.length ? `<ul class="errs">${fails.map(f => `<li>${esc(f)}</li>`).join("")}</ul>` : "");
+  return el;
+}
 /* ---------- importacion desde Spotify ----------
    login real (ventana pywebview, main.py) -> /spot/lib lista la biblioteca -> checklist ->
    /spot/import por seleccion (backend matchea cada pista en YT Music y crea/likea/suscribe) */
@@ -3054,7 +3136,7 @@ let _impBusyFlag = false, _impCancel = false;
 function _impBusy(on) {
   _impBusyFlag = on;
   $("impclose").style.display = on ? "none" : "";   // importando: solo se sale con Cancelar
-  if (on) { $("impbar").style.width = "0%"; _impStep("busy"); }
+  if (on) { $("impbar").style.width = "0%"; $("imppct").textContent = "0"; $("impbsub").textContent = ""; _impStep("busy"); }
 }
 $("impcancel").onclick = () => {
   _impCancel = true;
@@ -3070,18 +3152,19 @@ $("impback").onclick = () => _impStep(1);
 const EXPORTIFY = "https://exportify.app/";
 function spotChooser() {
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-  $("imphint").textContent = "";
+  $("imphint").textContent = ""; $("imphint").hidden = true;
   $("impprog").hidden = true; $("impallrow").hidden = true; $("impgo").hidden = true;   // la guia no importa nada por si sola
-  const box = $("implist"); box.innerHTML = "";
+  const box = $("implist"); box.innerHTML = ""; box.classList.add("free");
   const g = document.createElement("div"); g.className = "spotguide";
-  g.innerHTML = `<ol>
-      <li>${esc(t("Abre Exportify e inicia sesión con tu cuenta de Spotify."))}</li>
-      <li>${esc(t("Pulsa «Export All» para bajar todo en un .zip (incluye «Liked Songs»), o exporta playlists sueltas."))}</li>
-      <li>${esc(t("Vuelve aquí y elige el .zip o los .csv descargados."))}</li>
-    </ol>
-    <div class="askrow"><button class="gbtn ghost" id="spOpen"><i class="ph ph-arrow-square-out"></i> ${esc(t("Abrir Exportify"))}</button>
-    <button class="gbtn" id="spPick"><i class="ph ph-file-arrow-up"></i> ${esc(t("Elegir archivos"))}</button></div>
-    <p class="ghint">${esc(t("«Liked Songs» se importa como tus Me gusta; cada playlist se crea en tu cuenta de YouTube Music."))}</p>`
+  g.innerHTML = `<div class="spbrand"><i class="ph-fill ph-spotify-logo"></i><i class="ph ph-arrow-right"></i><i class="ph-fill ph-youtube-logo"></i></div>
+    <div class="spsteps">
+      <div class="spstep"><b>1</b><span>${esc(t("Abre Exportify e inicia sesión con tu cuenta de Spotify."))}</span></div>
+      <div class="spstep"><b>2</b><span>${esc(t("Pulsa «Export All» para bajar todo en un .zip (incluye «Liked Songs»), o exporta playlists sueltas."))}</span></div>
+      <div class="spstep"><b>3</b><span>${esc(t("Vuelve aquí y elige el .zip o los .csv descargados."))}</span></div>
+    </div>
+    <div class="spbtns"><button class="gbtn ghost" id="spOpen"><i class="ph ph-arrow-square-out"></i>${esc(t("Abrir Exportify"))}</button>
+    <button class="gbtn" id="spPick"><i class="ph ph-file-arrow-up"></i>${esc(t("Elegir archivos"))}</button></div>
+    <p class="spnote">${esc(t("«Liked Songs» se importa como tus Me gusta; cada playlist se crea en tu cuenta de YouTube Music."))}</p>`
     + (local ? `<button class="splink" id="spDirect">${esc(t("Conectar directamente con la API de Spotify (requiere Premium en la cuenta dueña de la app)"))}</button>` : "");
   box.appendChild(g);
   g.querySelector("#spOpen").onclick = () => window.open(EXPORTIFY, "_blank", "noopener");
@@ -3091,7 +3174,7 @@ function spotChooser() {
 }
 async function spotFlow() {
   $("imphint").textContent = t("Conectando con Spotify...");
-  $("implist").innerHTML = ""; $("impprog").hidden = true; $("impgo").disabled = false; $("impgo").hidden = false;
+  $("implist").innerHTML = ""; $("implist").classList.remove("free"); $("impprog").hidden = true; $("impgo").disabled = false; $("impgo").hidden = false; $("imphint").hidden = false;
   $("impallrow").hidden = true;
   _impStep(2);
   try {
@@ -3125,7 +3208,7 @@ async function spotFlow() {
     renderSpotPicker(d);
   } catch (e) { $("imphint").textContent = "Error: " + e; }
 }
-function _improw(kind, id, title, sub, cover, checked, badge) {
+function _improw(kind, id, title, sub, cover, checked, badge, icon) {
   const l = document.createElement("label"); l.className = "improw" + (kind === "artist" ? " artist" : "");
   l.innerHTML = '<input type="checkbox"><img alt=""><div class="it"><b></b><span></span></div>';
   const inp = l.querySelector("input");
@@ -3133,9 +3216,15 @@ function _improw(kind, id, title, sub, cover, checked, badge) {
   inp.onchange = _impSync;
   Object.assign(inp.dataset, { kind, id, title, cover: cover || "" });
   const im = l.querySelector("img");
-  if (cover) im.src = cover; else im.remove();
+  if (cover) im.src = cover;
+  else {   // sin portada: baldosa con icono (Me gusta con su degradado, el resto playlist/album)
+    const liked = icon === "heart" || kind === "liked";
+    const a = document.createElement("span"); a.className = "art" + (liked ? " liked" : "");
+    a.innerHTML = `<i class="${liked ? "ph-fill ph-heart" : "ph ph-" + (icon || (kind === "album" ? "vinyl-record" : "playlist"))}"></i>`;
+    im.replaceWith(a);
+  }
   l.querySelector("b").textContent = title;
-  l.querySelector("span").textContent = sub || "";
+  l.querySelector(".it span").textContent = sub || "";
   if (badge) {
     const b = document.createElement("span");
     b.className = "pub"; b.textContent = badge;
@@ -3150,6 +3239,9 @@ function _impSync() {
   $("impall").checked = on === all.length && all.length > 0;
   $("impall").indeterminate = on > 0 && on < all.length;
   $("impcnt").textContent = on + " / " + all.length;
+  const go = $("impgo");
+  go.disabled = !on;
+  go.textContent = on ? t("Importar") + " (" + on + ")" : t("Importar selección");
 }
 $("impall").onchange = () => {
   document.querySelectorAll("#implist input").forEach(i => { i.checked = $("impall").checked; });   // incluye los de seccion
@@ -3175,7 +3267,7 @@ function renderSpotPicker(d) {
   const songsWord = lang === "en" ? " songs" : " canciones";
   if (d.liked) {
     sec("Me gusta");
-    box.appendChild(_improw("liked", "", t("Canciones que te gustan"), d.liked + songsWord, "", true));
+    box.appendChild(_improw("liked", "", t("Canciones que te gustan"), d.liked + songsWord, "", true, "", "heart"));
   }
   if ((d.playlists || []).length) {
     sec("Playlists");
@@ -3209,8 +3301,10 @@ $("impgo").onclick = async () => {
     try {
       const p = await jget("/imp/progress");
       if (p.active && p.total) {
-        $("impblabel").textContent = en ? `Importing "${p.label}": ${p.done}/${p.total} songs...` : `Importando "${p.label}": ${p.done}/${p.total} canciones...`;
-        $("impbar").style.width = Math.round(p.done / p.total * 100) + "%";
+        const pc = Math.min(100, Math.round(p.done / p.total * 100));
+        $("impblabel").textContent = (en ? "Importing “" : "Importando «") + p.label + (en ? "”" : "»");
+        $("impbsub").textContent = en ? `${p.done} of ${p.total} songs` : `${p.done} de ${p.total} canciones`;
+        $("impbar").style.width = pc + "%"; $("imppct").textContent = pc;
       }
     } catch (e) {}
   }, 900);
@@ -3247,16 +3341,14 @@ $("impgo").onclick = async () => {
   if (_impCancel) return;   // el botón Cancelar ya cerró el modal
   _impBusy(false);
   _ytSynced = false; syncYtLibrary(true);   // force: refleja el estado REAL de la cuenta tras importar
-  const summary = (en
-    ? `Done: ${okN} items imported` + (missN ? `, ${missN} songs not found` : "") + (failN ? `, ${failN} failed` : "") + "."
-    : `Listo: ${okN} elementos importados` + (missN ? `, ${missN} canciones no encontradas` : "") + (failN ? `, ${failN} fallos` : "") + ".")
-    + (fails.length ? " " + fails.join(" · ") : "");
+  const card = impResultCard(okN, missN, failN, fails);
   if (fixQueue.length) {
-    $("fixhint").textContent = summary + " " + t("Revisa el resultado en el orden original: toca cualquier canción para cambiarla de versión o buscar las no encontradas.");
+    $("fixres").replaceChildren(card);
+    $("fixhint").textContent = t("Revisa el resultado en el orden original: toca cualquier canción para cambiarla de versión o buscar las no encontradas.");
     renderFixList(fixQueue);
     _impStep(3);
   } else {
-    $("impprog").hidden = false; $("impprog").textContent = summary;
+    $("impprog").replaceChildren(card); $("impprog").hidden = false;
     _impStep(2);
   }
 };

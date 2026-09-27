@@ -658,12 +658,21 @@ def collection(browse_id):
     return cached(key, 600, lambda: _collection(browse_id))
 
 
+def _int_or_none(v):   # 116 / "116" / "1.234" / match de regex -> int
+    if hasattr(v, "group"):
+        v = v.group(1)
+    try:
+        return int(re.sub(r"[^\d]", "", str(v))) if v is not None and re.search(r"\d", str(v)) else None
+    except ValueError:
+        return None
+
+
 def _collection_auth(pid):
     # playlists con sesion: get_playlist autenticado (las PRIVADAS son invisibles al browse anonimo)
     y = ytm()
     if not y:
         return None
-    d = y.get_playlist(pid, limit=500)
+    d = y.get_playlist(pid, limit=5000)   # tope de YouTube: 5000 (antes 500 cortaba las grandes)
     tracks = []
     for t in d.get("tracks") or []:
         if not t.get("videoId"):
@@ -684,7 +693,7 @@ def _collection_auth(pid):
     meta = " • ".join(x for x in [("%s canciones" % n) if n else "", d.get("duration") or ""] if x)
     au = d.get("author") or {}
     return {"kind": "playlist", "title": d.get("title", ""), "subtitle": priv.get(d.get("privacy"), "Playlist"),
-            "creator": au.get("name", ""), "creatorId": au.get("id"), "meta": meta,
+            "creator": au.get("name", ""), "creatorId": au.get("id"), "meta": meta, "count": _int_or_none(n),
             "description": d.get("description") or "", "cover": _yt_thumb(d), "tracks": tracks,
             "editable": bool(d.get("owned"))}
 
@@ -719,6 +728,7 @@ def _collection(browse_id):
                            for r in (hdr.get("straplineTextOne", {}) or {}).get("runs", [])
                            if ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "").startswith("UC")), ""),
         "meta": _runs_text(hdr.get("secondSubtitle")),     # "10 canciones . 44 min"
+        "count": _int_or_none(re.match(r"\s*([\d.,]+)", _runs_text(hdr.get("secondSubtitle")) or "")),
         "description": _runs_text(hdr.get("description")),
         "cover": _largest_thumb(hdr.get("thumbnail", {})),
         "explicit": _is_explicit(hdr),

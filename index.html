@@ -2166,6 +2166,12 @@ function renderCollection(d) {
   const libE = getLibrary().find(x => x.id === _colId);
   _colEditable = !!(d.editable || (libE && libE.editable));   // owned del backend O colaborativa unida localmente
   if (d.kind === "playlist" && d.cover && _colId) setLibCover(_colId, d.cover);   // sidebar refleja la cover real al abrir
+  const countSub = d.kind === "playlist" && d.count != null ? d.count + " canciones" : "";
+  if (countSub && libE && libE.subtitle !== countSub) {   // al abrirla se ve el total real: la biblioteca lo adopta
+    libE.subtitle = countSub;
+    const lib = getLibrary(), e2 = lib.find(x => x.id === _colId);
+    if (e2) { e2.subtitle = countSub; localStorage.setItem("lightning.library", JSON.stringify(lib)); }
+  }
   const cv = $("collectionView"); cv.innerHTML = "";
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
@@ -2187,7 +2193,7 @@ function renderCollection(d) {
   cm.appendChild(document.createTextNode(d.meta || ""));
   const act = document.createElement("div"); act.className = "col-actions";
   act.appendChild(saveBtn(() => ({ id: _colId, kind: d.kind === "album" ? "albums" : "playlists",
-    title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover })));
+    title: d.title, subtitle: countSub || d.subtitle || d.creator || "", cover: d.cover })));
   const more = document.createElement("button"); more.className = "savebtn morebtn"; more.setAttribute("aria-label", "Opciones");
   more.innerHTML = '<i class="ph ph-dots-three-outline"></i>';
   more.onclick = (e) => {
@@ -2566,6 +2572,8 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
       if (ex) {   // refresca editable, creator y portada de entradas ya presentes
         if (it.editable !== undefined && ex.editable !== it.editable) { ex.editable = it.editable; nB++; }
         if (it.creator && ex.creator !== it.creator) { ex.creator = it.creator; nB++; }
+        // "N canciones" cambia al anadir/quitar: antes solo se guardaba al entrar en la biblioteca
+        if (it.kind === "playlists" && /\d/.test(it.subtitle || "") && ex.subtitle !== it.subtitle) { ex.subtitle = it.subtitle; nB++; }
         // playlists creadas/importadas nacen con PL_EMPTY_COVER y solo se corregian al abrirlas
         if (it.cover && ex.cover !== it.cover) { ex.cover = it.cover; nB++; }
         return;

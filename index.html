@@ -4121,7 +4121,9 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
       liked: isLiked(current.id) }).catch(() => {});
   };
   mc.addListener("action", (e) => {
-    if (e.action === "play" || e.action === "pause") togglePlay();
+    // explicitos (no toggle): la pausa por Bluetooth o un "play" repetido no deben invertir el estado
+    if (e.action === "play") { if (audio.paused) togglePlay(); }
+    else if (e.action === "pause") { if (!audio.paused) togglePlay(); }
     else if (e.action === "next") playNext(false);
     else if (e.action === "prev") { playPrev(); _mcPush(); }
     else if (e.action === "like") { if (current) toggleLike(current); _mcPush(); }

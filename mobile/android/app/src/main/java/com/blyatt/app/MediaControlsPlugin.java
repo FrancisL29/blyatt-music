@@ -11,7 +11,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -27,6 +33,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 
 import java.io.InputStream;
+import java.util.HashSet;
+import java.util.Set;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -73,13 +81,76 @@ public class MediaControlsPlugin extends Plugin {
             @Override public void onReceive(Context c, Intent i) { emit(i.getStringExtra("a"), null); }
         };
         ContextCompat.registerReceiver(ctx, btnReceiver, new IntentFilter(BTN_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED);
+        watchBluetooth(ctx);
+    }
+
+    // ---- app visible o no (entre onStart y onStop la ventana se ve) ----
+    private volatile boolean visible = true;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable rehide = () -> {
+        if (!visible) getBridge().getWebView().dispatchWindowVisibilityChanged(View.GONE);
+    };
+
+    @Override protected void handleOnStart() { visible = true; main.removeCallbacks(rehide); }
+    @Override protected void handleOnStop() { visible = false; }
+
+    /**
+     * Chromium CONGELA una pagina oculta a los ~5 min si no esta sonando: con la musica en pausa y la
+     * app en segundo plano, el "play" de la notificacion llegaba a la WebView pero el JS no corria hasta
+     * abrir la app. Se marca la WebView visible un momento (descongela y procesa la accion); al volver
+     * a ocultarla ya suena, y una pagina que suena no se congela.
+     */
+    private void wakeWebView() {
+        if (visible || playing) return;   // sonando no se congela: no hace falta
+        main.post(() -> {
+            getBridge().getWebView().dispatchWindowVisibilityChanged(View.VISIBLE);
+            main.removeCallbacks(rehide);
+            main.postDelayed(rehide, 8000);
+        });
     }
 
     private void emit(String action, Long posMs) {
+        wakeWebView();
         JSObject o = new JSObject();
         o.put("action", action);
         if (posMs != null) o.put("position", posMs / 1000.0);
         notifyListeners("action", o);
+    }
+
+    // ---- pausa al conectar/desconectar un dispositivo de audio Bluetooth (sin permiso de BT) ----
+    private final Set<Integer> btIds = new HashSet<>();
+
+    private static boolean isBt(AudioDeviceInfo d) {
+        switch (d.getType()) {
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+            case AudioDeviceInfo.TYPE_HEARING_AID:
+            case AudioDeviceInfo.TYPE_BLE_HEADSET:
+            case AudioDeviceInfo.TYPE_BLE_SPEAKER:
+            case AudioDeviceInfo.TYPE_BLE_BROADCAST:
+                return d.isSink();
+            default:
+                return false;
+        }
+    }
+
+    private void watchBluetooth(Context ctx) {
+        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+        // los ya conectados al abrir no cuentan (el callback los reporta al registrarse)
+        for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) if (isBt(d)) btIds.add(d.getId());
+        am.registerAudioDeviceCallback(new AudioDeviceCallback() {
+            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] ds) {
+                boolean changed = false;
+                for (AudioDeviceInfo d : ds) if (isBt(d) && btIds.add(d.getId())) changed = true;
+                if (changed && playing) emit("pause", null);
+            }
+            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] ds) {
+                boolean changed = false;
+                for (AudioDeviceInfo d : ds) if (btIds.remove(d.getId())) changed = true;
+                if (changed && playing) emit("pause", null);
+            }
+        }, main);
     }
 
     private PendingIntent btn(String action, int req) {

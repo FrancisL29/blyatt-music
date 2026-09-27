@@ -1305,12 +1305,45 @@ def _web_hls_url(video_id, session_file):
     n = re.search(r"/n/([^/]+)/", urlparse(hls).path)
     if n:
         hls = hls.replace("/n/%s/" % n.group(1), "/n/%s/" % _jsc.solve_n(pi, n.group(1)), 1)
-    return hls, ua
+    return hls, ua, time.time() + _ad_wait(d)
 
 
-def _hls_download(master, ua, dst):
+def _ad_wait(d):
+    """Cuenta sin Premium: con anuncio previo googlevideo da 403 a los segmentos hasta que el anuncio
+    se podria saltar (~5s desde la peticion al player). Mismo calculo que yt-dlp (available_at)."""
+    rends = []
+    for p in d.get("adPlacements") or []:
+        c = (p.get("adPlacementRenderer") or {})
+        if ((c.get("config") or {}).get("adPlacementConfig") or {}).get("kind") == "AD_PLACEMENT_KIND_START":
+            rends.append((c.get("renderer") or {}).get("instreamVideoAdRenderer"))
+    for sl in d.get("adSlots") or []:
+        r = sl.get("adSlotRenderer") or {}
+        if (r.get("adSlotMetadata") or {}).get("triggerEvent") != "SLOT_TRIGGER_EVENT_BEFORE_CONTENT":
+            continue
+        rc = ((((r.get("fulfillmentContent") or {}).get("fulfilledLayout") or {})
+               .get("playerBytesAdLayoutRenderer") or {}).get("renderingContent") or {})
+        rends.append(rc.get("instreamVideoAdRenderer"))
+        for lay in (rc.get("playerBytesSequentialLayoutRenderer") or {}).get("sequentialLayouts") or []:
+            rends.append(((lay.get("playerBytesAdLayoutRenderer") or {}).get("renderingContent") or {})
+                         .get("instreamVideoAdRenderer"))
+    wait = 0.0
+    for r in rends:
+        if not isinstance(r, dict):
+            continue
+        if r.get("skipOffsetMilliseconds") is not None:
+            wait += float(r["skipOffsetMilliseconds"]) / 1000
+        else:
+            try:
+                wait += int(parse_qs(r.get("playerVars") or "")["length_seconds"][-1])
+            except Exception:
+                pass
+    return min(wait, 60)
+
+
+def _hls_download(master, ua, available_at, dst):
     """Variante 360p (AAC-LC 128k, el mismo audio del itag 18) -> segmentos en paralelo -> ffmpeg
-    se queda con el audio sin recodificar."""
+    se queda con el audio sin recodificar. Las playlists se pueden pedir ya; los segmentos, cuando
+    pase el anuncio (available_at)."""
     lines = _yt_get(master, ua).decode().splitlines()
     vars_ = [l for l in lines if l.startswith("http")]
     var = next((v for it in ("93", "94", "92", "91", "95") for v in vars_ if "/itag/%s/" % it in v), None)
@@ -1319,6 +1352,9 @@ def _hls_download(master, ua, dst):
     segs = [urljoin(var, l) for l in _yt_get(var, ua).decode().splitlines() if l and not l.startswith("#")]
     if not segs or len(segs) > 2000:
         raise IOError("playlist rara")
+    wait = available_at - time.time()
+    if wait > 0:
+        time.sleep(wait + 0.5)
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         data = list(ex.map(lambda u: _yt_get(u, ua, timeout=30), segs))
     if sum(map(len, data)) > 4 * AUDIO_MAX_MB * 1024 * 1024:

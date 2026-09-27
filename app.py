@@ -1287,10 +1287,10 @@ def _mp4_ok(path):
                 if len(h) < 8:
                     return False
                 n, t = struct.unpack(">I4s", h)
-                if t in (b"mdat", b"moof"):
-                    return True
                 if n == 1:
                     n = struct.unpack(">Q", f.read(8))[0] - 8
+                if t == b"moof" or (t == b"mdat" and (n == 0 or n > 4096)):   # el stub trae un mdat VACIO (8 bytes)
+                    return True
                 if n < 8:
                     return False
                 f.seek(n - 8, 1)

@@ -1821,6 +1821,50 @@ def _probe_session(cookie_header, user_agent):
     return logged, rc.get("visitorData", "")
 
 
+# ---------- vincular dispositivo (iPhone / navegador: Safari no puede capturar la cookie de Google) ----------
+# Un dispositivo con sesion propia genera un codigo de 6 cifras (10 min, un solo uso); el otro lo
+# introduce y recibe una COPIA de esa sesion en su propio archivo (cerrar sesion en uno no afecta al otro).
+_LINKS, _link_lock, _link_fails = {}, threading.Lock(), []
+
+
+def link_new():
+    src = _bid_file()
+    if not SERVER_MODE or not os.path.isfile(src) or src == BROWSER_FILE:
+        return {"error": "Este dispositivo no tiene una sesión propia que compartir"}
+    import secrets
+    now = time.time()
+    with _link_lock:
+        for c in [c for c, v in _LINKS.items() if v[0] < now or v[1] == src]:   # caducados + el anterior de este
+            _LINKS.pop(c, None)
+        code = "%06d" % secrets.randbelow(10 ** 6)
+        while code in _LINKS:
+            code = "%06d" % secrets.randbelow(10 ** 6)
+        _LINKS[code] = (now + 600, src)
+    return {"code": code, "expires": 600}
+
+
+def link_use(code):
+    code, now = re.sub(r"\D", "", str(code or "")), time.time()
+    b = getattr(_REQ, "bid", "")
+    if not SERVER_MODE or not re.fullmatch(r"[0-9a-f]{16}", b or ""):
+        return {"error": "No disponible"}
+    with _link_lock:
+        _link_fails[:] = [t for t in _link_fails if now - t < 600]
+        if len(_link_fails) >= 20:   # 1e6 codigos, 20 fallos/10min en TOTAL: fuerza bruta inviable
+            return {"error": "Demasiados intentos. Espera unos minutos."}
+        v = _LINKS.pop(code, None) if len(code) == 6 else None
+        if not v or v[0] < now or not os.path.isfile(v[1]):
+            _link_fails.append(now)
+            return {"error": "Código inválido o caducado"}
+    tgt = _bid_path(b)
+    if os.path.abspath(tgt) != os.path.abspath(v[1]):
+        import shutil
+        shutil.copyfile(v[1], tgt)
+        _ytm_by.pop(tgt, None)
+        _purge_session(tgt)
+    return {"ok": True}
+
+
 def save_browser_cookie(cookie_header, user_agent=None, target=None):
     # cookies frescas extraidas del perfil WebView2 -> browser.json; devuelve True si la sesion vale.
     # CRITICO: guardar x-goog-visitor-id REAL de la sesion; si falta, ytmusicapi inyecta uno anonimo
@@ -3247,6 +3291,19 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n).decode("utf-8", "replace")
             return self._json(auth_set_headers(raw))
+        if u.path == "/auth/link/new":
+            return self._json(link_new())
+        if u.path == "/auth/link/use":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+            except Exception:
+                d = {}
+            if self._new_bid:   # sin cookie bid el dispositivo no sabria que sesion es la suya
+                return self._json({"error": "Recarga la página e inténtalo de nuevo"})
+            return self._json(link_use(d.get("code")))
         if u.path == "/auth/cookie":
             # login nativo (app Capacitor): el WebView captura la cookie de music.youtube.com y la manda aqui
             n = int(self.headers.get("Content-Length") or 0)

@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#0b0b0f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blyatt">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/assets/manifest.json">
 <link rel="icon" type="image/png" href="/assets/favicon.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -681,11 +683,25 @@
   #gateBtn:disabled { opacity: .6; cursor: default; }
   .gate-box small { margin-top: 16px; color: rgb(255 255 255 / .5); font-size: .78rem; }
   body.gate-on #toast { z-index: 40; }
+  #iosBack { display: none; }
+  #gateAlt { margin-top: 12px; border: none; background: none; color: rgb(255 255 255 / .75); font-size: .92rem;
+             font-weight: 600; padding: 10px; cursor: pointer; }
+  #gateAlt[hidden] { display: none; }
 
   #mnav, #mUser, #mAdd { display: none; }
   @media (max-width: 820px) {
     html, body, main { overflow-x: hidden; }
     #backBtn { display: none !important; }   /* en movil navega el boton fisico/gesto de Android */
+    /* iPhone (app de inicio, barra de estado translucida): nada fijo arriba debe quedar bajo el notch.
+       env() vale 0 en Android y en navegadores sin notch */
+    .topbar { padding-top: calc(20px + env(safe-area-inset-top)); }
+    #mUser, body[data-mv="lib"] #mAdd { top: calc(22px + env(safe-area-inset-top)) !important; }
+    body[data-mv="collection"] main, body[data-mv="liked"] main { padding-top: env(safe-area-inset-top); }
+    /* iPhone instalado: sin boton ni gesto de "atras" del sistema -> boton flotante propio */
+    #iosBack.on { display: flex; align-items: center; justify-content: center; position: fixed;
+                  top: calc(22px + env(safe-area-inset-top)); left: 14px; z-index: 6; width: 38px; height: 38px; padding: 0;
+                  border-radius: 50%; border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--text);
+                  font-size: 1.2rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     #mUser { display: flex; align-items: center; justify-content: center; position: fixed;
              top: 22px; left: 14px; z-index: 5; width: 38px; height: 38px; padding: 0; box-sizing: border-box;
              aspect-ratio: 1; border-radius: 50%;
@@ -1027,6 +1043,7 @@
   <button data-mv="buscar" aria-label="Buscar"><i class="ph ph-magnifying-glass"></i></button>
   <button data-mv="lib" aria-label="Biblioteca"><i class="ph ph-books"></i></button>
 </nav>
+<button id="iosBack" aria-label="Volver"><i class="ph ph-caret-left"></i></button>
 <button id="mUser" aria-label="Cuenta"><i class="ph ph-user" id="muico"></i><img id="muimg" alt="" hidden></button>
 <button id="mAdd" aria-label="Añadir a la biblioteca"><i class="ph ph-plus"></i></button>
 <div id="player" role="region" aria-label="Reproductor">
@@ -1070,8 +1087,9 @@
     <img class="gate-logo" src="/assets/blyatt_logo.png" alt="Blyatt">
     <h1 data-i18n>Bienvenido a Blyatt</h1>
     <p data-i18n>Inicia sesión con tu cuenta de Google para cargar tu música: tus me gusta, playlists, álbumes y artistas de YouTube Music.</p>
-    <button id="gateBtn" disabled><i class="ph ph-google-logo"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>
-    <small data-i18n>Tu sesión se guarda solo en este dispositivo.</small>
+    <button id="gateBtn" disabled><i class="ph ph-google-logo" id="gateIco"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>
+    <button id="gateAlt" hidden data-i18n>Continuar sin cuenta</button>
+    <small id="gateHint" data-i18n>Tu sesión se guarda solo en este dispositivo.</small>
   </div>
 </div>
 
@@ -1243,6 +1261,16 @@ const EN = {
   "Reproducidos recientemente": "Recently played",
   "Configuración: próximamente": "Settings: coming soon", "próximamente": "coming soon",
   "Historial": "History", "Cerrar": "Close", "Cola": "Queue",
+  "Continuar sin cuenta": "Continue without an account", "Vincular con un código": "Link with a code",
+  "Vincular dispositivo": "Link a device", "Vincular": "Link", "Listo": "Done", "Código": "Code",
+  "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
+  "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
+  "En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.":
+    "On a device where you're already signed in, open your user menu → Link a device.",
+  "En un dispositivo donde ya iniciaste sesión (app Android o escritorio), abre tu menú de usuario → Vincular dispositivo.":
+    "On a device where you're already signed in (Android app or desktop), open your user menu → Link a device.",
+  "En el iPhone abre blyatt.stream en Safari, pulsa «Vincular con un código» e introdúcelo. Caduca en 10 minutos y sirve una sola vez. El otro dispositivo usará tu cuenta de YouTube Music.":
+    "On the iPhone open blyatt.stream in Safari, tap “Link with a code” and enter it. It expires in 10 minutes and works once. The other device will use your YouTube Music account.",
 };
 const getLang = () => localStorage.getItem("lightning.lang") || "es";
 let lang = getLang();
@@ -1280,6 +1308,9 @@ document.addEventListener("error", (e) => {
   img.src = "/img?u=" + encodeURIComponent(img.src);
 }, true);
 
+// iPhone/iPad en Safari o instalada en la pantalla de inicio (no la app nativa de Android)
+const IOS_WEB = !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
+  && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 /* ====== motor de audio Web Audio (gapless real, sample-accurate) ====== */
 const AC = new (window.AudioContext || window.webkitAudioContext)();
 const gainNode = AC.createGain(); gainNode.connect(AC.destination);
@@ -1437,6 +1468,88 @@ const audio = {
   play() { if (AC.state === "suspended") AC.resume(); if (!eng.playing && eng.buf) { _startBuf(eng.buf, Math.min(eng.offset, eng.dur)); if (eng.onState) eng.onState(); scheduleGaplessNext(); } },
   pause() { if (eng.playing) { eng.offset = AC.currentTime - eng.start; _stop(); eng.playing = false; if (eng.onState) eng.onState(); } },
 };
+/* ====== iPhone/iPad: motor con un elemento <audio> ======
+   iOS suspende Web Audio al bloquear la pantalla o salir de la app; un <audio> sigue sonando en segundo
+   plano y con controles en la pantalla de bloqueo (Media Session). Misma interfaz que el motor Web Audio
+   (engLoad / engScheduleNext / fachada `audio`); sin gapless exacto: la siguiente se precarga (bytes en
+   memoria) y entra al terminar la actual. */
+if (IOS_WEB) (() => {
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}   // suena aunque el iPhone este en silencio
+  const el = new Audio(); el.preload = "auto"; el.setAttribute("playsinline", "");
+  const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+  const real = () => !!el.src && el.src !== SILENT;
+  // iOS solo deja reproducir por codigo un <audio> que ya sono dentro de un toque: se "desbloquea" en el 1er toque
+  let unlocked = false;
+  const unlock = () => {
+    if (unlocked || real()) return;
+    el.src = SILENT;
+    el.play().then(() => { unlocked = true; if (!real()) el.pause(); }).catch(() => {});
+  };
+  ["touchend", "click"].forEach(ev => document.addEventListener(ev, unlock, { capture: true, passive: true }));
+  const srcs = new Map();   // id -> Promise<{url, put}> (blob en memoria; acotada)
+  function srcFor(id, fresh) {
+    if (!fresh && srcs.has(id)) return srcs.get(id);
+    const p = (async () => {
+      const cached = fresh ? null : await _acGet(id);
+      const ab = cached || await fetchStream(id);
+      return { url: URL.createObjectURL(new Blob([ab], { type: "audio/mp4" })), put: cached ? null : ab };
+    })();
+    srcs.set(id, p); p.catch(() => srcs.delete(id));
+    for (const [k, v] of srcs) {
+      if (srcs.size <= 3) break;
+      if (k === eng.cur || (eng.next && k === eng.next.id) || k === id) continue;
+      srcs.delete(k); v.then(o => URL.revokeObjectURL(o.url)).catch(() => {});
+    }
+    return p;
+  }
+  function loadInto(url) {
+    return new Promise((res, rej) => {
+      const off = () => { el.removeEventListener("loadedmetadata", ok); el.removeEventListener("error", bad); };
+      const ok = () => { off(); res(); }, bad = () => { off(); rej(new Error("Unable to decode audio data")); };
+      el.addEventListener("loadedmetadata", ok); el.addEventListener("error", bad);
+      el.src = url; el.load();
+    });
+  }
+  async function start(id) {
+    for (let i = 0; ; i++) {
+      const o = await srcFor(id, i > 0);
+      eng.cur = id;
+      try {
+        await loadInto(o.url);
+        if (o.put) { _acPut(id, o.put); o.put = null; }   // en el dispositivo solo lo que cargo bien
+        eng.buf = id; eng.dur = isFinite(el.duration) ? el.duration : 0;
+        await el.play();
+        return;
+      } catch (e) {
+        if (e && e.name === "NotAllowedError") { eng.buf = id; throw new Error(t("Toca reproducir para empezar")); }
+        srcs.delete(id);
+        if (AUDIO_CACHE) caches.open(AUDIO_CACHE).then(c => c.delete("/stream?id=" + id)).catch(() => {});
+        if (i) throw e;   // copia local rota: 2o intento directo del server
+      }
+    }
+  }
+  engLoad = async (id) => { eng.next = null; await start(id); };
+  engScheduleNext = async (song) => { eng.next = song || null; if (song) srcFor(song.id).catch(() => {}); };
+  _clearGapless = () => { eng.next = null; };
+  el.addEventListener("ended", async () => {
+    const s = eng.next; eng.next = null;
+    if (!s) { eng.playing = false; if (eng.onEnded) eng.onEnded(); return; }
+    try { await start(s.id); if (eng.onAdvance) eng.onAdvance(s); }
+    catch (e) { eng.playing = false; if (eng.onEnded) eng.onEnded(); }
+  });
+  el.addEventListener("play", () => { if (!real()) return; eng.playing = true; if (eng.onState) eng.onState(); });
+  el.addEventListener("pause", () => { if (!real()) return; eng.playing = false; if (eng.onState) eng.onState(); });
+  el.addEventListener("durationchange", () => { if (real() && isFinite(el.duration)) eng.dur = el.duration; });
+  Object.defineProperties(audio, {
+    currentTime: { configurable: true, get: () => (real() ? el.currentTime : eng.offset) || 0,
+                   set: v => { v = Math.max(0, Math.min(v, eng.dur || v)); if (real()) { try { el.currentTime = v; } catch (e) {} } else eng.offset = v; } },
+    duration: { configurable: true, get: () => eng.dur },
+    paused: { configurable: true, get: () => !real() || el.paused },
+    volume: { configurable: true, get: () => el.volume, set: v => { el.volume = v; } },   // iOS ignora el volumen por codigo
+    play: { configurable: true, value: () => { if (real()) el.play().catch(() => {}); } },
+    pause: { configurable: true, value: () => { if (real()) el.pause(); } },
+  });
+})();
 const seek = $("seek"), vol = $("vol"), toggleIcon = $("toggle").querySelector("i");
 let current = null, lastResults = [], view = "buscar";
 let queue = [], qIndex = -1, shuffle = false, repeat = "off";  // repeat: off | all | one
@@ -2269,6 +2382,8 @@ function syncMnav(v) {
   document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const mu = $("mUser");
   if (mu) mu.classList.toggle("hid", !["home", "buscar", "lib"].includes(v));   // avatar solo en las 3 pantallas de la nav
+  const ib = $("iosBack");
+  if (ib) ib.classList.toggle("on", IOS_WEB && !["home", "buscar", "lib"].includes(v));
 }
 function openMobileLibrary(push = true) {
   // estado propio en el historial: volver atras desde una playlist restaura la biblioteca movil
@@ -2434,14 +2549,24 @@ function paintUserChip() {
 // que no asome la app vacia mientras llega /auth/status; escritorio/navegador no la usan
 const IS_APP = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
 function syncGate(checking) {
-  if (!IS_APP) return;
-  const need = checking || !_authSt.logged_in;
+  if (!IS_APP && !IOS_WEB) return;
+  let guest = false; try { guest = IOS_WEB && localStorage.getItem("lightning.guest") === "1"; } catch (e) {}
+  const need = !guest && (checking || !_authSt.logged_in);
   $("gate").hidden = !need; document.body.classList.toggle("gate-on", need);
   $("gateBtn").disabled = !!checking;
+  if (IOS_WEB) {   // Safari no puede capturar la cookie de Google: se vincula con un codigo de otro dispositivo
+    $("gateIco").className = "ph ph-link";
+    $("gateLbl").textContent = t(checking ? "Comprobando sesión…" : "Vincular con un código");
+    $("gateAlt").hidden = !!checking;
+    $("gateHint").textContent = t("En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.");
+    return;
+  }
   $("gateLbl").textContent = t(checking ? "Comprobando sesión…" : _authSt.stale ? "Volver a iniciar sesión con Google" : "Continuar con Google");
 }
 syncGate(true);
+$("gateAlt").onclick = () => { try { localStorage.setItem("lightning.guest", "1"); } catch (e) {} syncGate(false); };
 $("gateBtn").onclick = async () => {
+  if (IOS_WEB) { await linkEntry(); return; }
   $("gateBtn").disabled = true; $("gateLbl").textContent = t("Conectando…");
   await toggleGoogleSession();   // login nativo -> /auth/cookie -> refreshAuth -> syncGate oculta la pantalla
   if (!_authSt.logged_in) syncGate(false);   // cancelado o fallido: el boton vuelve
@@ -2603,6 +2728,7 @@ async function toggleGoogleSession() {
   if (_authSt.logged_in) {   // sesion compartida de la casa: no se cierra, se sustituye con la propia
     toast("Esta es la cuenta compartida del servidor. Inicia sesión con la tuya para reemplazarla en este dispositivo.");
   }
+  if (IOS_WEB) { await linkEntry(); return; }   // Safari: vinculando con un codigo de otro dispositivo
   // app movil (Capacitor): WebView nativo captura la cookie de music.youtube.com -> POST /auth/cookie
   const gp = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.GoogleLogin;
   if (gp) {
@@ -2624,6 +2750,26 @@ async function toggleGoogleSession() {
   $("gwait").hidden = true; $("ghdrs").value = "";
   $("gmodal").hidden = false;
 }
+/* vincular dispositivo: un iPhone (Safari) no puede iniciar sesion con Google; otro dispositivo con sesion
+   genera un codigo de 6 cifras (10 min, un solo uso) y el iPhone recibe una copia de esa sesion */
+async function linkShow() {
+  let r; try { r = await (await fetch("/auth/link/new", { method: "POST" })).json(); } catch (e) { r = { error: t("Sin conexión") }; }
+  if (!r.code) { toast(r.error || t("No se pudo generar el código")); return; }
+  askModal({ title: "Vincular dispositivo", icon: "ph-link", okLabel: "Listo",
+    message: t("Código") + ": " + r.code.slice(0, 3) + " " + r.code.slice(3) + "\n\n" +
+      t("En el iPhone abre blyatt.stream en Safari, pulsa «Vincular con un código» e introdúcelo. Caduca en 10 minutos y sirve una sola vez. El otro dispositivo usará tu cuenta de YouTube Music.") });
+}
+async function linkEntry() {
+  const code = await askModal({ title: "Vincular con un código", icon: "ph-link", input: true, numeric: true,
+    placeholder: "123 456", okLabel: "Vincular",
+    message: "En un dispositivo donde ya iniciaste sesión (app Android o escritorio), abre tu menú de usuario → Vincular dispositivo." });
+  if (!code) return false;
+  let r; try { r = await (await fetch("/auth/link/use", { method: "POST", body: JSON.stringify({ code }) })).json(); } catch (e) { r = { error: t("Sin conexión") }; }
+  if (!r.ok) { toast(r.error || t("No se pudo vincular")); return false; }
+  try { localStorage.removeItem("lightning.guest"); } catch (e) {}
+  toast(t("Sesión vinculada")); _ytSynced = false; await refreshAuth();
+  return true;
+}
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
 const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx"];
 async function signOutClean() {
@@ -2644,6 +2790,8 @@ function openUserMenu(btn) {
       ["", "Inglés", () => setLang("en")],
     ]],
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
+    ...(_authSt.logged_in && _authSt.own !== false && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+      ? [["ph-link", "Vincular dispositivo", linkShow]] : []),
     [(_authSt.logged_in && _authSt.own !== false) ? "ph-sign-out" : "ph-google-logo",
      (_authSt.logged_in && _authSt.own !== false) ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],
@@ -2744,10 +2892,11 @@ function askModal(o) {
     _askRes = res;
     $("askico").className = "ph " + (o.icon || "ph-question");
     $("asktit").textContent = t(o.title || "");
-    $("askmsg").textContent = t(o.message || "");
+    $("askmsg").textContent = t(o.message || ""); $("askmsg").style.whiteSpace = "pre-line";
     $("askmsg").style.display = o.message ? "" : "none";
     const inp = $("askinput");
     inp.hidden = !o.input; inp.value = ""; inp.placeholder = o.placeholder || "";
+    inp.inputMode = o.numeric ? "numeric" : "text";
     const ok = $("askok");
     ok.textContent = t(o.okLabel || "Aceptar");
     ok.classList.toggle("danger", !!o.danger);
@@ -3287,6 +3436,7 @@ function applyHist(s) {
   else if (s.t === "mlib") openMobileLibrary(false);
 }
 $("backBtn").onclick = () => history.back();
+$("iosBack").onclick = () => history.back();
 window.addEventListener("popstate", (e) => {
   if (npOpen) { closeNp(_npCloseKind); _npCloseKind = null; return; }   // la vista de debajo ya esta pintada
   if (e.state && e.state.t === "np") return;   // "adelante" hacia la vista completa: no se reabre sola
@@ -4118,6 +4268,34 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
     if (history.length > 1) history.back();
     else Capacitor.Plugins.App.exitApp();
   });
+}
+/* navegador (iPhone, Android Chrome, escritorio): controles del sistema via Media Session */
+if (!IS_APP && "mediaSession" in navigator) {
+  const ms = navigator.mediaSession;
+  let msId = null;
+  const msPush = () => {
+    if (!current) return;
+    try {
+      if (msId !== current.id) {
+        msId = current.id;
+        ms.metadata = new MediaMetadata({ title: current.title || "", artist: current.artist || "", album: "Blyatt",
+          artwork: current.cover ? [{ src: current.cover, sizes: "512x512" }] : [] });
+      }
+      ms.playbackState = audio.paused ? "paused" : "playing";
+      if (audio.duration > 0) ms.setPositionState({ duration: audio.duration, playbackRate: 1,
+        position: Math.max(0, Math.min(audio.currentTime, audio.duration)) });
+    } catch (e) {}
+  };
+  const msH = {
+    play: () => { if (audio.paused) togglePlay(); }, pause: () => { if (!audio.paused) togglePlay(); },
+    nexttrack: () => playNext(false), previoustrack: () => { playPrev(); msPush(); },
+    seekto: (d) => { if (d && d.seekTime != null) { audio.currentTime = d.seekTime; msPush(); } },
+  };
+  for (const k in msH) { try { ms.setActionHandler(k, msH[k]); } catch (e) {} }
+  const _mopb = onPlaybackStarted;
+  onPlaybackStarted = function (s) { _mopb(s); msPush(); };
+  const _most = eng.onState;
+  eng.onState = () => { _most(); msPush(); };
 }
 /* app Capacitor: controles de reproduccion en la barra de notificaciones (plugin MediaControls) */
 if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {

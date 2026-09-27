@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs, urlencode, urljoin
 from yt_dlp import YoutubeDL
 
 try:
@@ -1095,15 +1095,19 @@ def _alt_ids(video_id):
         return []
 
 
-def _session_cookiefiles():
-    """Cookies de las sesiones de YouTube guardadas, en formato Netscape para yt-dlp. Primero la del
-    dispositivo que pide; luego cualquier otra (solo se usan para sacar el link de audio)."""
+def _session_files():
+    """Sesiones de YouTube guardadas (auth/browser*.json). Primero la del dispositivo que pide;
+    luego cualquier otra (solo se usan para sacar el audio de temas restringidos/rotos)."""
     own = getattr(_REQ, "bid", "")
-    srcs = sorted((os.path.join(AUTH_DIR, n) for n in os.listdir(AUTH_DIR)
+    return sorted((os.path.join(AUTH_DIR, n) for n in os.listdir(AUTH_DIR)
                    if re.fullmatch(r"browser(_[0-9a-f]{16})?\.json", n)) if os.path.isdir(AUTH_DIR) else [],
                   key=lambda p: not (own and p.endswith("_%s.json" % own)))
+
+
+def _session_cookiefiles():
+    """Las mismas sesiones en formato Netscape (cookiefile de yt-dlp)."""
     out = []
-    for src in srcs:
+    for src in _session_files():
         dst = src[:-5] + ".ytdlp.txt"
         try:
             if not os.path.isfile(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
@@ -1127,50 +1131,213 @@ def _session_cookiefiles():
 _RESTRICTED = ("age", "sign in", "error code: 152", "inappropriate", "confirm your")
 
 
+class _Restricted(RuntimeError):
+    """Explicita / restriccion de edad: el cliente android no la da; audio_fetch va por la sesion."""
+
+
 def _extract(video_id):
-    # id ya conocido como age-gated: directo al alt que funciono (evita ~5s del intento fallido)
-    hit = _CACHE.get("alt:" + video_id)
-    if hit and time.time() - hit[0] < 86400:
-        try:
-            return _extract_with(hit[1])
-        except Exception:
-            _CACHE.pop("alt:" + video_id, None)
     gated = _CACHE.get("gated:" + video_id)   # ya se sabe restringido: sin el intento android (~1s)
+    if gated and time.time() - gated[0] < 7 * 86400:
+        raise _Restricted("age")
     try:
-        if gated and time.time() - gated[0] < 7 * 86400:
-            raise RuntimeError("age")
         return _extract_with(video_id)
     except Exception as e:
         if not any(s in str(e).lower() for s in _RESTRICTED):
             return _extract_with(video_id, clients=["web", "android"])   # raro: android fallo sin age-gate
-        # explicitas / con restriccion de edad (YouTube exige cuenta): el tema REAL con la sesion
-        # guardada. Lento en el Tecno (~10s, node resuelve el reto del player) pero solo 1 vez:
-        # despues sale de la cache de links (~6h) o de la de disco
         _CACHE["gated:" + video_id] = (time.time(), 1)
-        for cf in _session_cookiefiles()[:2]:
+        raise _Restricted(str(e))
+
+
+# ---------- via rapida con la sesion: player de web_safari directo + HLS ----------
+# Para temas explicitos (android no los da) y para los de itag 18 roto. yt-dlp tarda ~14s en el Tecno
+# (pide pagina, configs, otro cliente y lanza node en frio para resolver el reto "n"); aqui: 1 POST
+# a /player (~0.7s) + el reto "n" del manifest en un node PERSISTENTE que ya tiene el player
+# preprocesado (~0.2s) + segmentos en paralelo + ffmpeg solo remuxa el audio.
+_JSCW_JS = r"""
+const vm = require("vm"), rl = require("readline").createInterface({ input: process.stdin });
+let ready = false;
+rl.on("line", (l) => {
+  let out;
+  try {
+    const m = JSON.parse(l);
+    if (!ready) { vm.runInThisContext(m.lib + "\nObject.assign(globalThis, lib);\n" + m.core); ready = true; out = { type: "ready" }; }
+    else out = globalThis.jsc(m);
+  } catch (e) { out = { type: "error", error: String(e && e.stack || e) }; }
+  process.stdout.write(JSON.stringify(out) + "\n");
+});
+"""
+_PLAYER = {"t": 0, "pid": None, "url": None, "sts": None, "js": None}
+_player_lock = threading.Lock()
+
+
+def _yt_get(url, ua="Mozilla/5.0", timeout=15):
+    if not re.match(r"https://([\w-]+\.)*(youtube\.com|googlevideo\.com)/", url):   # solo YouTube (anti-SSRF)
+        raise IOError("host no permitido")
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": ua}), timeout=timeout) as r:
+        return r.read()
+
+
+def _player_info():
+    """id del player JS vigente + su signatureTimestamp (se revisa cada 6h; cambia ~semanal)."""
+    with _player_lock:
+        if time.time() - _PLAYER["t"] < 6 * 3600 and _PLAYER["sts"]:
+            return dict(_PLAYER)
+        ifr = _yt_get("https://www.youtube.com/iframe_api").decode()
+        pid = re.search(r"/s/player/([0-9a-fA-F]{8})/", ifr.replace("\\/", "/")).group(1)
+        if pid != _PLAYER["pid"] or not _PLAYER["sts"]:
+            url = "https://www.youtube.com/s/player/%s/player_ias.vflset/en_US/base.js" % pid
+            js = _yt_get(url, timeout=30).decode()
+            _PLAYER.update(pid=pid, url=url, js=js,
+                           sts=int(re.search(r"(?:signatureTimestamp|sts)\s*:\s*(\d{5})", js).group(1)))
+        _PLAYER["t"] = time.time()
+        return dict(_PLAYER)
+
+
+class _JscWorker:
+    """node persistente (sandbox --permission: sin disco ni red) con el solver de yt-dlp-ejs."""
+    def __init__(self):
+        self.p, self.lock, self.pre = None, threading.Lock(), {}
+
+    def _call(self, o):
+        self.p.stdin.write(json.dumps(o) + "\n")
+        self.p.stdin.flush()
+        line = self.p.stdout.readline()
+        if not line:
+            raise IOError("solver cerrado")
+        return json.loads(line)
+
+    def _start(self):
+        import shutil
+        import yt_dlp_ejs.yt.solver as ejs_solver
+        node = shutil.which("node")
+        if not node:
+            raise IOError("sin node")
+        path = os.path.join(CACHE_DIR, "jscw.js")
+        with open(path, "w", encoding="utf8") as f:
+            f.write(_JSCW_JS)
+        self.p = subprocess.Popen([node, "--permission", path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, encoding="utf8")
+        self._call({"lib": ejs_solver.lib(), "core": ejs_solver.core()})
+
+    def _preprocessed(self, pi):
+        pre = self.pre.get(pi["pid"])
+        if pre:
+            return pre
+        fp = os.path.join(CACHE_DIR, "jsc_%s.js" % pi["pid"])   # sobrevive reinicios (~4MB, solo el vigente)
+        if os.path.isfile(fp):
+            with open(fp, encoding="utf8") as f:
+                pre = f.read()
+        else:
+            js = pi["js"] or _yt_get(pi["url"], timeout=30).decode()
+            r = self._call({"type": "player", "player": js, "requests": [], "output_preprocessed": True})
+            pre = r.get("preprocessed_player")
+            if not pre:
+                raise IOError("preprocesado: %s" % str(r)[:200])
+            for n in os.listdir(CACHE_DIR):
+                if n.startswith("jsc_") and n.endswith(".js"):
+                    os.remove(os.path.join(CACHE_DIR, n))
+            with open(fp, "w", encoding="utf8") as f:
+                f.write(pre)
+            _PLAYER["js"] = None   # ya no hace falta en memoria
+        self.pre = {pi["pid"]: pre}
+        return pre
+
+    def solve_n(self, pi, challenge):
+        with self.lock:
             try:
-                return _extract_with(video_id, clients=["web_music"], cookiefile=cf)
+                if not self.p or self.p.poll() is not None:
+                    self._start()
+                r = self._call({"type": "preprocessed", "preprocessed_player": self._preprocessed(pi),
+                                "requests": [{"type": "n", "challenges": [challenge]}]})
+                res = (r.get("responses") or [{}])[0]
+                if res.get("type") != "result":
+                    raise IOError("reto n: %s" % str(r)[:200])
+                return res["data"][challenge]
             except Exception:
-                continue
-        # subidas alternativas del mismo tema: extrae en paralelo, gana la de mayor similitud que funcione
-        alts = _alt_ids(video_id)
-        if alts:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(alts))) as ex:
-                futs = [(a, ex.submit(_extract_with, a)) for a in alts[:4]]
-                for a, f in futs:
-                    try:
-                        url = f.result()
-                        _CACHE["alt:" + video_id] = (time.time(), a)
-                        return url
-                    except Exception:
-                        continue
-        # ultimo recurso: sesion de YouTube del navegador del usuario
-        for br in ("edge", "chrome", "firefox", "brave"):
-            try:
-                return _extract_with(video_id, br)
-            except Exception:
-                continue
-        raise RuntimeError("Cancion con restriccion de edad: requiere sesion de YouTube")
+                if self.p:
+                    self.p.kill()
+                self.p = None
+                raise
+
+
+_jsc = _JscWorker()
+
+
+def _jsc_warm():
+    # al arrancar el server: player + node + preprocesado listos -> el 1er tema restringido no los paga
+    try:
+        _jsc.solve_n(_player_info(), "aaaaaaaaaaaaaaaa")
+    except Exception:
+        pass
+
+
+def _web_hls_url(video_id, session_file):
+    """hlsManifestUrl del cliente web_safari con la sesion (explicitas incluidas), reto n resuelto."""
+    try:
+        from yt_dlp.extractor.youtube._base import INNERTUBE_CLIENTS
+        client = dict(INNERTUBE_CLIENTS["web_safari"]["INNERTUBE_CONTEXT"]["client"])   # version al dia con yt-dlp
+    except Exception:
+        client = {"clientName": "WEB", "clientVersion": "2.20250925.01.00", "userAgent":
+                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"}
+    with open(session_file, encoding="utf8") as f:
+        h = {k.lower(): v for k, v in json.load(f).items()}
+    ck = h.get("cookie", "")
+    m = re.search(r"(?:^|;\s*)(?:__Secure-3PAPISID|SAPISID)=([^;]+)", ck)
+    if not m:
+        raise IOError("sesion sin SAPISID")
+    pi = _player_info()
+    origin, ts, ua = "https://www.youtube.com", str(int(time.time())), client.get("userAgent") or "Mozilla/5.0"
+    auth = "SAPISIDHASH %s_%s" % (ts, hashlib.sha1(("%s %s %s" % (ts, m.group(1), origin)).encode()).hexdigest())
+    body = {"context": {"client": dict(client, hl="es")}, "videoId": video_id, "contentCheckOk": True, "racyCheckOk": True,
+            "playbackContext": {"contentPlaybackContext": {"html5Preference": "HTML5_PREF_WANTS",
+                                                           "signatureTimestamp": pi["sts"]}}}
+    hdrs = {"Content-Type": "application/json", "Cookie": ck, "Authorization": auth, "X-Origin": origin,
+            "Origin": origin, "X-Goog-AuthUser": "0", "User-Agent": ua, "X-Youtube-Client-Name": "1",
+            "X-Youtube-Client-Version": client.get("clientVersion", "")}
+    if h.get("x-goog-visitor-id"):
+        hdrs["X-Goog-Visitor-Id"] = h["x-goog-visitor-id"]
+    req = urllib.request.Request(origin + "/youtubei/v1/player?prettyPrint=false", data=json.dumps(body).encode(), headers=hdrs)
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.loads(r.read())
+    hls = (d.get("streamingData") or {}).get("hlsManifestUrl")
+    if not hls:
+        raise IOError("sin HLS: %s" % (d.get("playabilityStatus") or {}).get("status"))
+    n = re.search(r"/n/([^/]+)/", urlparse(hls).path)
+    if n:
+        hls = hls.replace("/n/%s/" % n.group(1), "/n/%s/" % _jsc.solve_n(pi, n.group(1)), 1)
+    return hls, ua
+
+
+def _hls_download(master, ua, dst):
+    """Variante 360p (AAC-LC 128k, el mismo audio del itag 18) -> segmentos en paralelo -> ffmpeg
+    se queda con el audio sin recodificar."""
+    lines = _yt_get(master, ua).decode().splitlines()
+    vars_ = [l for l in lines if l.startswith("http")]
+    var = next((v for it in ("93", "94", "92", "91", "95") for v in vars_ if "/itag/%s/" % it in v), None)
+    if not var:
+        raise IOError("sin variante")
+    segs = [urljoin(var, l) for l in _yt_get(var, ua).decode().splitlines() if l and not l.startswith("#")]
+    if not segs or len(segs) > 2000:
+        raise IOError("playlist rara")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        data = list(ex.map(lambda u: _yt_get(u, ua, timeout=30), segs))
+    if sum(map(len, data)) > 4 * AUDIO_MAX_MB * 1024 * 1024:
+        raise IOError("demasiado grande")
+    ts = dst + ".ts"
+    try:
+        with open(ts, "wb") as f:
+            for b in data:
+                f.write(b)
+        del data
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", ts, "-vn", "-c:a", "copy",
+                            "-movflags", "+faststart", "-f", "mp4", dst], capture_output=True, timeout=120)
+        if r.returncode:
+            raise IOError("ffmpeg: %s" % r.stderr[-200:])
+    finally:
+        try:
+            os.remove(ts)
+        except OSError:
+            pass
 
 
 def song_id(title, artist):
@@ -1315,15 +1482,21 @@ def _is_stub(u):
 
 
 def _hls_audio(video_id, dst):
-    """Tema con itag 18 roto: el HLS de web_safari (video+audio AAC 128k, necesita sesion y runtime
-    JS) y ffmpeg se queda solo con el audio (-c:a copy, ~3s). Medido en el Tecno: ~15s en total."""
+    """Audio del tema via la sesion guardada: primero la via rapida (~5s), si falla yt-dlp (~14s)."""
+    for sf in _session_files()[:2]:
+        try:
+            _hls_download(*_web_hls_url(video_id, sf), dst)
+            if _mp4_ok(dst):
+                return True
+        except Exception:
+            pass
     for cf in _session_cookiefiles()[:2]:
         try:
             opts = dict(_YDL_OPTS)
             opts.update(format="93/94/92/91/95/96", cookiefile=cf, js_runtimes={"deno": {}, "node": {}},
                         extractor_args={"youtube": {"player_client": ["web_safari"]}})
-            with YoutubeDL(opts) as y:
-                m3u8 = y.extract_info("https://music.youtube.com/watch?v=" + video_id, download=False)["url"]
+            with YoutubeDL(opts) as y:   # www: con music.youtube.com yt-dlp consulta ademas web_music (+2.5s)
+                m3u8 = y.extract_info("https://www.youtube.com/watch?v=" + video_id, download=False)["url"]
             r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", m3u8, "-vn", "-c:a", "copy",
                                 "-movflags", "+faststart", "-f", "mp4", dst], capture_output=True, timeout=240)
             if r.returncode == 0 and _mp4_ok(dst):
@@ -1334,12 +1507,24 @@ def _hls_audio(video_id, dst):
 
 
 def _stub_fallback(vid, part):
-    """Devuelve un link alternativo, o None si ya dejo el audio en `part` (via HLS)."""
+    """Tema restringido o con itag 18 roto. Devuelve un link alternativo, o None si ya dejo el
+    audio en `part` (via HLS con la sesion)."""
     if _hls_audio(vid, part):
         return None
-    for a in _alt_ids(vid)[:4]:   # sin sesion/ffmpeg: otra subida del mismo tema
+    alts = _alt_ids(vid)[:4]   # sin sesion/node/ffmpeg: otra subida del mismo tema, en paralelo
+    if alts:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(alts)) as ex:
+            futs = [ex.submit(_extract_with, a) for a in alts]
+            for f in futs:
+                try:
+                    u = f.result()
+                    if not _is_stub(u):
+                        return u
+                except Exception:
+                    continue
+    for br in ("edge", "chrome", "firefox", "brave"):   # escritorio: sesion del navegador del usuario
         try:
-            u = _extract_with(a)
+            u = _extract_with(vid, br)
             if not _is_stub(u):
                 return u
         except Exception:
@@ -1355,8 +1540,11 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
     fp = _audio_path(vid)
     part = fp + ".%d.part" % threading.get_ident()
     for attempt in range(2):
-        src = audio_url(vid, fresh=attempt > 0)
-        if _is_stub(src):
+        try:
+            src = audio_url(vid, fresh=attempt > 0)
+        except _Restricted:
+            src = None
+        if src is None or _is_stub(src):
             src = _stub_fallback(vid, part)
             if src is None:   # HLS ya en disco: se sirve desde ahi
                 os.replace(part, fp)
@@ -3062,6 +3250,8 @@ def serve(port=8000):
         except Exception:
             pass
         _audio_evict()
+        if _session_files():   # con cuenta: solver JS listo para explicitas / itag 18 roto
+            _jsc_warm()
     threading.Thread(target=_warm, daemon=True).start()
     return ThreadingHTTPServer((host, port), H)
 

@@ -1821,6 +1821,249 @@ def _probe_session(cookie_header, user_agent):
     return logged, rc.get("visitorData", "")
 
 
+
+# ---------- Blyatt Connect: dispositivos (como Spotify Connect) ----------
+# Hub por CUENTA de Google (todos los dispositivos con la misma cuenta = un grupo), en memoria del server
+# publico (el telefono). El dispositivo ACTIVO reproduce y publica su estado; el resto lo muestra y le manda
+# ordenes. Los clientes esperan cambios con long-poll (/connect/poll). La app de escritorio tiene su propio
+# server local: reenvia /connect/* al hub remoto (cx_relay) con la cookie de Cloudflare Access de su login.
+CONNECT_REMOTE = os.environ.get("BLYATT_CONNECT_REMOTE", "https://blyatt.stream")
+CONNECTLOGIN = None   # main.py: ventana para iniciar sesion en Cloudflare Access (escritorio)
+_CX = {}
+_cx_cond = threading.Condition()
+_CX_ONLINE = 40   # s sin sondear = desconectado
+_CX_CMDS = {"play", "pause", "next", "prev", "seek", "load", "queue", "shuffle", "repeat"}
+
+
+def _cx_key():
+    """Identidad estable de la cuenta de Google de esta sesion (nombre + foto de la cuenta)."""
+    hdr = getattr(_REQ, "acct_hdr", "") or ""
+    if re.fullmatch(r"[0-9a-f]{40}", hdr):   # relay del escritorio (ya paso por Cloudflare Access)
+        return hdr
+    f = _bid_file()
+    if not os.path.isfile(f):
+        return None
+    try:
+        info = cached(_sk("acct"), 3600, _account_info) or {}
+    except Exception:
+        info = {}
+    if not info.get("name"):
+        return None
+    photo = re.sub(r"=[^/]*$", "", info.get("photo") or "")   # sin el sufijo de tamano
+    return hashlib.sha1(("%s|%s" % (info["name"], photo)).encode()).hexdigest()
+
+
+def _cx_bump(h):
+    h["ver"] += 1
+    _cx_cond.notify_all()
+
+
+def _cx_online(h, now):
+    return {d for d, v in h["devices"].items() if now - v["seen"] < _CX_ONLINE}
+
+
+def _cx_expire(h, now):
+    on = _cx_online(h, now)
+    changed = on != h.get("osig")
+    h["osig"] = on
+    if h["active"] and h["active"] not in on:   # el que sonaba se fue (app cerrada / sin red)
+        # la musica paro cuando dejo de dar senal, no ahora: se extrapola solo hasta su ultimo sondeo
+        gone = (h["devices"].get(h["active"]) or {}).get("seen", now)
+        st = _cx_extrap(h["state"], min(now, gone))
+        if st:
+            st["playing"] = False
+            h["state"] = st
+        h["active"] = None
+        changed = True
+    if changed:
+        _cx_bump(h)
+
+
+def _cx_extrap(st, now):
+    if not st:
+        return None
+    st = dict(st)
+    if st.get("playing"):
+        st["pos"] = min(float(st.get("pos") or 0) + (now - st["ts"]), float(st.get("dur") or 1e9))
+    st["ts"] = now
+    return st
+
+
+def _cx_cmd(h, dev, c):
+    q = h["cmds"].setdefault(dev, [])
+    q.append(c)
+    del q[:-20]
+
+
+def _cx_song(x):
+    if not isinstance(x, dict) or not re.fullmatch(r"[\w-]{6,20}", str(x.get("id") or "")):
+        return None
+    o = {k: x[k] for k in ("id", "title", "artist", "cover", "duration", "explicit") if k in x}
+    if x.get("rec"):
+        o["rec"] = True
+    for k in ("title", "artist", "cover", "duration"):
+        if k in o:
+            o[k] = str(o[k])[:500]
+    if isinstance(x.get("artists"), list):
+        o["artists"] = [{"name": str(a.get("name", ""))[:120], "id": a.get("id")} for a in x["artists"][:8] if isinstance(a, dict)]
+    if isinstance(x.get("album"), dict):
+        o["album"] = {"name": str(x["album"].get("name", ""))[:200], "id": x["album"].get("id")}
+    return o
+
+
+def _cx_clean(st, dev, now):
+    st = st if isinstance(st, dict) else {}
+    q = [y for y in (_cx_song(x) for x in (st.get("queue") or [])[:400]) if y]
+    return {"track": _cx_song(st.get("track")), "pos": max(0.0, float(st.get("pos") or 0)),
+            "dur": max(0.0, float(st.get("dur") or 0)), "playing": bool(st.get("playing")), "queue": q,
+            "qi": max(0, min(int(st.get("qi") or 0), max(0, len(q) - 1))), "shuffle": bool(st.get("shuffle")),
+            "repeat": st.get("repeat") if st.get("repeat") in ("off", "all", "one") else "off", "ts": now, "dev": dev}
+
+
+def _cx_snap(h, dev, now, take_cmds=False):
+    on = _cx_online(h, now)
+    st = h["state"]
+    snap_st = dict(st, age=round(now - st["ts"], 3)) if st else None
+    return {"ver": h["ver"], "me": dev, "active": h["active"], "state": snap_st,
+            "devices": [{"id": d, "name": v["name"], "type": v["type"], "online": d in on}
+                        for d, v in sorted(h["devices"].items(), key=lambda kv: -kv[1]["seen"])],
+            # solo el sondeo entrega las ordenes: si las devolviera cualquier respuesta (p.ej. la del
+            # /connect/transfer del propio activo) se perderian y el "handoff" nunca llegaria
+            "cmds": h["cmds"].pop(dev, []) if take_cmds else []}
+
+
+def connect_api(path, qs, d):
+    acct = _cx_key()
+    if not acct:
+        return {"error": "no_account"}
+    g = lambda k: (qs.get(k) or [""])[0]
+    dev = str(d.get("dev") or g("dev"))
+    if not re.fullmatch(r"[\w-]{6,40}", dev):
+        return {"error": "dev"}
+    now = time.time()
+    with _cx_cond:
+        h = _CX.setdefault(acct, {"devices": {}, "active": None, "state": None, "ver": 1, "cmds": {}})
+        name = str(d.get("name") or g("name") or "Dispositivo")[:40]
+        typ = str(d.get("type") or g("type") or "web")[:12]
+        old = h["devices"].get(dev)
+        h["devices"][dev] = {"name": name, "type": typ, "seen": now}
+        if not old or old["name"] != name:
+            _cx_bump(h)
+        if len(h["devices"]) > 20:   # tope: fuera los desconectados mas antiguos
+            for k, _ in sorted(h["devices"].items(), key=lambda kv: kv[1]["seen"])[:len(h["devices"]) - 20]:
+                if k != h["active"]:
+                    h["devices"].pop(k, None)
+        _cx_expire(h, now)
+        if path == "/connect/poll":
+            try:
+                ver = int(g("ver") or -1)
+            except ValueError:
+                ver = -1
+            end = now + 20
+            while h["ver"] == ver and not h["cmds"].get(dev):
+                left = end - time.time()
+                if left <= 0:
+                    break
+                _cx_cond.wait(min(left, 5))
+                h["devices"][dev]["seen"] = time.time()
+                _cx_expire(h, time.time())
+            return _cx_snap(h, dev, time.time(), take_cmds=True)
+        if path == "/connect/state":   # el que suena publica su estado; claim = empezo a sonar aqui
+            if h["active"] != dev:
+                if not d.get("claim"):
+                    return _cx_snap(h, dev, now)
+                if h["active"]:
+                    _cx_cmd(h, h["active"], {"type": "release"})   # el anterior se calla
+                h["active"] = dev
+            h["state"] = _cx_clean(d.get("state"), dev, now)
+            _cx_bump(h)
+        elif path == "/connect/cmd":   # mando a distancia -> al activo
+            c = d.get("cmd") if isinstance(d.get("cmd"), dict) else {}
+            if c.get("type") in _CX_CMDS and h["active"] and h["active"] != dev:
+                if c["type"] in ("load", "queue"):
+                    c = {"type": c["type"], "index": int(c.get("index") or 0), "qi": int(c.get("qi") or 0),
+                         "queue": [y for y in (_cx_song(x) for x in (c.get("queue") or [])[:400]) if y]}
+                _cx_cmd(h, h["active"], c)
+                st = h["state"]
+                if st and c["type"] in ("play", "pause", "seek"):   # optimista: todos lo ven ya
+                    st = _cx_extrap(st, now)
+                    if c["type"] == "seek":
+                        st["pos"] = max(0.0, float(c.get("pos") or 0))
+                    else:
+                        st["playing"] = c["type"] == "play"
+                    h["state"] = st
+                _cx_bump(h)
+        elif path == "/connect/transfer":   # cambiar el dispositivo que suena
+            to = str(d.get("to") or "")
+            if to not in h["devices"]:
+                return {"error": "Dispositivo no encontrado"}
+            cur = h["active"]
+            if cur != to:
+                if cur and cur in _cx_online(h, now):
+                    _cx_cmd(h, cur, {"type": "handoff", "to": to})   # entrega su estado EXACTO (handoff)
+                else:
+                    h["active"] = to
+                    _cx_cmd(h, to, {"type": "take", "state": _cx_extrap(h["state"], now)})
+                _cx_bump(h)
+        elif path == "/connect/handoff":   # el activo se pausa y entrega su estado al destino
+            to = str(d.get("to") or "")
+            if h["active"] == dev and to in h["devices"]:
+                h["state"] = _cx_clean(d.get("state"), to, now)
+                h["active"] = to
+                _cx_cmd(h, to, {"type": "take", "state": dict(h["state"])})
+                _cx_bump(h)
+        return _cx_snap(h, dev, now)
+
+
+# --- escritorio: relay al hub remoto con la sesion de Cloudflare Access ---
+_CX_ACCESS_FILE = os.path.join(BASE, "auth", "connect.json")
+
+
+def _cx_access():
+    try:
+        with open(_CX_ACCESS_FILE, encoding="utf8") as f:
+            return json.load(f).get("cf", "")
+    except Exception:
+        return ""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None   # Access sin sesion redirige al login: se trata como "hace falta iniciar sesion"
+
+
+_cx_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def cx_relay(method, path_qs, body, acct, tok=None):
+    tok = tok or _cx_access()
+    if not tok:
+        return 200, {"error": "need_access"}
+    req = urllib.request.Request(CONNECT_REMOTE + path_qs, data=body if method == "POST" else None, method=method,
+                                 headers={"Cookie": "CF_Authorization=" + tok, "X-Blyatt-Acct": acct,
+                                          "Content-Type": "application/json", "User-Agent": "BlyattDesktop/1.0"})
+    try:
+        with _cx_opener.open(req, timeout=35) as r:
+            return 200, json.loads(r.read().decode("utf-8", "replace") or "{}")
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 401, 403):
+            return 200, {"error": "need_access"}
+        return 200, {"error": "hub %s" % e.code}
+    except Exception as e:
+        return 200, {"error": "hub: %s" % str(e)[:80]}
+
+
+def connect_set_access(cf):
+    """main.py entrega la cookie CF_Authorization tras el login de Access; se valida contra el hub."""
+    acct = _cx_key() or "0" * 40
+    code, d = cx_relay("GET", "/connect/ping", None, acct, tok=cf)
+    if d.get("error") == "need_access" or "pong" not in d:
+        return False
+    os.makedirs(os.path.dirname(_CX_ACCESS_FILE), exist_ok=True)
+    with open(_CX_ACCESS_FILE, "w", encoding="utf8") as f:
+        json.dump({"cf": cf}, f)
+    return True
+
 # ---------- vincular dispositivo (iPhone / navegador: Safari no puede capturar la cookie de Google) ----------
 # Un dispositivo con sesion propia genera un codigo de 6 cifras (10 min, un solo uso); el otro lo
 # introduce y recibe una COPIA de esa sesion en su propio archivo (cerrar sesion en uno no afecta al otro).
@@ -3012,9 +3255,38 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _connect(self, u, method):
+        body = b""
+        if method == "POST":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 512 * 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            body = self.rfile.read(n)
+        if u.path == "/connect/ping":
+            return self._json({"pong": True})
+        if not SERVER_MODE:   # escritorio: el hub vive en el server publico
+            if u.path == "/connect/login":
+                if CONNECTLOGIN:
+                    CONNECTLOGIN()
+                    return self._json({"ok": True})
+                return self._json({"error": "No disponible"})
+            acct = _cx_key()
+            if not acct:
+                return self._json({"error": "no_account"})
+            code, d = cx_relay(method, self.path, body, acct)
+            return self._json(d, code)
+        _REQ.acct_hdr = self.headers.get("X-Blyatt-Acct", "")
+        try:
+            d = json.loads(body.decode("utf-8", "replace") or "{}") if body else {}
+        except Exception:
+            d = {}
+        return self._json(connect_api(u.path, parse_qs(u.query), d if isinstance(d, dict) else {}))
+
     def do_GET(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path.startswith("/connect/"):
+            return self._connect(u, "GET")
         if u.path == "/migrate/pull":
             d = migrate_pull(parse_qs(u.query).get("token", [""])[0])
             payload = json.dumps({"ls": d["ls"]} if d else {"error": "token invalido o caducado"}).encode()
@@ -3323,6 +3595,7 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _setup_bid(self):
+        _REQ.acct_hdr = ""
         m = re.search(r"(?:^|;\s*)bid=([0-9a-f]{16})", self.headers.get("Cookie") or "")
         self._new_bid = "" if m else os.urandom(8).hex()
         _REQ.bid = m.group(1) if m else self._new_bid
@@ -3330,6 +3603,8 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path.startswith("/connect/"):
+            return self._connect(u, "POST")
         if u.path == "/migrate/push":
             n = int(self.headers.get("Content-Length") or 0)
             if n > 2 * 1024 * 1024:   # un localStorage real ronda cientos de KB

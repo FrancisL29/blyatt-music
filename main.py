@@ -115,7 +115,34 @@ def spotify_login():
     threading.Thread(target=poll, daemon=True).start()
 
 
+def connect_login():
+    # Dispositivos: el hub vive en el server publico (Cloudflare Access). Una vez por mes aprox.: el usuario
+    # entra con su codigo de email en esta ventana y se guarda la cookie CF_Authorization para el relay.
+    w = webview.create_window("Conectar esta PC con Blyatt", app.CONNECT_REMOTE + "/", width=520, height=760)
+
+    def poll():
+        for _ in range(450):   # 15 min max
+            if _APP_CLOSING.is_set():
+                break
+            time.sleep(2)
+            try:
+                cf = _cookie_value(w.get_cookies(), "CF_Authorization")
+                if cf and app.connect_set_access(cf):
+                    break
+            except Exception:
+                pass
+        try:
+            w.destroy()
+        except Exception:
+            pass
+
+    threading.Thread(target=poll, daemon=True).start()
+
+
 if __name__ == "__main__":
+    # Dispositivos: al transferir la musica a esta PC desde el movil, tiene que poder sonar sin un clic
+    os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required")
+    app.CONNECTLOGIN = connect_login
     app.WEBLOGIN = google_login
     app.WEBLOGOUT = google_logout
     app.SPOTLOGIN = spotify_login

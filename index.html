@@ -789,6 +789,36 @@
             border-radius: 14px; border: 1px solid rgb(248 113 113 / .3); background: rgb(248 113 113 / .1); color: #fca5a5;
             font: inherit; font-size: .95rem; font-weight: 600; cursor: pointer; }
   .bs-off[hidden] { display: none; }
+  /* dispositivos */
+  #devList button .dsub { display: block; font-size: .78rem; color: var(--muted); font-weight: 400; margin-top: 2px; }
+  #devList button.act { color: var(--accent); }
+  #devList button.act .dsub { color: color-mix(in srgb, var(--accent) 80%, #fff); }
+  #devList button > i:first-child { font-size: 1.45rem; width: 28px; text-align: center; }
+  #devList button.act > i:first-child { color: var(--accent); }
+  #devList .dname { display: flex; align-items: center; gap: 6px; }
+  #devList .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+  #devList .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: cxeq .9s ease-in-out infinite; }
+  #devList .eq i:nth-child(2) { animation-delay: -.3s; } #devList .eq i:nth-child(3) { animation-delay: -.6s; }
+  @keyframes cxeq { 0%,100% { height: 3px; } 50% { height: 12px; } }
+  #devList .edit { margin-left: auto; font-size: 1.05rem; color: var(--muted); padding: 6px; border-radius: 8px; }
+  #devList .edit:hover { background: rgb(255 255 255 / .08); color: var(--text); }
+  #devList .cxlogin { justify-content: center; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+                      background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 600; }
+  .devnote { margin: 12px 6px 0; font-size: .76rem; color: var(--muted); line-height: 1.45; }
+  #devBtn.on, #npDev.on { color: var(--accent); }
+  /* "sonando en otro dispositivo": linea pequena bajo el artista (como Spotify) */
+  .pdev { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: .72rem; font-weight: 600;
+          color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .pdev[hidden] { display: none; }
+  .pdev i { font-size: .82rem; flex: none; }
+  .np-src.cx { color: var(--accent); }
+  @media (max-width: 820px) {
+    /* movil: titulo y artista en una linea y el dispositivo debajo (misma altura de mini player) */
+    body.cx-remote #player .now .meta .a { display: none; }
+    body.cx-remote #ptitle::after { content: " • " attr(data-art); color: var(--muted); font-weight: 500; }
+    /* icono de dispositivos junto al corazon cuando hay otro dispositivo (verde si suena en otro) */
+    body.cx-multi .right-icons > #devBtn { display: inline-flex; order: -1; font-size: 1.35rem; padding: 8px; }
+  }
   /* pantalla de inicio de sesion obligatoria (app movil sin cuenta): encima de todo salvo los avisos */
   #gate { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
           padding: calc(24px + var(--sat)) 28px calc(24px + var(--sab));
@@ -1173,7 +1203,7 @@
   <div class="controls">
     <div class="now">
       <img id="pcover" alt="">
-      <div class="meta"><div class="t" id="ptitle"></div><div class="a" id="partist"></div></div>
+      <div class="meta"><div class="t" id="ptitle"></div><div class="a" id="partist"></div><div class="pdev" id="pdev" hidden><i class="ph-fill ph-speaker-hifi"></i><span id="pdevTxt"></span></div></div>
     </div>
     <div class="center">
       <div class="transport">
@@ -1193,6 +1223,7 @@
       <div class="right-icons">
         <button id="like" class="iconbtn like" aria-label="Me gusta"><i class="ph ph-heart"></i></button>
         <button id="addpl" class="iconbtn" aria-label="Añadir a playlist"><i class="ph ph-list-plus"></i></button>
+        <button id="devBtn" class="iconbtn" aria-label="Dispositivos"><i class="ph ph-devices"></i></button>
         <button id="lyricsBtn" class="iconbtn" aria-label="Letra"><i class="ph ph-microphone-stage"></i></button>
         <button id="queueBtn" class="iconbtn" aria-label="Cola"><i class="ph ph-list-bullets"></i></button>
         <button id="sleep" class="iconbtn" aria-label="Temporizador"><i class="ph ph-moon"></i></button>
@@ -1228,6 +1259,18 @@
   </div>
 </div>
 
+<div id="devSheet" class="bsheet" hidden>
+  <div class="bs-panel" role="dialog" aria-label="Dispositivos">
+    <div class="bs-grab"></div>
+    <div class="bs-head">
+      <span class="bs-ico"><i class="ph-fill ph-speaker-hifi"></i></span>
+      <div><h3 data-i18n>Conectar a un dispositivo</h3><p id="devStatus"></p></div>
+    </div>
+    <div class="bs-opts" id="devList"></div>
+    <p class="devnote" data-i18n>Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Blyatt abierto.</p>
+  </div>
+</div>
+
 <div id="npv" hidden role="dialog" aria-label="Reproduciendo">
   <div class="np-bg"><div class="np-bgimg"></div><div class="np-bgimg"></div></div>
   <div class="np-top np-fade">
@@ -1253,6 +1296,7 @@
     <button id="npRepeat" class="iconbtn" aria-label="Repetir"><i class="ph ph-repeat"></i></button>
   </div>
   <div class="np-extra np-fade">
+    <button id="npDev" class="iconbtn" aria-label="Dispositivos"><i class="ph ph-devices"></i></button>
     <button id="npLyrics" class="iconbtn" aria-label="Letra"><i class="ph ph-microphone-stage"></i></button>
     <button id="npAddpl" class="iconbtn" aria-label="Añadir a playlist"><i class="ph ph-list-plus"></i></button>
     <button id="npSleep" class="iconbtn" aria-label="Temporizador"><i class="ph ph-moon"></i></button>
@@ -1326,6 +1370,12 @@ const EN = {
   "Reproductor": "Player", "Anterior": "Previous", "Reproducir o pausar": "Play or pause",
   "Siguiente": "Next", "Aleatorio": "Shuffle", "Repetir": "Repeat", "Silenciar": "Mute",
   "Volumen": "Volume", "Reproducir": "Play", "Añadir a playlist": "Add to playlist",
+  "Dispositivos": "Devices", "Conectar a un dispositivo": "Connect to a device", "Reproduciendo en": "Playing on",
+  "Reproduciendo en este dispositivo": "Playing on this device", "Elige dónde sonará la música": "Choose where the music plays",
+  "Este dispositivo": "This device", "En pausa": "Paused", "Disponible": "Available", "Cambiando a": "Switching to",
+  "Inicia sesión para usar tus dispositivos": "Sign in to use your devices", "Nombre de este dispositivo": "This device's name",
+  "Conectar esta PC con tus dispositivos": "Connect this PC with your devices", "Inicia sesión en la ventana de Blyatt": "Sign in in the Blyatt window",
+  "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Blyatt abierto.": "Devices signed in with your account show up here while Blyatt is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next",
   "Añadir a Me gusta": "Add to Liked", "Quitar de Me gusta": "Remove from Liked",
   "Añadir a la biblioteca": "Add to library", "Quitar de la biblioteca": "Remove from library",
@@ -1710,6 +1760,61 @@ if (IOS_WEB) (() => {
     pause: { configurable: true, value: () => { if (real()) el.pause(); } },
   });
 })();
+/* ====== Dispositivos (Blyatt Connect) - estado y fachada remota ======
+   Si OTRO dispositivo de la cuenta es el que suena ("modo remoto"), la fachada `audio` lee su estado
+   (posicion extrapolada, duracion, pausa) y sus play/pause/seek se convierten en ordenes para el: la UI
+   existente (barra, vista completa, iconos, pantalla de bloqueo, notificacion) funciona sin cambios. */
+const CX = { dev: "", name: "", type: "web", hub: null, ver: -1, rxAt: 0, remote: false, activeName: "",
+             enabled: false, needAccess: false, running: false };
+(() => {
+  let id = ""; try { id = localStorage.getItem("lightning.devid") || ""; } catch (e) {}
+  if (!/^[\w-]{6,40}$/.test(id)) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(10)), b => b.toString(16).padStart(2, "0")).join("");
+    try { localStorage.setItem("lightning.devid", id); } catch (e) {}
+  }
+  CX.dev = id;
+  const cap = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  CX.type = cap || IOS_WEB || /Android|iPhone|iPad|Mobile/.test(navigator.userAgent) ? "phone" : local ? "desktop" : "web";
+  const def = cap ? "Android" : IOS_WEB ? "iPhone" : local ? "PC" : (/Android/.test(navigator.userAgent) ? "Android (navegador)" : "Navegador");
+  let nm = ""; try { nm = localStorage.getItem("lightning.devname") || ""; } catch (e) {}
+  CX.name = nm || def;
+})();
+let _cxSeek = null, _cxAutoplay = true, _cxPushT = null;
+const cxSt = () => (CX.hub && CX.hub.state) || {};
+function cxPos() {
+  const st = cxSt(); if (!st.track) return 0;
+  const p = (st.pos || 0) + (st.playing ? (st.age || 0) + (performance.now() - CX.rxAt) / 1000 : 0);
+  return Math.max(0, Math.min(p, st.dur || p));
+}
+(() => {
+  const base = {};
+  ["currentTime", "duration", "paused"].forEach(k => base[k] = Object.getOwnPropertyDescriptor(audio, k));
+  const bplay = audio.play, bpause = audio.pause;
+  Object.defineProperties(audio, {
+    currentTime: { configurable: true,
+      get() { return CX.remote ? cxPos() : base.currentTime.get.call(audio); },
+      set(v) { if (CX.remote) cxCmd({ type: "seek", pos: v }); else base.currentTime.set.call(audio, v); } },
+    duration: { configurable: true, get() { return CX.remote ? (cxSt().dur || 0) : base.duration.get.call(audio); } },
+    paused: { configurable: true, get() { return CX.remote ? !cxSt().playing : base.paused.get.call(audio); } },
+    play: { configurable: true, writable: true, value() { if (CX.remote) cxCmd({ type: "play" }); else bplay.call(audio); } },
+    pause: { configurable: true, writable: true, value() { if (CX.remote) cxCmd({ type: "pause" }); else bpause.call(audio); } },
+  });
+})();
+function cxPost(path, body) {
+  return fetch(path, { method: "POST", body: JSON.stringify(Object.assign({ dev: CX.dev, name: CX.name, type: CX.type }, body || {})) })
+    .then(r => r.json()).catch(() => ({}));
+}
+// orden al dispositivo activo + actualizacion optimista local (la UI responde al instante)
+function cxCmd(c) {
+  const st = CX.hub && CX.hub.state;
+  if (st && (c.type === "play" || c.type === "pause" || c.type === "seek")) {
+    st.pos = c.type === "seek" ? Math.max(0, +c.pos || 0) : cxPos(); st.age = 0; CX.rxAt = performance.now();
+    if (c.type !== "seek") st.playing = c.type === "play";
+    if (eng.onState) eng.onState();
+  }
+  cxPost("/connect/cmd", { cmd: c });
+}
 const seek = $("seek"), vol = $("vol"), toggleIcon = $("toggle").querySelector("i");
 let current = null, lastResults = [], view = "buscar";
 let queue = [], qIndex = -1, shuffle = false, repeat = "off";  // repeat: off | all | one
@@ -2379,7 +2484,7 @@ function openTrackMenu(s, songs, i, x, y, li) {
   const liked = isLiked(s.id);
   const opts = [
     ["ph-play", "Reproducir", () => playFromList(songs, i)],
-    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); scheduleGaplessNext(); if ($("queue").classList.contains("show")) renderQueue(); toast("Añadida a la cola"); }],
+    ["ph-list-plus", "Reproducir a continuación", () => { queue.splice(qIndex + 1, 0, s); queueChanged(); toast("Añadida a la cola"); }],
     ["ph-playlist", "Añadir a playlist", () => openPlPicker(s, x, y, li)],
     [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Me gusta" : "Añadir a Me gusta", () => toggleLike(s)],
   ];
@@ -2424,8 +2529,7 @@ async function addCollectionToQueue(browseId) {
     let at = queue.length;   // insertar al final de la cola real, antes de la seccion de recomendaciones
     for (let k = qIndex + 1; k < queue.length; k++) if (queue[k]._rec) { at = k; break; }
     queue.splice(at, 0, ...songs);
-    scheduleGaplessNext();
-    if ($("queue").classList.contains("show")) renderQueue();
+    queueChanged();
     toast(songs.length + " canciones añadidas a la cola");
   } catch (e) { toast("No se pudo añadir a la cola"); }
 }
@@ -2750,6 +2854,7 @@ async function refreshAuth() {
   if (ok) syncGate(false);
   else if (IS_APP) setTimeout(refreshAuth, 3000);   // sin red al abrir: reintenta, la pantalla sigue en "comprobando"
   if (_authSt.logged_in) {
+    cxStart();
     if (!getLibrary().length && !getLiked().length) firstSync();   // cuenta recien conectada
     else syncYtLibrary();
   }
@@ -3757,6 +3862,7 @@ function splitArtists(str) {   // "A, B & C" / "A y B" / "A feat. B" -> nombres 
 }
 function paintPlayer(s) {
   $("pcover").src = s.cover; $("ptitle").textContent = s.title;
+  $("ptitle").dataset.art = s.artist || (s.artists || []).map(a => a.name).join(", ");
   // segunda linea: badge Explicit a la izquierda + artistas clickeables (-> vista de artista via delegated .lnk)
   const arts = (s.artists && s.artists.length) ? s.artists
     : splitArtists(s.artist).map(n => ({ name: n }));
@@ -3772,7 +3878,21 @@ function paintNowPlaying(s) {
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
 let _loadTimer = null;
+function queueChanged() {   // cualquier edicion de la cola (a continuacion, anadir, quitar, reordenar)
+  if (CX.remote) {
+    const st = Math.max(0, qIndex - 20);
+    cxCmd({ type: "queue", queue: queue.slice(st, qIndex + 300).map(cxPick), qi: qIndex - st });
+  } else { scheduleGaplessNext(); cxPush(false); }
+  if ($("queue").classList.contains("show")) renderQueue();
+}
 function playSong(s, immediate) {
+  if (CX.remote) {   // suena en otro dispositivo: se le manda la cola (la local es un espejo de la suya)
+    const i = Math.max(0, queue.indexOf(s)), st = Math.max(0, i - 20);
+    const q = (i >= 0 && queue[i] === s) ? queue.slice(st, i + 300) : [s];
+    cxCmd({ type: "load", queue: q.map(cxPick), index: queue[i] === s ? i - st : 0 });
+    paintNowPlaying(s); if (npOpen) paintNp(s);
+    return;
+  }
   const tok = ++playToken;
   paintNowPlaying(s);                // pinta cover/titulo/artista al instante (sensacion de carga rapida)
   seek.classList.add("loading");
@@ -3797,13 +3917,19 @@ async function _engStart(s, tok) {
 }
 function onPlaybackStarted(s) {
   sleepCheck();
+  if (_cxSeek != null) {   // llego por transferencia: continua donde iba en el otro dispositivo
+    const p = _cxSeek, go = _cxAutoplay; _cxSeek = null;
+    if (p > 1) audio.currentTime = p;
+    if (!go) audio.pause();
+  }
+  cxPush(!audio.paused);
   paintPlayer(s);
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
   applyAccent(s.cover); pushRecent(current); refreshLikeUI(); markPlaying();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
-  prewarm([queue[qIndex + 2], queue[qIndex + 3]]);
+  if (!CX.remote) prewarm([queue[qIndex + 2], queue[qIndex + 3]]);
   maybeExtendQueue();
   bumpLibrary(s);
 }
@@ -3840,6 +3966,7 @@ function _gaplessSong() {
   return null;
 }
 async function scheduleGaplessNext() {       // programa la siguiente pista sample-accurate (gapless real)
+  if (CX.remote) return;   // suena en otro dispositivo: nada que precargar aqui
   if (sleepEOT) { _clearGapless(); return; }   // temporizador "al final de la cancion": no encadenar
   const s = _gaplessSong();
   if (!s) { _clearGapless(); return; }
@@ -3859,7 +3986,10 @@ eng.onEnded = () => {
   if (sleepEOT) { _endAtStart(); sleepStop(false); toast(t("Temporizador: música en pausa")); return; }
   playNext(true);
 };
-eng.onState = () => { toggleIcon.className = eng.playing ? "ph-fill ph-pause" : "ph-fill ph-play"; syncPlayIcons(); if (npOpen) syncNp(); };
+eng.onState = () => {
+  toggleIcon.className = !audio.paused ? "ph-fill ph-pause" : "ph-fill ph-play"; syncPlayIcons(); if (npOpen) syncNp();
+  if (!CX.remote) cxPush(!audio.paused);   // empezar a sonar aqui = este pasa a ser el activo
+};
 function syncPlayIcons() {
   const cp = document.querySelector(".covplay"); if (cp && cp._sync) cp._sync();
   document.querySelectorAll("li.playing .play-hint i").forEach(i => i.className = "ph-fill " + (audio.paused ? "ph-play" : "ph-pause"));
@@ -3873,6 +4003,7 @@ function markPlaying() {
   syncPlayIcons();
 }
 function togglePlay() {
+  if (CX.remote) { audio.paused ? audio.play() : audio.pause(); return; }
   if (current && !eng.buf) { playSong(current, true); return; }   // arranque en frio: la ultima cancion restaurada aun no esta cargada
   audio.paused ? audio.play() : audio.pause();
 }
@@ -3883,12 +4014,14 @@ function nextIndex() {
   return repeat === "all" ? 0 : -1;
 }
 function playNext(auto) {
+  if (CX.remote && !auto) { cxCmd({ type: "next" }); return; }
   if (repeat === "one" && auto) { audio.currentTime = 0; audio.play(); return; }
   const n = nextIndex();
   if (n === -1) { if (auto) _endAtStart(); return; }
   qIndex = n; playSong(queue[qIndex], auto);   // auto (fin natural)=inmediato; click de usuario=debounce
 }
 function playPrev() {
+  if (CX.remote) { cxCmd({ type: "prev" }); return; }
   if (audio.currentTime > 3 || queue.length === 0) { audio.currentTime = 0; return; }
   qIndex = qIndex - 1 >= 0 ? qIndex - 1 : (repeat === "all" ? queue.length - 1 : 0);
   playSong(queue[qIndex], false);   // debounce: saltos rapidos cargan solo la ultima
@@ -3917,6 +4050,7 @@ function syncShuffleUI() {
   });
 }
 function setShuffle(on) {
+  if (CX.remote) { shuffle = !!on; syncShuffleUI(); cxCmd({ type: "shuffle", on: shuffle }); return; }
   shuffle = !!on;
   try { localStorage.setItem("lightning.shuffle", shuffle ? "1" : "0"); } catch (e) {}
   if (shuffle) {
@@ -3933,18 +4067,21 @@ function setShuffle(on) {
     queue = [...base, ...extra.filter(x => x._rec)]; qIndex = queue.indexOf(cur);
     queueOrig = null;
   } else queueOrig = null;
-  syncShuffleUI();
+  syncShuffleUI(); cxPush(false);
   if (current) { scheduleGaplessNext(); prewarm([queue[qIndex + 1], queue[qIndex + 2]]); }
   if ($("queue").classList.contains("show")) renderQueue();
   if (npOpen) syncNp();
 }
 $("shuffle").onclick = () => setShuffle(!shuffle);
 syncShuffleUI();
-$("repeat").onclick = () => {
-  repeat = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
+function setRepeat(m) {
+  repeat = ["off", "all", "one"].includes(m) ? m : "off";
   const b = $("repeat"); b.classList.toggle("on", repeat !== "off");
   b.querySelector("i").className = "ph " + (repeat === "one" ? "ph-repeat-once" : "ph-repeat");
-};
+  if (npOpen) syncNp();
+  if (CX.remote) cxCmd({ type: "repeat", mode: repeat }); else { cxPush(false); if (current) scheduleGaplessNext(); }
+}
+$("repeat").onclick = () => setRepeat(repeat === "off" ? "all" : repeat === "all" ? "one" : "off");
 
 /* ---------- like / queue / sleep / placeholders ---------- */
 function refreshLikeUI() {
@@ -4042,7 +4179,7 @@ function qRow(s, idx, kind) {
   dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, listOf(), idx, r.right, r.bottom, d); };
   d.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, listOf(), idx, e.clientX, e.clientY, d); };
   const del = d.querySelector(".del");
-  if (del) del.onclick = (e) => { e.stopPropagation(); queue.splice(idx, 1); scheduleGaplessNext(); renderQueue(); };
+  if (del) del.onclick = (e) => { e.stopPropagation(); queue.splice(idx, 1); queueChanged(); };
   if (kind === "next") {   // arrastrar para reordenar (solo proximas)
     d.draggable = true;
     d.addEventListener("dragstart", ev => { d.classList.add("dragging"); ev.dataTransfer.setData("text", String(idx)); });
@@ -4057,7 +4194,7 @@ function qRow(s, idx, kind) {
       const [m] = queue.splice(from, 1); queue.splice(idx > from ? idx - 1 : idx, 0, m);
       // la pista adopta la seccion donde cae (rec <-> a continuacion); headers no se intercambian
       if (target && target._rec) m._rec = true; else delete m._rec;
-      scheduleGaplessNext(); renderQueue();
+      queueChanged();
     });
   }
   return d;
@@ -4134,29 +4271,21 @@ function sleepSet(min) {   // min > 0: minutos; -1: al terminar la cancion actua
 }
 // en segundo plano el navegador retrasa los timers: se comprueba tambien en cada cambio de pista
 const sleepCheck = () => { if (sleepEnd && Date.now() >= sleepEnd) sleepStop(true); };
-function openSleepSheet() {
-  const sh = $("sleepSheet"); sh.hidden = false;
+/* hojas inferiores (temporizador, dispositivos): abrir/cerrar + cerrar tocando fuera, deslizando o con Esc */
+function openSheet(sh) {
+  sh.hidden = false;
   requestAnimationFrame(() => requestAnimationFrame(() => sh.classList.add("open")));
-  syncSleepUI(); clearInterval(_sleepTick); _sleepTick = setInterval(syncSleepUI, 1000);
 }
-function closeSleepSheet() {
-  const sh = $("sleepSheet"); if (sh.hidden) return;
-  sh.classList.remove("open"); clearInterval(_sleepTick);
+function closeSheet(sh) {
+  if (!sh || sh.hidden) return;
+  sh.classList.remove("open");
   const p = sh.querySelector(".bs-panel"); p.style.transform = "";
+  if (sh._onClose) sh._onClose();
   setTimeout(() => { if (!sh.classList.contains("open")) sh.hidden = true; }, 320);
 }
-(() => {
-  const box = $("sleepOpts");
-  SLEEP_OPTS.forEach(([min, label]) => {
-    const b = document.createElement("button"); b.dataset.min = min;
-    b.innerHTML = `<i class="ph ${min === -1 ? "ph-music-note" : "ph-timer"}"></i><span>${esc(t(label))}</span><i class="ph ph-check ck"></i>`;
-    b.onclick = () => sleepSet(min);
-    box.appendChild(b);
-  });
-  $("sleepOff").onclick = () => { sleepStop(false); toast(t("Temporizador desactivado")); closeSleepSheet(); };
-  const sh = $("sleepSheet"), panel = sh.querySelector(".bs-panel");
-  sh.onclick = (e) => { if (e.target === sh) closeSleepSheet(); };
-  // deslizar hacia abajo para cerrar (desde el asa o la cabecera)
+function initSheet(sh) {
+  const panel = sh.querySelector(".bs-panel");
+  sh.onclick = (e) => { if (e.target === sh) closeSheet(sh); };
   let y0 = null, dy = 0;
   panel.querySelectorAll(".bs-grab, .bs-head").forEach(h => {
     h.addEventListener("touchstart", (e) => { y0 = e.touches[0].clientY; dy = 0; panel.style.transition = "none"; }, { passive: true });
@@ -4168,9 +4297,27 @@ function closeSleepSheet() {
   panel.addEventListener("touchend", () => {
     if (y0 === null) return;
     y0 = null; panel.style.transition = "";
-    if (dy > 90) closeSleepSheet(); else panel.style.transform = "";
+    if (dy > 90) closeSheet(sh); else panel.style.transform = "";
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSleepSheet(); });
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.querySelectorAll(".bsheet.open").forEach(closeSheet); });
+function openSleepSheet() {
+  openSheet($("sleepSheet"));
+  syncSleepUI(); clearInterval(_sleepTick); _sleepTick = setInterval(syncSleepUI, 1000);
+}
+function closeSleepSheet() { closeSheet($("sleepSheet")); }
+(() => {
+  const box = $("sleepOpts");
+  SLEEP_OPTS.forEach(([min, label]) => {
+    const b = document.createElement("button"); b.dataset.min = min;
+    b.innerHTML = `<i class="ph ${min === -1 ? "ph-music-note" : "ph-timer"}"></i><span>${esc(t(label))}</span><i class="ph ph-check ck"></i>`;
+    b.onclick = () => sleepSet(min);
+    box.appendChild(b);
+  });
+  $("sleepOff").onclick = () => { sleepStop(false); toast(t("Temporizador desactivado")); closeSleepSheet(); };
+  const sh = $("sleepSheet");
+  initSheet(sh); sh._onClose = () => clearInterval(_sleepTick);
+  initSheet($("devSheet"));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) sleepCheck(); });
 })();
 $("sleep").onclick = openSleepSheet;
@@ -4254,7 +4401,7 @@ function uiTick() {
 }
 requestAnimationFrame(uiTick);
 seek.addEventListener("input", () => { seeking = true; setFill(seek, seek.value / 10); });
-seek.addEventListener("change", () => { if (audio.duration) audio.currentTime = (seek.value / 1000) * audio.duration; seeking = false; });
+seek.addEventListener("change", () => { if (audio.duration) audio.currentTime = (seek.value / 1000) * audio.duration; seeking = false; cxPush(false); });
 
 /* ---------- vista "Reproduciendo" a pantalla completa (movil, estilo Spotify) ----------
    Se abre tocando el mini player. Transicion de elemento compartido (FLIP): cover, titulo y artista
@@ -4706,6 +4853,192 @@ if (!IS_APP && "mediaSession" in navigator) {
   const _most = eng.onState;
   eng.onState = () => { _most(); msPush(); };
 }
+/* ====== Dispositivos (Blyatt Connect): sincronizacion, transferencia y hoja ====== */
+function cxPick(x) {
+  if (!x) return null;
+  const o = { id: x.id, title: x.title || "", artist: x.artist || "", cover: x.cover || "", duration: x.duration || "" };
+  if (x.artists) o.artists = x.artists; if (x.album) o.album = x.album; if (x.explicit) o.explicit = true;
+  if (x._rec || x.rec) o.rec = true;
+  return o;
+}
+const cxUnpick = (arr) => (arr || []).map(x => { const o = Object.assign({}, x); if (o.rec) { o._rec = true; delete o.rec; } return o; });
+function cxState() {
+  const st = Math.max(0, qIndex - 20);
+  return { track: cxPick(current), pos: audio.currentTime || 0, dur: audio.duration || 0, playing: !audio.paused,
+           queue: queue.slice(st, qIndex + 300).map(cxPick), qi: Math.max(0, qIndex - st), shuffle, repeat };
+}
+function cxPush(claim) {   // el que suena publica su estado (claim: acaba de empezar a sonar aqui)
+  if (!CX.enabled || CX.remote || !current) return;
+  clearTimeout(_cxPushT);
+  _cxPushT = setTimeout(() => cxPost("/connect/state", { claim: !!claim, state: cxState() }), claim ? 0 : 300);
+}
+// cada 10 s mientras suena: posicion al dia y "suena aqui" (si el server se reinicio, recupera al activo)
+setInterval(() => { if (CX.enabled && !CX.remote && current && !audio.paused) cxPush(true); }, 10000);
+function cxTake(st) {   // este dispositivo pasa a sonar con el estado exacto del anterior
+  CX.remote = false;
+  if (!st || !st.track) { syncCxUI(); return; }
+  const q = st.queue && st.queue.length ? cxUnpick(st.queue) : [st.track];
+  queue = q.slice(); qIndex = Math.min(st.qi || 0, queue.length - 1); queueOrig = null;
+  if (!queue[qIndex] || queue[qIndex].id !== st.track.id) { queue = [st.track]; qIndex = 0; }
+  shuffle = !!st.shuffle; syncShuffleUI(); setRepeat(st.repeat || "off");
+  _cxSeek = st.pos || 0; _cxAutoplay = st.playing !== false;
+  playSong(queue[qIndex], true);
+  toast(t("Reproduciendo en este dispositivo"));
+  // iOS solo deja sonar tras un toque: si no lo hubo, la barra ya muestra la cancion y el play la arranca
+}
+function cxExec(c) {
+  switch (c.type) {
+    case "release": if (!audio.paused) audio.pause(); break;   // otro dispositivo empezo a sonar
+    case "handoff": {   // transferencia desde aqui: estado exacto (sonando o no) y luego se calla
+      const stt = cxState();
+      if (!audio.paused) audio.pause();
+      cxPost("/connect/handoff", { to: c.to, state: stt });
+      break;
+    }
+    case "take": cxTake(c.state); break;
+    case "play": if (audio.paused) togglePlay(); break;
+    case "pause": if (!audio.paused) togglePlay(); break;
+    case "next": playNext(false); break;
+    case "prev": playPrev(); break;
+    case "seek": audio.currentTime = +c.pos || 0; cxPush(false); break;
+    case "load":
+      if (c.queue && c.queue.length) {
+        queue = cxUnpick(c.queue); qIndex = Math.max(0, Math.min(c.index || 0, queue.length - 1)); queueOrig = null;
+        playSong(queue[qIndex], true);
+      }
+      break;
+    case "queue": {   // el mando edito la cola: se adopta si la actual sigue en su sitio
+      const q = cxUnpick(c.queue), qi = Math.max(0, Math.min(c.qi || 0, q.length - 1));
+      if (current && q[qi] && q[qi].id === current.id) {
+        queue = q; qIndex = qi; queueOrig = null;
+        scheduleGaplessNext(); cxPush(false);
+        if ($("queue").classList.contains("show")) renderQueue();
+      }
+      break;
+    }
+    case "shuffle": setShuffle(!!c.on); break;
+    case "repeat": setRepeat(c.mode); break;
+  }
+}
+function cxMirror(st) {   // modo remoto: la UI refleja lo que suena en el otro dispositivo
+  if (!st || !st.track) return;
+  if (!current || current.id !== st.track.id) { paintNowPlaying(st.track); if (npOpen) paintNp(st.track); }
+  if (st.queue && st.queue.length) { queue = cxUnpick(st.queue); qIndex = Math.min(st.qi || 0, queue.length - 1); queueOrig = null; }
+  if (!!st.shuffle !== shuffle) { shuffle = !!st.shuffle; syncShuffleUI(); }
+  if ((st.repeat || "off") !== repeat) {
+    repeat = st.repeat || "off"; const b = $("repeat"); b.classList.toggle("on", repeat !== "off");
+    b.querySelector("i").className = "ph " + (repeat === "one" ? "ph-repeat-once" : "ph-repeat");
+  }
+  if (eng.onState) eng.onState();
+  if ($("queue").classList.contains("show")) renderQueue();
+}
+function cxApply(r) {
+  const was = CX.remote;
+  CX.hub = r; CX.ver = r.ver; CX.rxAt = performance.now();
+  let took = false;
+  (r.cmds || []).forEach(c => { if (c.type === "take") took = true; try { cxExec(c); } catch (e) {} });
+  const act = r.active && r.active !== CX.dev ? (r.devices || []).find(d => d.id === r.active && d.online) : null;
+  CX.remote = !!act; CX.activeName = act ? act.name : "";
+  if (CX.remote) {
+    if (!was && !audio.paused) { CX.remote = false; audio.pause(); CX.remote = true; }   // por si acaso: nunca dos sonando
+    cxMirror(r.state);
+  } else if (was && !took) {
+    // el otro se desconecto: al darle play aqui sigue la misma cancion donde iba
+    const st = r.state;
+    if (st && st.track && current && current.id === st.track.id) { eng.buf = null; _cxSeek = st.pos || 0; _cxAutoplay = true; }
+    if (eng.onState) eng.onState();
+  }
+  syncCxUI();
+}
+async function cxStart() {
+  if (CX.running) return;
+  CX.running = true; CX.enabled = true;
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  while (CX.running) {
+    if (!_authSt.logged_in) { CX.enabled = false; CX.remote = false; syncCxUI(); await wait(5000); continue; }
+    CX.enabled = true;
+    try {
+      const q = `dev=${CX.dev}&ver=${CX.ver}&name=${encodeURIComponent(CX.name)}&type=${CX.type}`;
+      const r = await (await fetch("/connect/poll?" + q, { cache: "no-store" })).json();
+      if (r.error) {
+        CX.needAccess = r.error === "need_access";
+        if (CX.remote) { CX.remote = false; if (eng.onState) eng.onState(); }
+        syncCxUI(); await wait(CX.needAccess ? 20000 : 6000); continue;
+      }
+      CX.needAccess = false;
+      cxApply(r);
+    } catch (e) { await wait(3000); }
+  }
+}
+const _devIcon = (d) => d.type === "desktop" ? "ph-desktop" : d.type === "phone" ? "ph-device-mobile" : "ph-browser";
+function syncCxUI() {
+  $("pdev").hidden = !CX.remote;
+  if (CX.remote) $("pdevTxt").textContent = CX.activeName;
+  document.body.classList.toggle("cx-remote", CX.remote);
+  const others = ((CX.hub && CX.hub.devices) || []).some(d => d.online && d.id !== CX.dev);
+  document.body.classList.toggle("cx-multi", CX.enabled && (others || CX.remote));
+  const src = npv.querySelector(".np-src");   // cabecera de la vista completa: donde suena
+  src.textContent = CX.remote ? t("Reproduciendo en") + " " + CX.activeName : t("Reproduciendo");
+  src.classList.toggle("cx", CX.remote);
+  [$("devBtn"), $("npDev")].forEach(b => b && b.classList.toggle("on", CX.remote));
+  if (!$("devSheet").hidden) renderDevSheet();
+}
+function renderDevSheet() {
+  const box = $("devList"); box.innerHTML = "";
+  const r = CX.hub, st = cxSt();
+  const devs = ((r && r.devices) || []).filter(d => d.online || d.id === CX.dev);
+  if (!devs.some(d => d.id === CX.dev)) devs.unshift({ id: CX.dev, name: CX.name, type: CX.type, online: true });
+  const activeId = r && r.active && devs.some(d => d.id === r.active && d.online) ? r.active : (current && !audio.paused ? CX.dev : null);
+  devs.sort((a, b) => (b.id === activeId) - (a.id === activeId) || (b.id === CX.dev) - (a.id === CX.dev));
+  $("devStatus").textContent = !CX.enabled ? t("Inicia sesión para usar tus dispositivos")
+    : activeId && activeId !== CX.dev ? t("Reproduciendo en") + " " + (devs.find(d => d.id === activeId) || {}).name
+    : current ? t("Reproduciendo en este dispositivo") : t("Elige dónde sonará la música");
+  if (CX.needAccess) {   // app de escritorio sin sesion en la nube
+    const b = document.createElement("button"); b.className = "cxlogin";
+    b.innerHTML = `<i class="ph ph-cloud-arrow-up"></i><span>${esc(t("Conectar esta PC con tus dispositivos"))}</span>`;
+    b.onclick = async () => { await jget("/connect/login").catch(() => {}); toast(t("Inicia sesión en la ventana de Blyatt")); };
+    box.appendChild(b);
+  }
+  devs.forEach(d => {
+    const me = d.id === CX.dev, act = d.id === activeId;
+    const b = document.createElement("button"); b.className = act ? "act" : "";
+    const sub = me ? t("Este dispositivo") + (act ? " · " + t(!audio.paused ? "Reproduciendo" : "En pausa") : "")
+      : act ? t(st.playing ? "Reproduciendo" : "En pausa") : t("Disponible");
+    b.innerHTML = `<i class="ph${act ? "-fill" : ""} ${_devIcon(d)}"></i><span><span class="dname">${esc(d.name)}${act && (me ? !audio.paused : st.playing) ? '<span class="eq"><i></i><i></i><i></i></span>' : ""}</span><span class="dsub">${esc(sub)}</span></span>`
+      + (me ? '<i class="ph ph-pencil-simple edit" title="Renombrar"></i>' : "");
+    b.onclick = (e) => {
+      if (e.target.classList.contains("edit")) { e.stopPropagation(); cxRename(); return; }
+      if (act) { closeSheet($("devSheet")); return; }
+      cxTransfer(d);
+    };
+    box.appendChild(b);
+  });
+}
+async function cxRename() {
+  const v = await askModal({ title: "Nombre de este dispositivo", icon: "ph-pencil-simple", input: true, placeholder: CX.name, okLabel: "Guardar" });
+  if (!v) return;
+  CX.name = v.slice(0, 40);
+  try { localStorage.setItem("lightning.devname", CX.name); } catch (e) {}
+  cxPost("/connect/hello");   // el hub guarda el nombre nuevo (y avisa al resto)
+  renderDevSheet();
+}
+async function cxTransfer(d) {
+  if (!CX.enabled) { toast(t("Inicia sesión para usar tus dispositivos")); return; }
+  const r = CX.hub;
+  const localActive = !CX.remote && current && (!r || !r.active || r.active === CX.dev);
+  if (localActive && d.id !== CX.dev) {   // suena aqui: se publica el estado exacto antes de entregarlo
+    await cxPost("/connect/state", { claim: true, state: cxState() });
+  }
+  if (d.id === CX.dev && !CX.remote) { closeSheet($("devSheet")); return; }
+  cxPost("/connect/transfer", { to: d.id });
+  toast(t("Cambiando a") + " " + d.name + "…");
+  closeSheet($("devSheet"));
+}
+function openDevSheet() { renderDevSheet(); openSheet($("devSheet")); }
+$("devBtn").onclick = openDevSheet;
+$("npDev").onclick = openDevSheet;
+$("pdev").onclick = (e) => { e.stopPropagation(); openDevSheet(); };
+$("devBtn").addEventListener("click", (e) => e.stopPropagation());   // en movil no abre la vista completa
 /* app Capacitor: controles de reproduccion en la barra de notificaciones (plugin MediaControls) */
 if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
   const mc = Capacitor.Plugins.MediaControls;

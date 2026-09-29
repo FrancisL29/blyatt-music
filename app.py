@@ -2848,9 +2848,10 @@ def _import_liked(y, vids):
     esperar a que YT materialice (consistencia eventual, espera creciente), re-verificar contra la
     cuenta y repetir SOLO lo que falta. Re-import reanuda gratis (skip de ya-likeados)."""
     def _liked_now():
+        # ids leidos del browse crudo: get_liked_songs (shape innertube 2025) los da None y la verificacion
+        # nunca convergia (re-likeaba TODO en cada pasada)
         try:
-            return {t.get("videoId") for t in (y.get_liked_songs(limit=None).get("tracks") or [])
-                    if t.get("videoId")}
+            return {v for v in _raw_list_ids(y, "VLLM", 100) if v}
         except Exception:
             return None
     have = _liked_now() or set()

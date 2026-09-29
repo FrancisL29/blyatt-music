@@ -3141,7 +3141,14 @@ def _vlikes_pid(y, create=False, key=None):
 
 def _vlikes_items(y, pid):
     """[(videoId, setVideoId, track)] de la playlist de videos (con el rescate de videoId del shape nuevo)."""
-    d = y.get_playlist(pid, limit=5000)
+    try:
+        d = y.get_playlist(pid, limit=5000)
+    except Exception:
+        # ytmusicapi falla al leer una playlist VACIA (recien creada): si el browse crudo confirma que no
+        # tiene nada es [] ; cualquier otro fallo se propaga (quien llama decide, p.ej. no reconciliar bajas)
+        if not _raw_list_ids(y, "VL" + pid, 2):
+            return []
+        raise
     raw = d.get("tracks") or []
     if raw and sum(1 for t in raw if t.get("videoId")) < len(raw) / 2:
         try:
@@ -3164,8 +3171,13 @@ def rate_song(video_id, like):
         if like:
             if _music_type(y, video_id) not in ("", "MUSIC_VIDEO_TYPE_ATV"):   # video: tambien a la playlist propia
                 pid = _vlikes_pid(y, create=True)
-                if pid and video_id not in {v for v, _, _ in _vlikes_items(y, pid)}:
-                    y.add_playlist_items(pid, [video_id])
+                if pid:
+                    try:
+                        have = {v for v, _, _ in _vlikes_items(y, pid)}
+                    except Exception:
+                        have = set()   # sin poder leerla se anade igual (duplicates=False evita repetirlo)
+                    if video_id not in have:
+                        y.add_playlist_items(pid, [video_id], duplicates=False)
         else:
             pid = _vlikes_pid(y)
             if pid:

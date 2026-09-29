@@ -2962,11 +2962,14 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
       const before = liked.length;
       liked = liked.filter(x => ytMap.has(x.id) || Date.now() - (_freshLikes.get(x.id) || 0) < 60000);
       if (liked.length !== before) changed = true;
-      // orden de la cuenta (mas reciente primero); likes locales aun no reflejados quedan arriba
-      const pos = new Map((d.liked || []).map((s, i) => [s.id, i]));
+      // orden de la cuenta (mas reciente primero) para los likes de canciones. Los videos con like (playlist
+      // propia, marcados v) y los likes locales aun no reflejados conservan su sitio: YT no da su fecha
+      const pos = new Map((d.liked || []).filter(s => !s.v).map((s, i) => [s.id, i]));
       const prevOrder = liked.map(x => x.id).join(",");
-      liked = liked.filter(x => !pos.has(x.id))
-        .concat(liked.filter(x => pos.has(x.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id)));
+      const slots = [], ranked = [];
+      liked.forEach((x, i) => { if (pos.has(x.id)) { slots.push(i); ranked.push(x); } });
+      ranked.sort((a, b) => pos.get(a.id) - pos.get(b.id));
+      liked = liked.slice(); slots.forEach((i, k) => { liked[i] = ranked[k]; });
       if (liked.map(x => x.id).join(",") !== prevOrder) changed = true;
     }
     if (changed) {
@@ -3279,7 +3282,8 @@ async function unzipCsvs(file) {
   }
   return out;
 }
-const _isLikedCsv = (name) => /^(liked[ _-]?songs|canciones[ _-]que[ _-]te[ _-]gustan|tus[ _-]me[ _-]gusta)(\.csv)?$/i.test(name.trim());
+// Exportify nombra el de "Liked Songs" como liked.csv (antes se importaba como una playlist "liked")
+const _isLikedCsv = (name) => /^(liked|likes|liked[ _-]?(songs|tracks|music)|me[ _-]gusta|canciones[ _-]que[ _-]te[ _-]gustan|tus[ _-]me[ _-]gusta)(\.csv)?$/i.test(name.trim());
 $("impfile").onchange = async (e) => {
   const files = [...e.target.files]; e.target.value = "";
   if (!files.length) return;

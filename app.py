@@ -3104,12 +3104,76 @@ def import_csv(body):
         _imp_prog.update(active=False)
 
 
+# --- me gusta de VIDEOS: YT Music solo lista en "Me gusta" las canciones; un video (subido por usuarios,
+# lyric video...) con like se va a los "me gusta" de YouTube y desaparecia de Blyatt en la siguiente
+# sincronizacion. Se guardan ademas en una playlist privada propia y Blyatt la une a "Me gusta".
+VLIKES_TITLE = "Me gusta (videos) · Blyatt"
+
+
+def _music_type(y, vid):
+    key = "mvt:" + vid
+    if key in _CACHE:
+        return _CACHE[key][1]
+    try:
+        t = ((y.get_song(vid) or {}).get("videoDetails") or {}).get("musicVideoType") or ""
+    except Exception:
+        return ""
+    _CACHE[key] = (time.time(), t)
+    return t
+
+
+def _vlikes_pid(y, create=False, key=None):
+    key = key or _sk("vlikes")   # en hilos auxiliares no hay sesion del request: la clave llega calculada
+    hit = _CACHE.get(key)
+    if hit and hit[1]:
+        return hit[1]
+    pid = next((p.get("playlistId") for p in (y.get_library_playlists(limit=None) or [])
+                if (p.get("title") or "") == VLIKES_TITLE and p.get("playlistId")), None)
+    if not pid and create:
+        pid = y.create_playlist(VLIKES_TITLE, "Videos marcados con me gusta en Blyatt (YouTube Music no los guarda "
+                                              "en tus Me gusta). Blyatt los muestra junto a tus Me gusta.", "PRIVATE")
+        if not isinstance(pid, str):
+            pid = None
+    if pid:
+        _CACHE[key] = (time.time(), pid)
+    return pid
+
+
+def _vlikes_items(y, pid):
+    """[(videoId, setVideoId, track)] de la playlist de videos (con el rescate de videoId del shape nuevo)."""
+    d = y.get_playlist(pid, limit=5000)
+    raw = d.get("tracks") or []
+    if raw and sum(1 for t in raw if t.get("videoId")) < len(raw) / 2:
+        try:
+            ids = _raw_list_ids(y, "VL" + pid, 60)
+            if len(ids) >= len(raw):
+                for t, vid in zip(raw, ids):
+                    t["videoId"] = t.get("videoId") or vid
+        except Exception:
+            pass
+    return [(t["videoId"], t.get("setVideoId"), t) for t in raw if t.get("videoId")]
+
+
 def rate_song(video_id, like):
     # like en la app -> me gusta en la cuenta de YT Music del usuario
     y = ytm()
     if not y:
         return {"error": "Sin sesión de Google"}
     y.rate_song(video_id, "LIKE" if like else "INDIFFERENT")
+    try:
+        if like:
+            if _music_type(y, video_id) not in ("", "MUSIC_VIDEO_TYPE_ATV"):   # video: tambien a la playlist propia
+                pid = _vlikes_pid(y, create=True)
+                if pid and video_id not in {v for v, _, _ in _vlikes_items(y, pid)}:
+                    y.add_playlist_items(pid, [video_id])
+        else:
+            pid = _vlikes_pid(y)
+            if pid:
+                rm = [{"videoId": v, "setVideoId": sv} for v, sv, _ in _vlikes_items(y, pid) if v == video_id and sv]
+                if rm:
+                    y.remove_playlist_items(pid, rm)
+    except Exception:
+        pass   # el like normal ya se aplico; la playlist de videos es un extra
     _CACHE.pop(_sk("ytlib"), None)   # la biblioteca cambio: proximo /ytlib re-fetch
     return {"ok": True}
 
@@ -3146,6 +3210,7 @@ def yt_library(parts=None):
         pass
 
     truncated = []
+    vkey = _sk("vlikes")   # calculada aqui: los hilos de abajo no tienen la sesion del request
 
     def liked(head=False):
         # En el server la sesion suele recibir el shape nuevo (videoId en null): el paginado crudo del
@@ -3180,6 +3245,14 @@ def yt_library(parts=None):
                     truncated.append("liked")   # no se pudo alinear: no reconciliar bajas
             except Exception:
                 truncated.append("liked")
+        if not head:   # videos con like (playlist propia): se unen a los Me gusta, marcados como video
+            try:
+                pid = _vlikes_pid(y, key=vkey)
+                if pid:
+                    have = {t.get("videoId") for t in tracks}
+                    tracks = tracks + [dict(t, _v=True) for v, _, t in reversed(_vlikes_items(y, pid)) if v not in have]
+            except Exception:
+                truncated.append("liked")   # sin poder leerla: no reconciliar bajas (se perderian los videos)
         out = []
         for t in tracks:
             if not t.get("videoId"):
@@ -3194,6 +3267,8 @@ def yt_library(parts=None):
                 s["album"] = {"name": t["album"].get("name", ""), "id": t["album"]["id"]}
             if t.get("isExplicit"):
                 s["explicit"] = True
+            if t.get("_v"):
+                s["v"] = True
             out.append(s)
         return out
 
@@ -3203,6 +3278,8 @@ def yt_library(parts=None):
         for p in y.get_library_playlists(limit=50):
             pid = p.get("playlistId", "")
             if not pid or pid in ("LM", "SE"):   # LM = me gusta (seccion propia), SE = episodios
+                continue
+            if (p.get("title") or "") == VLIKES_TITLE:   # es parte de "Me gusta", no una playlist mas
                 continue
             n = p.get("count")
             aus = p.get("author") or []

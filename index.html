@@ -2996,7 +2996,7 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       if (document.body.dataset.mv === "lib") openMobileLibrary(false);   // la cuadricula movil no la repinta renderLibrary
     }
-    if (!quiet && (addL.length || nB)) toast(`YouTube Music sincronizado: ${addL.length} me gusta, ${nB} en biblioteca`);
+    // sin aviso: la sincronizacion es silenciosa (corre al abrir y al volver a la app; los cambios ya se ven solos)
   } catch (e) { _ytSynced = false; }
   finally { _ytSyncBusy = false; }
   return _failed;

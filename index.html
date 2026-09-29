@@ -1523,7 +1523,16 @@ const IOS_WEB = !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.is
   && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 /* ====== motor de audio Web Audio (gapless real, sample-accurate) ====== */
 const AC = new (window.AudioContext || window.webkitAudioContext)();
-const gainNode = AC.createGain(); gainNode.connect(AC.destination);
+const gainNode = AC.createGain();
+// "ducking" (como Spotify o la radio): nodo propio tras el volumen del usuario. Cuando otra app habla un momento
+// (audio de WhatsApp, navegacion...) la musica baja suave y al terminar vuelve; el volumen elegido no se toca
+const duckNode = AC.createGain(); gainNode.connect(duckNode); duckNode.connect(AC.destination);
+function setDuck(on) {
+  const t0 = AC.currentTime, g = duckNode.gain;
+  g.cancelScheduledValues(t0); g.setValueAtTime(g.value, t0);
+  // baja en ~0.35 s hasta el 20 %; sube mas despacio (~1.2 s), sin saltos
+  g.setTargetAtTime(on ? 0.2 : 1, t0, on ? 0.12 : 0.4);
+}
 const bufCache = new Map(), bufOrder = [];   // id -> Promise<AudioBuffer> (cache acotada)
 // detecta el silencio de codificacion (priming/padding de AAC) al inicio/fin para encadenar sin hueco
 function analyzeSilence(buf) {
@@ -5056,6 +5065,12 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
     else if (e.action === "prev") { playPrev(); _mcPush(); }
     else if (e.action === "like") { if (current) toggleLike(current); _mcPush(); }
     else if (e.action === "seek" && e.position != null) { audio.currentTime = e.position; _mcPush(); }
+    // foco de audio: llamada u otra app de musica -> pausa (y vuelve tras la llamada). En modo mando (la musica
+    // suena en otro dispositivo) se ignora: abrir YouTube en el movil no debe pausar la PC
+    else if (e.action === "focuspause") { if (!CX.remote && !audio.paused) togglePlay(); }
+    else if (e.action === "focusplay") { if (!CX.remote && audio.paused) togglePlay(); }
+    else if (e.action === "duck") setDuck(true);     // otra app habla un momento (audio de WhatsApp...)
+    else if (e.action === "unduck") setDuck(false);  // termino: vuelve el volumen
   });
   // repinta la notificacion en cambio de pista y de estado; la posicion se interpola nativa
   const _opb = onPlaybackStarted;

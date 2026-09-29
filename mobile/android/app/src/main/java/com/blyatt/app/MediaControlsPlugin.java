@@ -11,7 +11,9 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
 import android.media.AudioDeviceCallback;
+import android.media.AudioFocusRequest;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
@@ -82,6 +84,7 @@ public class MediaControlsPlugin extends Plugin {
         };
         ContextCompat.registerReceiver(ctx, btnReceiver, new IntentFilter(BTN_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED);
         watchBluetooth(ctx);
+        audioMgr = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
     }
 
     // ---- app visible o no (entre onStart y onStop la ventana se ve) ----
@@ -115,6 +118,71 @@ public class MediaControlsPlugin extends Plugin {
         o.put("action", action);
         if (posMs != null) o.put("position", posMs / 1000.0);
         notifyListeners("action", o);
+    }
+
+    // ---- foco de audio: bajar la musica mientras otra app habla (audio de WhatsApp), como Spotify ----
+    // Sin pedir foco el sistema nunca avisa: la musica seguia a tope encima del audio. Con setWillPauseWhenDucked
+    // el sistema NO baja el volumen de golpe: lo hace la pagina con un fundido (setDuck en el JS).
+    private AudioManager audioMgr;
+    private AudioFocusRequest focusReq;
+    private boolean hasFocus = false, ducked = false, pausedByFocus = false;
+
+    private final AudioManager.OnAudioFocusChangeListener focusListener = change -> {
+        switch (change) {
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                if (inCall()) {   // llamada: con la musica de fondo se oiria en la llamada -> pausa y vuelve al colgar
+                    if (playing) { pausedByFocus = true; emit("focuspause", null); }
+                } else if (!ducked) {   // audio de WhatsApp, notificacion con voz, navegacion...
+                    ducked = true; emit("duck", null);
+                }
+                break;
+            case AudioManager.AUDIOFOCUS_GAIN:
+                if (ducked) { ducked = false; emit("unduck", null); }
+                if (pausedByFocus) { pausedByFocus = false; emit("focusplay", null); }
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS:   // otra app de musica/video empezo a sonar: se pausa (como Spotify)
+                hasFocus = false;
+                if (ducked) { ducked = false; emit("unduck", null); }
+                pausedByFocus = false;
+                if (playing) emit("focuspause", null);
+                break;
+            default:
+                break;
+        }
+    };
+
+    private boolean inCall() {
+        int m = audioMgr.getMode();
+        return m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_IN_COMMUNICATION || m == AudioManager.MODE_RINGTONE;
+    }
+
+    private void requestFocus() {
+        if (hasFocus || audioMgr == null) return;
+        int r;
+        if (Build.VERSION.SDK_INT >= 26) {
+            if (focusReq == null) {
+                focusReq = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setWillPauseWhenDucked(true)
+                    .setOnAudioFocusChangeListener(focusListener, main)
+                    .build();
+            }
+            r = audioMgr.requestAudioFocus(focusReq);
+        } else {
+            r = audioMgr.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+        hasFocus = r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+    }
+
+    private void abandonFocus() {
+        if (!hasFocus || audioMgr == null) return;
+        if (Build.VERSION.SDK_INT >= 26 && focusReq != null) audioMgr.abandonAudioFocusRequest(focusReq);
+        else audioMgr.abandonAudioFocus(focusListener);
+        hasFocus = false;
+        if (ducked) { ducked = false; emit("unduck", null); }
     }
 
     // ---- pausa al conectar/desconectar un dispositivo de audio Bluetooth (sin permiso de BT) ----
@@ -190,6 +258,7 @@ public class MediaControlsPlugin extends Plugin {
             fetchCover(cu);
         }
         render();
+        if (playing) requestFocus();   // al empezar a sonar: a partir de aqui el sistema avisa de otros audios
         call.resolve();
     }
 
@@ -268,6 +337,7 @@ public class MediaControlsPlugin extends Plugin {
 
     @PluginMethod
     public void hide(PluginCall call) {
+        abandonFocus();
         getContext().stopService(new Intent(getContext(), MediaPlaybackService.class));
         nm.cancel(NOTIF_ID);
         call.resolve();

@@ -1380,7 +1380,10 @@ const EN = {
   "Reproduciendo en este dispositivo": "Playing on this device", "Elige dónde sonará la música": "Choose where the music plays",
   "Este dispositivo": "This device", "En pausa": "Paused", "Disponible": "Available", "Cambiando a": "Switching to",
   "Inicia sesión para usar tus dispositivos": "Sign in to use your devices", "Nombre de este dispositivo": "This device's name",
-  "Conectar esta PC con tus dispositivos": "Connect this PC with your devices", "Inicia sesión en la ventana de Blyatt": "Sign in in the Blyatt window",
+  "Conectar esta PC con tus dispositivos": "Connect this PC with your devices",
+  "PC conectada con tus dispositivos": "PC connected with your devices",
+  "Para sincronizar esta PC con tu móvil (Dispositivos), conéctala una vez: te llegará un código a tu email.":
+    "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Blyatt": "Sign in in the Blyatt window",
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Blyatt abierto.": "Devices signed in with your account show up here while Blyatt is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next",
   "Añadir a Me gusta": "Add to Liked", "Quitar de Me gusta": "Remove from Liked",
@@ -1780,7 +1783,7 @@ if (IOS_WEB) (() => {
    (posicion extrapolada, duracion, pausa) y sus play/pause/seek se convierten en ordenes para el: la UI
    existente (barra, vista completa, iconos, pantalla de bloqueo, notificacion) funciona sin cambios. */
 const CX = { dev: "", name: "", type: "web", hub: null, ver: -1, rxAt: 0, remote: false, activeName: "",
-             enabled: false, needAccess: false, running: false };
+             enabled: false, needAccess: false, running: false, loginAt: 0, askedAccess: false };
 (() => {
   let id = ""; try { id = localStorage.getItem("lightning.devid") || ""; } catch (e) {}
   if (!/^[\w-]{6,40}$/.test(id)) {
@@ -5020,12 +5023,33 @@ async function cxStart() {
       if (r.error) {
         CX.needAccess = r.error === "need_access";
         if (CX.remote) { CX.remote = false; if (eng.onState) eng.onState(); }
-        syncCxUI(); await wait(CX.needAccess ? 20000 : 6000); continue;
+        syncCxUI();
+        if (CX.needAccess) cxAskAccess();
+        // con la ventana de conexion abierta se sondea rapido: sincroniza en cuanto el usuario termina
+        await wait(CX.needAccess ? (Date.now() - CX.loginAt < 15 * 60000 ? 2000 : 20000) : 6000); continue;
       }
-      CX.needAccess = false;
+      if (CX.needAccess && CX.loginAt) toast(t("PC conectada con tus dispositivos"));
+      CX.needAccess = false; CX.loginAt = 0;
       cxApply(r);
     } catch (e) { await wait(3000); }
   }
+}
+// app de escritorio sin el pase de Cloudflare (instalacion nueva o caducado ~30 dias): se ofrece conectar
+// en vez de dejar Dispositivos sin sincronizar en silencio. Como mucho una vez al dia.
+async function cxAskAccess() {
+  if (CX.askedAccess || CX.loginAt) return;
+  CX.askedAccess = true;
+  let last = 0;
+  try { last = +localStorage.getItem("lightning.cxAsked") || 0; localStorage.setItem("lightning.cxAsked", Date.now()); } catch (e) {}
+  if (Date.now() - last < 864e5) return;
+  const ok = await askModal({ title: "Conectar esta PC con tus dispositivos", icon: "ph-devices", okLabel: "Conectar",
+    message: "Para sincronizar esta PC con tu móvil (Dispositivos), conéctala una vez: te llegará un código a tu email." });
+  if (ok) cxLogin();
+}
+async function cxLogin() {
+  CX.loginAt = Date.now();
+  await jget("/connect/login").catch(() => {});
+  toast(t("Inicia sesión en la ventana de Blyatt"));
 }
 const _devIcon = (d) => d.type === "desktop" ? "ph-desktop" : d.type === "phone" ? "ph-device-mobile" : "ph-browser";
 function syncCxUI() {
@@ -5053,7 +5077,7 @@ function renderDevSheet() {
   if (CX.needAccess) {   // app de escritorio sin sesion en la nube
     const b = document.createElement("button"); b.className = "cxlogin";
     b.innerHTML = `<i class="ph ph-cloud-arrow-up"></i><span>${esc(t("Conectar esta PC con tus dispositivos"))}</span>`;
-    b.onclick = async () => { await jget("/connect/login").catch(() => {}); toast(t("Inicia sesión en la ventana de Blyatt")); };
+    b.onclick = () => { closeSheet($("devSheet")); cxLogin(); };
     box.appendChild(b);
   }
   devs.forEach(d => {

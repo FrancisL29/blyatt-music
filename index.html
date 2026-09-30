@@ -1352,6 +1352,12 @@ const EN = {
   "Reproduciendo ahora": "Now playing", "A continuación": "Up next", "Recomendaciones": "Recommendations",
   "Letra": "Lyrics", "Nueva playlist": "New playlist", "Configuración": "Settings",
   "Idioma": "Language", "Español": "Spanish", "Inglés": "English", "Más información": "More info",
+  "Nueva versión de Blyatt": "New version of Blyatt", "Reiniciar ahora": "Restart now",
+  "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
+    "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
+  "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
+  "Buscando actualizaciones…": "Checking for updates…", "Instalando actualización…": "Installing update…",
+  "No se pudo buscar actualizaciones": "Couldn't check for updates", "Blyatt está actualizado": "Blyatt is up to date",
   "Cerrar sesión": "Sign out", "Iniciar sesión con Google": "Sign in with Google",
   "Configuración: próximamente": "Settings: coming soon", "Tu cuenta": "Your account",
   "Reconectar": "Reconnect", "Invitado": "Guest", "Conectar": "Connect",
@@ -3070,6 +3076,42 @@ async function signOutClean() {
   ACCOUNT_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
   location.reload();   // la UI arranca limpia; en la app aparece la pantalla de inicio de sesion
 }
+/* ---------- actualizaciones (app de escritorio instalada, releases de GitHub) ----------
+   el server descarga la version nueva en segundo plano; aqui solo se ofrece reiniciar (si no, se instala al cerrar) */
+let _upd = null;
+async function updPoll() {
+  try { _upd = await jget("/update/status"); } catch (e) { return; }
+  if (!_upd.enabled || !_upd.ready) return;
+  let asked = null;
+  try { asked = localStorage.getItem("lightning.updAsked"); localStorage.setItem("lightning.updAsked", _upd.latest); } catch (e) {}
+  if (asked === _upd.latest) return;   // una sola vez por version: luego queda en el menu de la cuenta
+  const ok = await askModal({ title: "Nueva versión de Blyatt", icon: "ph-arrow-circle-up", okLabel: "Reiniciar ahora",
+    message: t("La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.").replace("{v}", _upd.latest) });
+  if (ok) updApply();
+}
+async function updApply() {
+  toast("Instalando actualización…");
+  try { await fetch("/update/apply", { method: "POST" }); } catch (e) {}
+}
+async function updCheck() {
+  toast("Buscando actualizaciones…");
+  let d;
+  try {
+    d = await (await fetch("/update/check", { method: "POST" })).json();
+    for (let i = 0; i < 600 && d.checking; i++) {   // incluye la descarga del instalador (hasta ~10 min)
+      await new Promise(r => setTimeout(r, 1000));
+      d = await jget("/update/status");
+    }
+  } catch (e) { d = { error: "red" }; }
+  _upd = d;
+  if (d.ready) { try { localStorage.removeItem("lightning.updAsked"); } catch (e) {} updPoll(); }
+  else if (d.error) toast("No se pudo buscar actualizaciones");
+  else toast(t("Blyatt está actualizado") + " · v" + d.version);
+}
+if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+  setTimeout(updPoll, 3000);
+  setInterval(updPoll, 5 * 60 * 1000);   // solo lee el estado local; la consulta a GitHub es cada 6 h
+}
 function openUserMenu(btn) {
   const r = btn.getBoundingClientRect();
   showMenu([
@@ -3079,6 +3121,8 @@ function openUserMenu(btn) {
       ["", "Inglés", () => setLang("en")],
     ]],
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
+    ...(_upd && _upd.enabled ? [["ph-arrow-circle-up", _upd.ready ? "Instalar actualización" : "Buscar actualizaciones",
+                                 _upd.ready ? updApply : updCheck]] : []),
     ...(_authSt.logged_in && _authSt.own !== false && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
       ? [["ph-link", "Vincular dispositivo", linkShow]] : []),
     [(_authSt.logged_in && _authSt.own !== false) ? "ph-sign-out" : "ph-google-logo",

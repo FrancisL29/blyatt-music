@@ -20,3 +20,9 @@ mobile/android/local.properties
 
 # cache de audio/links (se regenera sola)
 cache/
+
+# empaquetado (packaging/build.ps1)
+build/
+packaging/bin/
+_build_version.py
+*.spec

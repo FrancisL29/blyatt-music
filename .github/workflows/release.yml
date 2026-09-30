@@ -1,0 +1,79 @@
+# Instalador de Windows (Blyatt-Setup-X.Y.Z.exe) publicado como Release; la app instalada se actualiza sola
+# leyendo la ultima release (updater.py).
+#  - tag vX.Y.Z  -> release X.Y.Z con los cambios del tag
+#  - diario      -> si salio un yt-dlp nuevo (YouTube cambia a menudo), release de parche automatica
+#  - manual      -> release de parche con lo que haya en main
+name: Release Windows
+
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          $ytdlp = (Invoke-RestMethod https://pypi.org/pypi/yt-dlp/json).info.version
+          "ytdlp=$ytdlp" >> $env:GITHUB_OUTPUT
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $last = gh release view --json tagName,body 2>$null | ConvertFrom-Json
+            if (-not $last) { Write-Host "Sin releases: la primera se publica con un tag"; "skip=true" >> $env:GITHUB_OUTPUT; exit 0 }
+            if ("${{ github.event_name }}" -eq "schedule" -and $last.body -match [regex]::Escape("yt-dlp $ytdlp")) {
+              Write-Host "yt-dlp $ytdlp ya publicado"; "skip=true" >> $env:GITHUB_OUTPUT; exit 0
+            }
+            $p = $last.tagName.TrimStart("v").Split(".")
+            $v = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "version invalida: $v" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-python@v5
+        if: steps.ver.outputs.skip != 'true'
+        with:
+          python-version: "3.13"
+
+      - name: Dependencias
+        if: steps.ver.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-desktop.txt "yt-dlp[default]==${{ steps.ver.outputs.ytdlp }}"
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Compilar instalador
+        if: steps.ver.outputs.skip != 'true'
+        shell: powershell
+        run: .\packaging\build.ps1 -Version ${{ steps.ver.outputs.version }} -Python python
+
+      - name: Publicar release
+        if: steps.ver.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $exe = "build\installer\Blyatt-Setup-$v.exe"
+          $notes = "Instalador: descarga **Blyatt-Setup-$v.exe** y ábrelo. Si ya tienes Blyatt, se actualiza solo.`n`nyt-dlp ${{ steps.ver.outputs.ytdlp }}"
+          if ("${{ github.ref_type }}" -eq "tag") {
+            gh release create "v$v" $exe --title "Blyatt $v" --notes "$notes" --generate-notes --verify-tag
+          } else {
+            gh release create "v$v" $exe --title "Blyatt $v" --notes "Actualización automática (yt-dlp al día).`n`n$notes" --target "${{ github.sha }}"
+          }

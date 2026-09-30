@@ -1,0 +1,5 @@
+# app de escritorio (main.py) y su empaquetado (packaging/build.ps1)
+pywebview>=6
+ytmusicapi>=1.12
+yt-dlp[default]
+pyinstaller>=6.16

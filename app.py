@@ -12,6 +12,7 @@ import re
 import socket
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -27,7 +28,17 @@ try:
 except ImportError:   # login con Google opcional: la app funciona sin ytmusicapi
     YTMusic = None
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+# app instalada (.exe de PyInstaller): los archivos del programa son de solo lectura (se reemplazan en
+# cada actualizacion) -> sesiones, cache y perfil del WebView van a %LOCALAPPDATA%\Blyatt
+FROZEN = bool(getattr(sys, "frozen", False))
+BASE = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Blyatt") if FROZEN else BASE
+try:
+    from _build_version import VERSION   # lo genera packaging/build.ps1 con el tag de la release
+except ImportError:
+    VERSION = "dev"
+if FROZEN:   # ffmpeg y node van dentro del instalador
+    os.environ["PATH"] = os.path.join(BASE, "bin") + os.pathsep + os.environ.get("PATH", "")
 
 # cache TTL en memoria (proceso unico, app local). ponytail: sin tope; añadir LRU si la RAM importa.
 _CACHE = {}
@@ -1446,7 +1457,7 @@ def song_id(title, artist):
 # Links de googlevideo: persistidos en cache/urls.json con el `expire` que trae la propia URL (~6h)
 # menos un margen; sobreviven a reinicios del server. Bytes: cache/audio/<id>.mp4 (LRU por mtime,
 # tope en MB) -> una cancion repetida no toca YouTube (ni extraccion ni descarga).
-CACHE_DIR = os.path.join(BASE, "cache")
+CACHE_DIR = os.path.join(DATA, "cache")
 AUDIO_DIR = os.path.join(CACHE_DIR, "audio")
 os.makedirs(AUDIO_DIR, exist_ok=True)
 _URLS_FILE = os.path.join(CACHE_DIR, "urls.json")
@@ -1752,7 +1763,7 @@ def prewarm(ids):
 # OAuth device-flow descartado: YouTube rechaza tokens de cliente TV en la API interna de
 # YT Music (HTTP 400 en todos los endpoints desde finales de 2024). Los headers del navegador
 # son la via soportada por ytmusicapi y la cookie dura anios.
-AUTH_DIR = os.path.join(BASE, "auth")
+AUTH_DIR = os.path.join(DATA, "auth")
 BROWSER_FILE = os.path.join(AUTH_DIR, "browser.json")
 WEBLOGIN = None   # main.py (pywebview) inyecta aqui el launcher de la ventana de login de Google
 WEBLOGOUT = None  # main.py: borra las cookies de Google del perfil WebView2 (para poder cambiar de cuenta)
@@ -1829,6 +1840,8 @@ def _probe_session(cookie_header, user_agent):
 # server local: reenvia /connect/* al hub remoto (cx_relay) con la cookie de Cloudflare Access de su login.
 CONNECT_REMOTE = os.environ.get("BLYATT_CONNECT_REMOTE", "https://blyatt.stream")
 CONNECTLOGIN = None   # main.py: ventana para iniciar sesion en Cloudflare Access (escritorio)
+UPDATER = None        # main.py (app instalada): modulo updater (releases de GitHub)
+UPDATE_RESTART = None  # main.py: instala la version descargada y reinicia la app
 _CX = {}
 _cx_cond = threading.Condition()
 _CX_ONLINE = 40   # s sin sondear = desconectado
@@ -2016,7 +2029,7 @@ def connect_api(path, qs, d):
 
 
 # --- escritorio: relay al hub remoto con la sesion de Cloudflare Access ---
-_CX_ACCESS_FILE = os.path.join(BASE, "auth", "connect.json")
+_CX_ACCESS_FILE = os.path.join(DATA, "auth", "connect.json")
 
 
 def _cx_access():
@@ -3375,6 +3388,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path == "/update/status":
+            return self._json(dict(UPDATER.status(), enabled=True) if UPDATER else {"enabled": False, "version": VERSION})
         if u.path.startswith("/connect/"):
             return self._connect(u, "GET")
         if u.path == "/migrate/pull":
@@ -3693,6 +3708,15 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         self._setup_bid()
         u = urlparse(self.path)
+        if u.path in ("/update/check", "/update/apply"):
+            if not UPDATER:
+                return self._json({"error": "Solo en la app de escritorio instalada"})
+            if u.path == "/update/check":
+                return self._json(UPDATER.check_async())
+            if not UPDATER.status().get("ready"):
+                return self._json({"error": "No hay ninguna actualización descargada"})
+            threading.Timer(0.3, UPDATE_RESTART).start()   # primero la respuesta, luego cerrar la app
+            return self._json({"ok": True})
         if u.path.startswith("/connect/"):
             return self._connect(u, "POST")
         if u.path == "/migrate/push":

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Blyatt - app de escritorio. Sirve la web local y la abre en una ventana nativa (pywebview)."""
+import ctypes
 import json
 import os
+import subprocess
 import threading
 import time
 
@@ -10,7 +12,7 @@ import webview
 import app
 from app import serve
 
-PORT = 8000
+PORT = int(os.environ.get("BLYATT_PORT") or 8000)   # otro puerto solo para pruebas (el origen fija el localStorage)
 LOGIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
 SPOT_URL = "https://open.spotify.com/"
 
@@ -139,22 +141,70 @@ def connect_login():
     threading.Thread(target=poll, daemon=True).start()
 
 
+def _msgbox(text):
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, "Blyatt", 0x40)
+    except Exception:
+        pass
+
+
+def _frozen_setup():
+    """App instalada (.exe): una sola instancia, sin ventanas de consola para ffmpeg/node, auto-update."""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # el instalador espera a que este mutex desaparezca antes de reemplazar archivos (actualizaciones)
+    globals()["_MUTEX"] = k32.CreateMutexW(None, False, "BlyattAppMutex")
+    if ctypes.get_last_error() == 183:   # ERROR_ALREADY_EXISTS
+        _msgbox("Blyatt ya está abierto.")
+        os._exit(0)
+    # sin consola sys.stdout/err son None (yt-dlp y http.server escriben ahi): a un log por sesion
+    import sys
+    os.makedirs(app.DATA, exist_ok=True)
+    sys.stdout = sys.stderr = open(os.path.join(app.DATA, "blyatt.log"), "w", encoding="utf8", buffering=1)
+    # el .exe no tiene consola: sin esto cada ffmpeg/node abriria una ventana negra
+    _init = subprocess.Popen.__init__
+
+    def _no_window(self, *a, **k):
+        k.setdefault("creationflags", 0x08000000)   # CREATE_NO_WINDOW
+        _init(self, *a, **k)
+    subprocess.Popen.__init__ = _no_window
+    import updater
+    updater.start(app.VERSION, app.DATA)
+    app.UPDATER = updater
+
+    def restart():
+        if updater.apply(relaunch=True):   # el instalador espera al mutex y reabre Blyatt al terminar
+            _APP_CLOSING.set()
+            try:
+                main_win.destroy()
+            except Exception:
+                os._exit(0)
+    app.UPDATE_RESTART = restart
+    return updater
+
+
 if __name__ == "__main__":
+    upd = _frozen_setup() if app.FROZEN else None
     # Dispositivos: al transferir la musica a esta PC desde el movil, tiene que poder sonar sin un clic
     os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required")
     app.CONNECTLOGIN = connect_login
     app.WEBLOGIN = google_login
     app.WEBLOGOUT = google_logout
     app.SPOTLOGIN = spotify_login
-    httpd = serve(PORT)
+    try:
+        httpd = serve(PORT)
+    except OSError:
+        _msgbox("No se pudo abrir el puerto %d: ¿hay otra copia de Blyatt abierta?" % PORT)
+        os._exit(1)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     main_win = webview.create_window("Blyatt", f"http://127.0.0.1:{PORT}",
                                      width=1200, height=800, min_size=(900, 600))
     # al cerrar la ventana principal, avisa a los polls de login para que cierren sus ventanas
     # (si no, una ventana de login abierta mantiene webview.start() vivo = proceso zombie)
     main_win.events.closing += lambda: _APP_CLOSING.set()
-    webview.start(private_mode=False, storage_path=os.path.join(app.BASE, "auth", "webview"),
+    webview.start(private_mode=False, storage_path=os.path.join(app.DATA, "auth", "webview"),
                   icon=os.path.join(app.BASE, "assets", "blyatt.ico"))   # ventana y barra de tareas
     _APP_CLOSING.set()
+    if upd:
+        upd.on_exit()   # version nueva descargada y sin reiniciar: se instala en silencio al cerrar
     httpd.shutdown()
     os._exit(0)   # garantiza que ningun hilo/ventana rezagado deje el proceso vivo

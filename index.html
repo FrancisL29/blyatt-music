@@ -612,7 +612,20 @@
         -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
         transform: translate3d(0, calc(var(--q) * -.075em), 0); transition: --q .8s ease; }
   .lline.active .lw { transition: none; }
-  .lw.long { filter: drop-shadow(0 0 calc(var(--q) * .2em) rgb(255 255 255 / calc(var(--q) * .5))); }
+  /* nota sostenida (>= 1 s): como Apple Music, cada LETRA se llena, se eleva y brilla en ola mientras dura.
+     JS solo escribe el progreso de la palabra (--k relleno, --kq elevacion); cada letra calcula el suyo en
+     CSS con su indice (--i) y el total (--n): sin trabajo por letra en cada frame */
+  .lw.long { background: none; transform: none; }
+  .lc { display: inline-block; padding-bottom: .1em; margin-bottom: -.1em; color: transparent;
+        --lp: clamp(0, var(--k, 0) * var(--n) - var(--i), 1);
+        --lq: clamp(0, (var(--kq, 0) * (var(--n) + 2.5) - var(--i)) / 2.5, 1);
+        background: linear-gradient(90deg, rgb(255 255 255 / var(--la)) calc((var(--lp) * 140 - 20) * 1%),
+                                           rgb(255 255 255 / var(--ld)) calc(var(--lp) * 140 * 1%));
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;   /* tras "background" */
+        transform: translate3d(0, calc(var(--lq) * -.12em), 0);
+        filter: drop-shadow(0 0 calc(var(--lq) * .2em) rgb(255 255 255 / calc(var(--lq) * .6)));
+        transition: transform .8s ease, filter .8s ease; }
+  .lline.active .lc { transition: none; }
   /* interludio: tres puntos que se llenan mientras suena la parte instrumental; respiran suave y se
      detienen con la musica en pausa */
   .lgap { height: 58px; pointer-events: none; }
@@ -4527,10 +4540,14 @@ function lyrBuild(d) {
       const txt = sy.text, core = txt.replace(/\s+$/, "");
       if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; lin.appendChild(grp); }
       if (core) {
-        const w = document.createElement("span"); w.className = "lw"; w.textContent = core;
+        const w = document.createElement("span"); w.className = "lw";
         const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
-        if (e0 - s0 >= 1000) w.classList.add("long");   // nota sostenida: brilla
-        grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null });
+        const chars = Array.from(core), long = e0 - s0 >= 1000 && chars.length > 1;
+        if (long) {   // nota sostenida: una caja por letra (ola de brillo y elevacion)
+          w.classList.add("long"); w.style.setProperty("--n", chars.length);
+          chars.forEach((c, k) => { const lc = document.createElement("span"); lc.className = "lc"; lc.textContent = c; lc.style.setProperty("--i", k); w.appendChild(lc); });
+        } else w.textContent = core;
+        grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null, long });
       }
       if (txt !== core) { lin.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
     });
@@ -4574,7 +4591,7 @@ function lyrSetActive(i) {
   const prev = LYR.items[LYR.ai];
   if (prev) {   // lo cantado queda lleno y se apaga entero (--la en CSS); solo baja la elevacion
     prev.el.classList.remove("active", "end");
-    if (prev.kind === "line") prev.words.forEach(w => w.el.style.removeProperty("--q"));
+    if (prev.kind === "line") prev.words.forEach(w => w.el.style.removeProperty(w.long ? "--kq" : "--q"));
   }
   LYR.ai = i;
   const cur = LYR.items[i];
@@ -4602,11 +4619,16 @@ function tickLyrics() {
   }
   for (const w of it.words) {
     const p = t <= w.s ? 0 : t >= w.e ? 1 : (t - w.s) / (w.e - w.s);
-    const pr = Math.round(p * 140);   // pasos de ~0.7%: sin escrituras inutiles
+    const pr = Math.round(p * (w.long ? 400 : 140));   // pasos minimos: sin escrituras inutiles
     if (pr === w.p) continue;
     w.p = pr;
-    w.el.style.setProperty("--p", (pr - 20).toString());
-    w.el.style.setProperty("--q", (Math.min(1, p * 1.6)).toFixed(3));
+    if (w.long) {   // las letras derivan su estado en CSS
+      const k = (pr / 400).toFixed(4);
+      w.el.style.setProperty("--k", k); w.el.style.setProperty("--kq", k);
+    } else {
+      w.el.style.setProperty("--p", (pr - 20).toString());
+      w.el.style.setProperty("--q", (Math.min(1, p * 1.6)).toFixed(3));
+    }
   }
 }
 function startLyricLoop() {

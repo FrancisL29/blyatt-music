@@ -524,7 +524,7 @@
              transition: background .15s; }
   .resizer:hover, .resizer.drag { background: color-mix(in srgb, var(--accent) 55%, transparent); }
 
-  #qlist { flex: 1; overflow-y: auto; padding: 8px 14px 150px; }
+  #qlist { flex: 1; overflow-y: auto; padding: 8px 14px calc(150px + var(--sab)); }
   .qsec { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin: 14px 6px 6px; }
   .qsec.rec { color: var(--accent); display: flex; align-items: center; gap: 6px; padding-top: 10px;
     border-top: 1px solid rgb(255 255 255 / .08); }
@@ -551,7 +551,8 @@
   #toast.show { opacity: 1; }
 
   /* ---------- LETRA (karaoke estilo Apple Music; usa .sidepanel) ---------- */
-  .lhead { display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 30px 12px; flex: none; }
+  /* --sat/--sab: barras del sistema en la app movil a pantalla completa (0 en escritorio) */
+  .lhead { display: flex; align-items: flex-start; justify-content: space-between; padding: calc(22px + var(--sat)) 30px 12px; flex: none; }
   .lhead .lt { font-size: 1.1rem; font-weight: 700; }
   .lhead .ls { font-size: .82rem; color: var(--muted); margin-top: 3px; }
   .lhead button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 1.5rem; padding: 0; }

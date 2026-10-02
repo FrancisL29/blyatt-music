@@ -556,6 +556,8 @@
      (--p, de -20 a 120) y se eleva un poco (--q, 0..1); las palabras largas brillan. */
   @property --p { syntax: "<number>"; inherits: false; initial-value: -20; }
   @property --q { syntax: "<number>"; inherits: false; initial-value: 0; }
+  @property --la { syntax: "<number>"; inherits: true; initial-value: .3; }   /* brillo de lo ya cantado */
+  @property --ld { syntax: "<number>"; inherits: true; initial-value: .3; }   /* brillo de lo pendiente */
   #lyricsPanel { isolation: isolate; overflow: hidden; }
   /* fondo: la portada muy difuminada, con una deriva lenta (como el fondo animado de Apple Music) */
   #lyricsPanel .lbg { position: absolute; inset: -30%; z-index: -1; pointer-events: none; opacity: 0;
@@ -587,51 +589,61 @@
            mask-image: linear-gradient(transparent, #000 9%, #000 84%, transparent); }
   #lbody.static { overflow-y: auto; touch-action: auto; padding-top: 12px; padding-bottom: 160px; -webkit-mask-image: none; mask-image: none; }
   #lbody::-webkit-scrollbar { width: 0; }
-  .lline, .lgap { transform: translate3d(0, calc(var(--off, 0) * -1px), 0); transform-origin: 0 50%;
-                  transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s), scale .6s cubic-bezier(.22, .9, .25, 1),
-                              filter .6s, opacity .6s; }
+  /* el MOVIMIENTO va en el contenedor (.lline/.lgap) y los EFECTOS (escala, desenfoque, respiracion) en el
+     hijo (.lin/.lgi): mezclarlos en el mismo elemento hace que Chrome congele la posicion en la GPU y las
+     lineas se monten unas sobre otras al redimensionar */
+  .lline, .lgap, .lsrc { transform: translate3d(0, calc(var(--off, 0) * -1px), 0);
+                         transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s); }
+  #lbody.free .lline, #lbody.free .lgap, #lbody.free .lsrc,
+  #lbody.snap .lline, #lbody.snap .lgap, #lbody.snap .lsrc { transition: none; }
   .lline { font-size: clamp(1.55rem, 2.1vw + .6rem, 2.15rem); font-weight: 800; letter-spacing: -.022em; line-height: 1.2;
-           padding: 13px 0; cursor: pointer; scale: .97; filter: blur(var(--bl, 0px)); text-wrap: pretty; }
-  .lline.active { scale: 1; filter: none; }
-  #lbody.free .lline, #lbody.free .lgap { transition: transform 0s, scale .4s, filter .4s, opacity .4s; filter: none; }
-  /* palabra: grupo sin cortes (silabas de una misma palabra) + silabas que se iluminan */
+           padding: 13px 0; cursor: pointer; text-wrap: pretty; }
+  .lin { transform-origin: 0 50%; scale: .97; filter: blur(var(--bl, 0px));
+         transition: scale .6s cubic-bezier(.22, .9, .25, 1), filter .6s, --la .9s ease, --ld .4s; }
+  .lline.active .lin { scale: 1; filter: none; --la: 1; }
+  #lbody.free .lin { filter: none; }
+  .lline:not(.active):hover .lin { filter: none; --la: .62; --ld: .62; }
+  /* palabra: grupo sin cortes (silabas de una misma palabra) + silabas que se iluminan.
+     Al terminar la linea NO se deshace el barrido: todo lo cantado se apaga a la vez (--la 1 -> .3) */
   .lwg { white-space: nowrap; }
   .lw { display: inline-block; padding-bottom: .1em; margin-bottom: -.1em; color: transparent;
-        background: linear-gradient(90deg, #fff calc(var(--p) * 1%), rgb(255 255 255 / .3) calc((var(--p) + 20) * 1%));
+        background: linear-gradient(90deg, rgb(255 255 255 / var(--la)) calc(var(--p) * 1%),
+                                           rgb(255 255 255 / var(--ld)) calc((var(--p) + 20) * 1%));
         -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-        transform: translate3d(0, calc(var(--q) * -.075em), 0);
-        transition: --p .7s, --q .7s; }
+        transform: translate3d(0, calc(var(--q) * -.075em), 0); transition: --q .8s ease; }
   .lline.active .lw { transition: none; }
-  .lline:not(.active):hover .lw { --p: 120; }
-  .lline:not(.active):hover { filter: none; opacity: .55; }
   .lw.long { filter: drop-shadow(0 0 calc(var(--q) * .2em) rgb(255 255 255 / calc(var(--q) * .5))); }
-  .lline:not(.active) .lw.long { filter: none; }
-  /* interludio: tres puntos que se llenan mientras suena la parte instrumental */
-  .lgap { height: 58px; display: flex; align-items: center; gap: 9px; opacity: 0; scale: .5; pointer-events: none; }
-  .lgap i { width: 11px; height: 11px; border-radius: 50%; background: #fff; opacity: calc(.25 + var(--g, 0) * .75); }
-  .lgap.active { opacity: 1; scale: 1; animation: lbreath 2.6s ease-in-out infinite; }
-  .lgap.active.end { scale: .4; opacity: 0; transition-duration: .85s, .35s, .35s, .35s; }
-  @keyframes lbreath { 50% { scale: 1.12; } }
+  /* interludio: tres puntos que se llenan mientras suena la parte instrumental; respiran suave y se
+     detienen con la musica en pausa */
+  .lgap { height: 58px; pointer-events: none; }
+  .lgi { height: 100%; display: flex; align-items: center; gap: 9px; transform-origin: 6px 50%;
+         opacity: 0; scale: .5; transition: scale .6s cubic-bezier(.22, .9, .25, 1), opacity .5s; }
+  .lgi i { width: 11px; height: 11px; border-radius: 50%; background: #fff; opacity: calc(.25 + var(--g, 0) * .75); }
+  .lgap.active .lgi { opacity: 1; scale: 1; animation: lbreath 3.2s ease-in-out infinite; }
+  .lgap.active.end .lgi { animation: none; scale: .6; opacity: 0; transition-duration: .35s; }
+  #lyricsPanel.lyr-paused .lgi { animation-play-state: paused; }
+  @keyframes lbreath { 50% { scale: 1.05; } }
   .lline.plain { font-size: 1.15rem; font-weight: 600; color: rgb(255 255 255 / .82); cursor: default; padding: 5px 0;
-                 transform: none; scale: 1; filter: none; letter-spacing: 0; }
+                 transform: none; letter-spacing: 0; }
   .lempty { color: var(--muted); padding: 40px 4px; font-size: .95rem; }
-  .lsrc { font-size: .72rem; color: rgb(255 255 255 / .35); padding: 26px 0 8px; transform: translate3d(0, calc(var(--off, 0) * -1px), 0);
-          transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s); }
-  #lbody.free .lsrc { transition: none; }
+  .lsrc { font-size: .72rem; color: rgb(255 255 255 / .35); padding: 26px 0 8px; }
   /* escritorio: letra a pantalla completa, portada a la izquierda (como Apple Music en Mac) */
-  body.lyr-full #lyricsPanel { left: 0; width: auto !important; z-index: 7; border-left: 0; box-shadow: none; }
-  body.lyr-full #lyricsPanel .resizer, body.lyr-full .lmeta { visibility: hidden; }
-  body.lyr-full .lside { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
-                         width: 42%; padding: 0 3vw 120px 5vw; text-align: center; }
-  body.lyr-full .lside img { width: min(30vw, 46vh, 440px); aspect-ratio: 1; border-radius: 14px; object-fit: cover;
-                             box-shadow: 0 30px 80px rgb(0 0 0 / .55); margin-bottom: 18px; }
-  body.lyr-full .lside .lst { font-size: 1.35rem; font-weight: 800; max-width: 100%; }
-  body.lyr-full .lside .lsa { color: rgb(255 255 255 / .62); font-weight: 600; }
-  body.lyr-full #lbody { padding-right: 6vw; }
-  body.lyr-full .lline { font-size: clamp(1.8rem, 2.4vw + .5rem, 2.9rem); }
+  @media (min-width: 821px) {
+    body.lyr-full #lyricsPanel { left: 0; width: auto !important; z-index: 7; border-left: 0; box-shadow: none; }
+    body.lyr-full #lyricsPanel .resizer, body.lyr-full .lmeta { visibility: hidden; }
+    body.lyr-full .lside { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
+                           width: 42%; padding: 0 3vw 120px 5vw; text-align: center; }
+    body.lyr-full .lside img { width: min(30vw, 46vh, 440px); aspect-ratio: 1; border-radius: 14px; object-fit: cover;
+                               box-shadow: 0 30px 80px rgb(0 0 0 / .55); margin-bottom: 18px; }
+    body.lyr-full .lside .lst { font-size: 1.35rem; font-weight: 800; max-width: 100%; }
+    body.lyr-full .lside .lsa { color: rgb(255 255 255 / .62); font-weight: 600; }
+    body.lyr-full #lbody { padding-right: 6vw; }
+    body.lyr-full .lline { font-size: clamp(1.8rem, 2.4vw + .5rem, 2.9rem); }
+  }
+  @media (max-width: 820px) { #lyricsFull { display: none; } }
   @media (prefers-reduced-motion: reduce) {
-    .lline, .lgap, .lsrc, .lw { transition: none !important; }
-    #lyricsPanel .lbg, .lgap.active { animation: none; }
+    .lline, .lgap, .lsrc, .lw, .lin, .lgi { transition: none !important; }
+    #lyricsPanel .lbg, .lgap.active .lgi { animation: none; }
   }
   @media (prefers-reduced-motion: reduce) { .sidepanel { transition: none; } }
 
@@ -4462,7 +4474,7 @@ $("addpl").onclick = (e) => {
 /* ---------- letra estilo Apple Music (/lyrics: palabra a palabra real o estimada) ----------
    items = lineas + interludios ordenados por inicio; solo la linea activa se actualiza en cada frame. */
 const LYR = { items: [], ai: -1, tops: [], off: 0, free: false, freeT: 0, raf: 0, for: null, isStatic: false,
-              lastT: -1, vel: 0 };
+              vel: 0, paused: null };
 let lyricsFor = null;   // compat: el cambio de cancion pone null para recargar
 const _lsyl = w => Math.max(1, (w.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[aeiouy]+/g) || []).length);
 // letra solo por linea: reparte el tiempo entre palabras segun sus silabas al ritmo de canto de ESTA cancion
@@ -4501,25 +4513,26 @@ function lyrBuild(d) {
   if (d.type !== "Word" || lines.some(l => !(l.syllabus && l.syllabus.length))) lyrSynth(lines.filter(l => !(l.syllabus && l.syllabus.length)), total);
   const gap = (start, end) => {   // interludio con puntos (como Apple) si hay > 4.5 s sin cantar
     if (end - start < 4500) return;
-    const el = document.createElement("div"); el.className = "lgap"; el.innerHTML = "<i></i><i></i><i></i>";
+    const el = document.createElement("div"); el.className = "lgap"; el.innerHTML = '<div class="lgi"><i></i><i></i><i></i></div>';
     body.appendChild(el);
-    LYR.items.push({ kind: "gap", start, end, el, dots: el.children });
+    LYR.items.push({ kind: "gap", start, end, el, dots: el.firstChild.children });
   };
   gap(0, lines[0].time);
   lines.forEach((l, i) => {
     const el = document.createElement("div"); el.className = "lline";
+    const lin = document.createElement("div"); lin.className = "lin"; el.appendChild(lin);
     const words = [];
     let grp = null;
     l.syllabus.forEach(sy => {
       const txt = sy.text, core = txt.replace(/\s+$/, "");
-      if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; el.appendChild(grp); }
+      if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; lin.appendChild(grp); }
       if (core) {
         const w = document.createElement("span"); w.className = "lw"; w.textContent = core;
         const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
         if (e0 - s0 >= 1000) w.classList.add("long");   // nota sostenida: brilla
         grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null });
       }
-      if (txt !== core) { el.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
+      if (txt !== core) { lin.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
     });
     const start = l.time, end = words.length ? Math.max(words[words.length - 1].e, start + 400) : start + (l.duration || 2000);
     el.onclick = () => { LYR.free = false; $("lbody").classList.remove("free"); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
@@ -4533,9 +4546,15 @@ function lyrBuild(d) {
   lyrMeasure();
 }
 function lyrMeasure() {   // posiciones de cada item (solo al construir / redimensionar: nada de layout por frame)
+  const body = $("lbody");
   LYR.tops = LYR.items.map(it => it.el.offsetTop);
-  LYR.anchor = $("lbody").clientHeight * (innerWidth < 760 ? .26 : .3);
-  if (!LYR.free) lyrMove(Math.max(0, LYR.ai), false);
+  LYR.anchor = body.clientHeight * (innerWidth < 760 ? .26 : .3);
+  if (LYR.free) return;
+  // al redimensionar las lineas cambian de alto: se recolocan al instante (sin animar ni ola)
+  body.classList.add("snap");
+  lyrMove(Math.max(0, LYR.ai), false);
+  void body.offsetHeight;
+  body.classList.remove("snap");
 }
 function lyrMove(i, wave) {   // coloca el item i en el ancla; la "ola": las lineas de abajo arrancan con retraso
   const body = $("lbody");
@@ -4553,9 +4572,9 @@ function lyrMove(i, wave) {   // coloca el item i en el ancla; la "ola": las lin
 }
 function lyrSetActive(i) {
   const prev = LYR.items[LYR.ai];
-  if (prev) {
+  if (prev) {   // lo cantado queda lleno y se apaga entero (--la en CSS); solo baja la elevacion
     prev.el.classList.remove("active", "end");
-    if (prev.kind === "line") prev.words.forEach(w => { w.el.style.removeProperty("--p"); w.el.style.removeProperty("--q"); w.p = null; });
+    if (prev.kind === "line") prev.words.forEach(w => w.el.style.removeProperty("--q"));
   }
   LYR.ai = i;
   const cur = LYR.items[i];
@@ -4564,6 +4583,7 @@ function lyrSetActive(i) {
 }
 function tickLyrics() {
   if (!LYR.items.length) return;
+  if (audio.paused !== LYR.paused) { LYR.paused = audio.paused; $("lyricsPanel").classList.toggle("lyr-paused", LYR.paused); }
   const t = audio.currentTime * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
   let i = LYR.ai;
   if (i < 0 || t < LYR.items[i].start) {   // salto atras/seek: busqueda binaria
@@ -4623,7 +4643,11 @@ function lyrFree(dy) {
     const glide = () => { if (Math.abs(LYR.vel) < .02 || !LYR.free) return; lyrFree(LYR.vel * 16); LYR.vel *= .94; raf = requestAnimationFrame(glide); };
     raf = requestAnimationFrame(glide);
   });
-  new ResizeObserver(() => { if (LYR.items.length) lyrMeasure(); }).observe(body);
+  // el tamano de letra depende del ancho de la ventana (vw): tambien se mide al redimensionar la ventana
+  let rq = 0;
+  const remeasure = () => { cancelAnimationFrame(rq); rq = requestAnimationFrame(() => { if (LYR.items.length) lyrMeasure(); }); };
+  new ResizeObserver(remeasure).observe(body);
+  addEventListener("resize", remeasure);
 })();
 function lyrHeader() {
   const c = current;
@@ -4661,6 +4685,7 @@ async function loadLyrics() {
   }
 }
 function lyrFull(on) {
+  if (on && innerWidth <= 820) on = false;   // movil: el panel ya es pantalla completa
   document.body.classList.toggle("lyr-full", on);
   $("lyricsFull").querySelector("i").className = "ph " + (on ? "ph-arrows-in-simple" : "ph-arrows-out-simple");
   $("lyricsFull").setAttribute("aria-label", t(on ? "Salir de pantalla completa" : "Pantalla completa"));

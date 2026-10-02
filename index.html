@@ -558,6 +558,7 @@
   @property --q { syntax: "<number>"; inherits: false; initial-value: 0; }
   @property --la { syntax: "<number>"; inherits: true; initial-value: .3; }   /* brillo de lo ya cantado */
   @property --ld { syntax: "<number>"; inherits: true; initial-value: .3; }   /* brillo de lo pendiente */
+  @property --fl { syntax: "<number>"; inherits: true; initial-value: 0; }    /* fase de la flotacion */
   #lyricsPanel { isolation: isolate; overflow: hidden; }
   /* fondo: la portada muy difuminada, con una deriva lenta (como el fondo animado de Apple Music) */
   #lyricsPanel .lbg { position: absolute; inset: -30%; z-index: -1; pointer-events: none; opacity: 0;
@@ -589,18 +590,25 @@
            mask-image: linear-gradient(transparent, #000 9%, #000 84%, transparent); }
   #lbody.static { overflow-y: auto; touch-action: auto; padding-top: 12px; padding-bottom: 160px; -webkit-mask-image: none; mask-image: none; }
   #lbody::-webkit-scrollbar { width: 0; }
+  #ltrack { will-change: transform; }
   /* el MOVIMIENTO va en el contenedor (.lline/.lgap) y los EFECTOS (escala, desenfoque, respiracion) en el
      hijo (.lin/.lgi): mezclarlos en el mismo elemento hace que Chrome congele la posicion en la GPU y las
      lineas se monten unas sobre otras al redimensionar */
-  .lline, .lgap, .lsrc { transform: translate3d(0, calc(var(--off, 0) * -1px), 0);
-                         transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s); }
+  /* posicion: transform y retraso escritos en linea por JS en cada item (nada heredable: una variable en el
+     padre recalculaba los ~600 elementos de la letra en cada cambio de linea y en cada frame de scroll) */
+  .lline, .lgap, .lsrc { transition: transform .85s cubic-bezier(.22, .9, .25, 1); }
   #lbody.free .lline, #lbody.free .lgap, #lbody.free .lsrc,
   #lbody.snap .lline, #lbody.snap .lgap, #lbody.snap .lsrc { transition: none; }
   .lline { font-size: clamp(1.55rem, 2.1vw + .6rem, 2.15rem); font-weight: 800; letter-spacing: -.022em; line-height: 1.2;
            padding: 13px 0; cursor: pointer; text-wrap: pretty; }
   .lin { transform-origin: 0 50%; scale: .97; filter: blur(var(--bl, 0px));
-         transition: scale .6s cubic-bezier(.22, .9, .25, 1), filter .6s, --la .9s ease, --ld .4s; }
-  .lline.active .lin { scale: 1; filter: none; --la: 1; }
+         transition: scale .6s cubic-bezier(.22, .9, .25, 1), filter .6s, --la .9s ease, --ld .4s;
+         animation: lfloat 3.4s linear infinite paused; }
+  .lline.active .lin { scale: 1; filter: none; --la: 1; animation-play-state: running; }
+  #lyricsPanel.lyr-paused .lin { animation-play-state: paused; }
+  /* flotacion: UNA variable animada por linea (solo corre en la activa); cada palabra/letra calcula su
+     vaiven con sin() desfasado por su posicion (ola) y escalado por lo que ya se elevo: lo no cantado no se mueve */
+  @keyframes lfloat { to { --fl: 1; } }
   #lbody.free .lin { filter: none; }
   .lline:not(.active):hover .lin { filter: none; --la: .62; --ld: .62; }
   /* palabra: grupo sin cortes (silabas de una misma palabra) + silabas que se iluminan.
@@ -610,12 +618,13 @@
         background: linear-gradient(90deg, rgb(255 255 255 / var(--la)) calc(var(--p) * 1%),
                                            rgb(255 255 255 / var(--ld)) calc((var(--p) + 20) * 1%));
         -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-        transform: translate3d(0, calc(var(--q) * -.075em), 0); transition: --q .8s ease; }
+        transform: translate3d(0, calc(var(--q) * -.075em), 0); transition: --q .8s ease;
+        translate: 0 calc(sin((var(--fl) + var(--wi, 0) * .17) * 6.2832) * var(--q) * .05em); }
   .lline.active .lw { transition: none; }
   /* nota sostenida (>= 1 s): como Apple Music, cada LETRA se llena, se eleva y brilla en ola mientras dura.
      JS solo escribe el progreso de la palabra (--k relleno, --kq elevacion); cada letra calcula el suyo en
      CSS con su indice (--i) y el total (--n): sin trabajo por letra en cada frame */
-  .lw.long { background: none; transform: none; }
+  .lw.long { background: none; transform: none; translate: none; }
   .lc { display: inline-block; padding-bottom: .1em; margin-bottom: -.1em; color: transparent;
         --lp: clamp(0, var(--k, 0) * var(--n) - var(--i), 1);
         --lq: clamp(0, (var(--kq, 0) * (var(--n) + 2.5) - var(--i)) / 2.5, 1);
@@ -623,6 +632,7 @@
                                            rgb(255 255 255 / var(--ld)) calc(var(--lp) * 140 * 1%));
         -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;   /* tras "background" */
         transform: translate3d(0, calc(var(--lq) * -.12em), 0);
+        translate: 0 calc(sin((var(--fl) + var(--wi, 0) * .17 + var(--i) * .11) * 6.2832) * var(--lq) * .06em);
         filter: drop-shadow(0 0 calc(var(--lq) * .2em) rgb(255 255 255 / calc(var(--lq) * .6)));
         transition: transform .8s ease, filter .8s ease; }
   .lline.active .lc { transition: none; }
@@ -656,6 +666,7 @@
   @media (max-width: 820px) { #lyricsFull { display: none; } }
   @media (prefers-reduced-motion: reduce) {
     .lline, .lgap, .lsrc, .lw, .lin, .lgi { transition: none !important; }
+    .lin { animation: none; }
     #lyricsPanel .lbg, .lgap.active .lgi { animation: none; }
   }
   @media (prefers-reduced-motion: reduce) { .sidepanel { transition: none; } }
@@ -4511,14 +4522,16 @@ function lyrSynth(lines, total) {
   });
 }
 function lyrBuild(d) {
-  const body = $("lbody"); body.innerHTML = ""; body.className = "";
-  LYR.items = []; LYR.ai = -1; LYR.free = false; LYR.off = 0; body.style.removeProperty("--off");
+  const lb = $("lbody"); lb.innerHTML = ""; lb.className = "";
+  clearTimeout(LYR.freeT);
+  LYR.items = []; LYR.ai = -1; LYR.free = false; LYR.off = 0; LYR.src = null;
+  const body = document.createElement("div"); body.id = "ltrack"; lb.appendChild(body);
   // lineas vacias o solo "♪" = instrumental: se omiten y el hueco muestra los puntos de interludio
   const lines = (d.lines || []).filter(l => d.type === "Static" || (l.text || "").replace(/[♪♫♬~\s]/g, ""));
-  if (!lines.length) { body.className = "static"; body.innerHTML = '<div class="lempty">' + esc(t("No se encontró letra para esta canción.")) + "</div>"; return; }
+  if (!lines.length) { lb.className = "static"; body.innerHTML = '<div class="lempty">' + esc(t("No se encontró letra para esta canción.")) + "</div>"; return; }
   LYR.isStatic = d.type === "Static";
   if (LYR.isStatic) {
-    body.className = "static";
+    lb.className = "static";
     lines.forEach(l => { const el = document.createElement("div"); el.className = "lline plain"; el.textContent = l.text || " "; body.appendChild(el); });
     return;
   }
@@ -4535,12 +4548,12 @@ function lyrBuild(d) {
     const el = document.createElement("div"); el.className = "lline";
     const lin = document.createElement("div"); lin.className = "lin"; el.appendChild(lin);
     const words = [];
-    let grp = null;
+    let grp = null, wi = 0;
     l.syllabus.forEach(sy => {
       const txt = sy.text, core = txt.replace(/\s+$/, "");
       if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; lin.appendChild(grp); }
       if (core) {
-        const w = document.createElement("span"); w.className = "lw";
+        const w = document.createElement("span"); w.className = "lw"; w.style.setProperty("--wi", wi++);
         const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
         const chars = Array.from(core), long = e0 - s0 >= 1000 && chars.length > 1;
         if (long) {   // nota sostenida: una caja por letra (ola de brillo y elevacion)
@@ -4552,14 +4565,14 @@ function lyrBuild(d) {
       if (txt !== core) { lin.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
     });
     const start = l.time, end = words.length ? Math.max(words[words.length - 1].e, start + 400) : start + (l.duration || 2000);
-    el.onclick = () => { LYR.free = false; $("lbody").classList.remove("free"); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
+    el.onclick = () => { lyrUnfree(false); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
     body.appendChild(el);
     LYR.items.push({ kind: "line", start, end, el, words });
     const next = lines[i + 1];
     gap(end + 250, next ? next.time : total);
   });
   const src = { netease: "NetEase Cloud Music", lrclib: "LRCLIB" }[d.source];
-  if (src) { const f = document.createElement("div"); f.className = "lsrc"; f.textContent = t("Letra") + " · " + src; body.appendChild(f); }
+  if (src) { const f = document.createElement("div"); f.className = "lsrc"; f.textContent = t("Letra") + " · " + src; body.appendChild(f); LYR.src = f; }
   lyrMeasure();
 }
 function lyrMeasure() {   // posiciones de cada item (solo al construir / redimensionar: nada de layout por frame)
@@ -4580,12 +4593,21 @@ function lyrMove(i, wave) {   // coloca el item i en el ancla; la "ola": las lin
   const wide = innerWidth >= 760;
   LYR.items.forEach((it, k) => {
     const dist = k - i;
-    if (Math.abs(dist) > 14 && !it._near) return;   // fuera de pantalla: no se toca (ahorra estilo)
-    it._near = Math.abs(dist) <= 14;
-    it.el.style.setProperty("--d", wave && dist > -2 ? Math.min(dist + 1, 9) * 0.045 + "s" : "0s");
-    if (it.kind === "line") it.el.style.setProperty("--bl", Math.min(Math.abs(dist), 5) * (wide ? .55 : .3) + "px");
+    const d = wave && dist > -2 && dist < 14 ? Math.min(dist + 1, 9) * 0.045 + "s" : "0s";
+    if (it._d !== d) { it._d = d; it.el.style.transitionDelay = d; }
+    // desenfoque por distancia solo en escritorio: en movil re-rasterizar texto difuminado cuesta fluidez.
+    // --bl hereda a las palabras de la linea: solo se escribe si cambia
+    if (it.kind === "line") {
+      const bl = wide ? Math.min(Math.abs(dist), 5) * .55 + "px" : "0px";
+      if (it._bl !== bl) { it._bl = bl; it.el.style.setProperty("--bl", bl); }
+    }
   });
-  body.style.setProperty("--off", LYR.off.toFixed(1));
+  lyrSetOff(LYR.off);
+}
+function lyrSetOff(off) {
+  const tr = `translate3d(0, ${(-off).toFixed(1)}px, 0)`;
+  for (const it of LYR.items) it.el.style.transform = tr;
+  if (LYR.src) LYR.src.style.transform = tr;
 }
 function lyrSetActive(i) {
   const prev = LYR.items[LYR.ai];
@@ -4640,25 +4662,41 @@ function startLyricLoop() {
   LYR.raf = requestAnimationFrame(step);
 }
 // desplazamiento manual (rueda / dedo) -> modo libre: sin desenfoque; a los 3 s vuelve solo a la linea actual
+// desplazamiento manual: las lineas se quedan donde estaban (LYR.base) y solo se mueve el contenedor #ltrack
+// (un unico transform por frame); al salir se traspasa la posicion a las lineas sin animar y vuelve la ola
 function lyrFree(dy) {
   if (LYR.isStatic || !LYR.items.length) return;
-  const body = $("lbody");
-  if (!LYR.free) { LYR.free = true; body.classList.add("free"); }
+  const body = $("lbody"), track = $("ltrack");
+  if (!LYR.free) { LYR.free = true; LYR.base = LYR.off; body.classList.add("free"); }
   const min = (LYR.tops[0] || 0) - LYR.anchor, max = (LYR.tops[LYR.tops.length - 1] || 0) - LYR.anchor;
   LYR.off = Math.max(min, Math.min(max, LYR.off + dy));
-  body.style.setProperty("--off", LYR.off.toFixed(1));
+  track.style.transform = `translate3d(0, ${(LYR.base - LYR.off).toFixed(1)}px, 0)`;
   clearTimeout(LYR.freeT);
-  LYR.freeT = setTimeout(() => { LYR.free = false; body.classList.remove("free"); lyrMove(Math.max(0, LYR.ai), true); }, 3000);
+  LYR.freeT = setTimeout(() => lyrUnfree(true), 3000);
+}
+function lyrUnfree(back) {
+  if (!LYR.free) return;
+  clearTimeout(LYR.freeT);
+  const body = $("lbody"), track = $("ltrack");
+  LYR.free = false;
+  body.classList.add("snap");
+  lyrSetOff(LYR.off);
+  if (track) track.style.transform = "";
+  void body.offsetHeight;
+  body.classList.remove("snap", "free");
+  if (back) lyrMove(Math.max(0, LYR.ai), true);
 }
 (() => {
   const body = $("lbody");
   body.addEventListener("wheel", e => { if (LYR.isStatic) return; e.preventDefault(); lyrFree(e.deltaY * (e.deltaMode === 1 ? 32 : 1)); }, { passive: false });
   let y0 = null, ty = 0, raf = 0;
   body.addEventListener("touchstart", e => { y0 = e.touches[0].clientY; ty = performance.now(); LYR.vel = 0; cancelAnimationFrame(raf); }, { passive: true });
+  let pend = 0, rqm = 0;   // varios touchmove por frame (pantallas de 120 Hz): se aplican juntos una vez por frame
   body.addEventListener("touchmove", e => {
     if (y0 == null) return;
     const y = e.touches[0].clientY, now = performance.now();
-    LYR.vel = (y0 - y) / Math.max(1, now - ty); lyrFree(y0 - y); y0 = y; ty = now;
+    LYR.vel = (y0 - y) / Math.max(1, now - ty); pend += y0 - y; y0 = y; ty = now;
+    if (!rqm) rqm = requestAnimationFrame(() => { rqm = 0; lyrFree(pend); pend = 0; });
   }, { passive: true });
   body.addEventListener("touchend", () => {   // inercia
     y0 = null;

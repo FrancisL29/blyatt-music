@@ -550,30 +550,90 @@
            padding: 10px 18px; border-radius: 999px; font-size: .85rem; opacity: 0; transition: opacity .25s; pointer-events: none; }
   #toast.show { opacity: 1; }
 
-  /* ---------- LETRA (karaoke estilo Apple Music; usa .sidepanel) ---------- */
+  /* ---------- LETRA estilo Apple Music (usa .sidepanel) ----------
+     Cada linea se desplaza con transform (sin scroll nativo): al cambiar de linea las de abajo siguen con
+     un pequeno retraso escalonado (la "ola" de Apple). Cada palabra se ilumina con un barrido suave
+     (--p, de -20 a 120) y se eleva un poco (--q, 0..1); las palabras largas brillan. */
+  @property --p { syntax: "<number>"; inherits: false; initial-value: -20; }
+  @property --q { syntax: "<number>"; inherits: false; initial-value: 0; }
+  #lyricsPanel { isolation: isolate; overflow: hidden; }
+  /* fondo: la portada muy difuminada, con una deriva lenta (como el fondo animado de Apple Music) */
+  #lyricsPanel .lbg { position: absolute; inset: -30%; z-index: -1; pointer-events: none; opacity: 0;
+                      background: center / cover no-repeat var(--lcov, none);
+                      filter: blur(72px) saturate(1.8) brightness(.4); transition: opacity .9s;
+                      animation: lbgdrift 40s ease-in-out infinite alternate; will-change: transform; }
+  #lyricsPanel .lbg.on { opacity: 1; }
+  @keyframes lbgdrift { from { transform: scale(1.1) rotate(-6deg) translate3d(-4%, -3%, 0); }
+                        to { transform: scale(1.35) rotate(10deg) translate3d(4%, 3%, 0); } }
   /* --sat/--sab: barras del sistema en la app movil a pantalla completa (0 en escritorio) */
-  .lhead { display: flex; align-items: flex-start; justify-content: space-between; padding: calc(22px + var(--sat)) 30px 12px; flex: none; }
+  .lhead { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+           padding: calc(20px + var(--sat)) 26px 10px 30px; flex: none; }
   .lhead .lt { font-size: 1.1rem; font-weight: 700; }
   .lhead .ls { font-size: .82rem; color: var(--muted); margin-top: 3px; }
-  .lhead button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 1.5rem; padding: 0; }
+  .lmeta { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .lmeta > div { min-width: 0; }
+  .lmeta .lt, .lmeta .ls { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lmeta .lt { font-size: .98rem; }
+  .lmeta img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none;
+               box-shadow: 0 6px 18px rgb(0 0 0 / .45); }
+  .lmeta img:not([src]) { visibility: hidden; }
+  .lbtns { display: flex; align-items: center; gap: 14px; flex: none; }
+  .lhead button { border: none; background: none; color: rgb(255 255 255 / .7); cursor: pointer; font-size: 1.45rem; padding: 0; }
   .lhead button:hover { color: var(--text); }
-  #lbody { flex: 1; overflow-y: auto; padding: 16vh 30px 60vh; scroll-behavior: smooth; }
+  .lmain { flex: 1; min-height: 0; display: flex; }
+  .lside { display: none; }
+  #lbody { flex: 1; min-width: 0; position: relative; overflow: hidden; padding: 0 30px; touch-action: none;
+           -webkit-mask-image: linear-gradient(transparent, #000 9%, #000 84%, transparent);
+           mask-image: linear-gradient(transparent, #000 9%, #000 84%, transparent); }
+  #lbody.static { overflow-y: auto; touch-action: auto; padding-top: 12px; padding-bottom: 160px; -webkit-mask-image: none; mask-image: none; }
   #lbody::-webkit-scrollbar { width: 0; }
-  .lline { font-size: 1.85rem; font-weight: 800; letter-spacing: -.015em; line-height: 1.28;
-           color: rgb(255 255 255 / .34); filter: blur(.6px); padding: 11px 0; cursor: pointer;
-           transition: filter .35s, color .35s, opacity .35s; }
-  .lline:hover { color: rgb(255 255 255 / .55); }
-  .lline.active { color: #fff; filter: none; }
-  /* karaoke por palabra: relleno que barre cada palabra segun --p (0%..100%) */
-  .lword { color: inherit; }
-  .lline.active .lword {
-    background: linear-gradient(90deg, #fff 0%, #fff var(--p,0%), rgb(255 255 255 / .32) var(--p,0%));
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent; color: transparent;
-  }
-  .lline.plain { font-size: 1.05rem; font-weight: 500; color: #d6d7dc; filter: none; cursor: default; padding: 5px 0; }
+  .lline, .lgap { transform: translate3d(0, calc(var(--off, 0) * -1px), 0); transform-origin: 0 50%;
+                  transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s), scale .6s cubic-bezier(.22, .9, .25, 1),
+                              filter .6s, opacity .6s; }
+  .lline { font-size: clamp(1.55rem, 2.1vw + .6rem, 2.15rem); font-weight: 800; letter-spacing: -.022em; line-height: 1.2;
+           padding: 13px 0; cursor: pointer; scale: .97; filter: blur(var(--bl, 0px)); text-wrap: pretty; }
+  .lline.active { scale: 1; filter: none; }
+  #lbody.free .lline, #lbody.free .lgap { transition: transform 0s, scale .4s, filter .4s, opacity .4s; filter: none; }
+  /* palabra: grupo sin cortes (silabas de una misma palabra) + silabas que se iluminan */
+  .lwg { white-space: nowrap; }
+  .lw { display: inline-block; padding-bottom: .1em; margin-bottom: -.1em; color: transparent;
+        background: linear-gradient(90deg, #fff calc(var(--p) * 1%), rgb(255 255 255 / .3) calc((var(--p) + 20) * 1%));
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        transform: translate3d(0, calc(var(--q) * -.075em), 0);
+        transition: --p .7s, --q .7s; }
+  .lline.active .lw { transition: none; }
+  .lline:not(.active):hover .lw { --p: 120; }
+  .lline:not(.active):hover { filter: none; opacity: .55; }
+  .lw.long { filter: drop-shadow(0 0 calc(var(--q) * .2em) rgb(255 255 255 / calc(var(--q) * .5))); }
+  .lline:not(.active) .lw.long { filter: none; }
+  /* interludio: tres puntos que se llenan mientras suena la parte instrumental */
+  .lgap { height: 58px; display: flex; align-items: center; gap: 9px; opacity: 0; scale: .5; pointer-events: none; }
+  .lgap i { width: 11px; height: 11px; border-radius: 50%; background: #fff; opacity: calc(.25 + var(--g, 0) * .75); }
+  .lgap.active { opacity: 1; scale: 1; animation: lbreath 2.6s ease-in-out infinite; }
+  .lgap.active.end { scale: .4; opacity: 0; transition-duration: .85s, .35s, .35s, .35s; }
+  @keyframes lbreath { 50% { scale: 1.12; } }
+  .lline.plain { font-size: 1.15rem; font-weight: 600; color: rgb(255 255 255 / .82); cursor: default; padding: 5px 0;
+                 transform: none; scale: 1; filter: none; letter-spacing: 0; }
   .lempty { color: var(--muted); padding: 40px 4px; font-size: .95rem; }
-  @media (prefers-reduced-motion: reduce) { .lline, .sidepanel, #lbody { transition: none; scroll-behavior: auto; } }
+  .lsrc { font-size: .72rem; color: rgb(255 255 255 / .35); padding: 26px 0 8px; transform: translate3d(0, calc(var(--off, 0) * -1px), 0);
+          transition: transform .85s cubic-bezier(.22, .9, .25, 1) var(--d, 0s); }
+  #lbody.free .lsrc { transition: none; }
+  /* escritorio: letra a pantalla completa, portada a la izquierda (como Apple Music en Mac) */
+  body.lyr-full #lyricsPanel { left: 0; width: auto !important; z-index: 7; border-left: 0; box-shadow: none; }
+  body.lyr-full #lyricsPanel .resizer, body.lyr-full .lmeta { visibility: hidden; }
+  body.lyr-full .lside { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
+                         width: 42%; padding: 0 3vw 120px 5vw; text-align: center; }
+  body.lyr-full .lside img { width: min(30vw, 46vh, 440px); aspect-ratio: 1; border-radius: 14px; object-fit: cover;
+                             box-shadow: 0 30px 80px rgb(0 0 0 / .55); margin-bottom: 18px; }
+  body.lyr-full .lside .lst { font-size: 1.35rem; font-weight: 800; max-width: 100%; }
+  body.lyr-full .lside .lsa { color: rgb(255 255 255 / .62); font-weight: 600; }
+  body.lyr-full #lbody { padding-right: 6vw; }
+  body.lyr-full .lline { font-size: clamp(1.8rem, 2.4vw + .5rem, 2.9rem); }
+  @media (prefers-reduced-motion: reduce) {
+    .lline, .lgap, .lsrc, .lw { transition: none !important; }
+    #lyricsPanel .lbg, .lgap.active { animation: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .sidepanel { transition: none; } }
 
   /* ---------- vista de artista ---------- */
   #artistView { display: none; }
@@ -980,7 +1040,6 @@
     /* en album/playlist no hay busqueda: caratula protagonista, como Spotify */
     body[data-mv="collection"] .topbar { display: none; }
     body[data-mv="collection"] .col-hero { padding-top: 26px; }
-    .lline { font-size: 1.5rem; }
     body { grid-template-columns: 1fr; }
     aside { display: none; }
     /* mini player estilo Spotify: cover + titulo/artista | like + play; progreso = linea fina abajo.
@@ -1085,11 +1144,18 @@
 </div>
 
 <div id="lyricsPanel" class="sidepanel" aria-label="Letra">
+  <div class="lbg" aria-hidden="true"></div>
   <div class="lhead">
-    <div><div class="lt" data-i18n>Letra</div><div class="ls" id="lsong"></div></div>
-    <button id="lyricsClose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <div class="lmeta"><img id="lthumb" alt=""><div><div class="lt" id="ltit" data-i18n>Letra</div><div class="ls" id="lsong"></div></div></div>
+    <div class="lbtns">
+      <button id="lyricsFull" aria-label="Pantalla completa"><i class="ph ph-arrows-out-simple"></i></button>
+      <button id="lyricsClose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    </div>
   </div>
-  <div id="lbody"></div>
+  <div class="lmain">
+    <div class="lside"><img id="lcover" alt=""><div class="lst" id="lsideT"></div><div class="lsa" id="lsideA"></div></div>
+    <div id="lbody"></div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -1354,6 +1420,9 @@ const EN = {
   "Letra": "Lyrics", "Nueva playlist": "New playlist", "Configuración": "Settings",
   "Idioma": "Language", "Español": "Spanish", "Inglés": "English", "Más información": "More info",
   "Nueva versión de Blyatt": "New version of Blyatt", "Reiniciar ahora": "Restart now",
+  "No se encontró letra.": "No lyrics found.",
+  "Reproduce una canción para ver su letra.": "Play a song to see its lyrics.", "Buscando letra…": "Looking for lyrics…",
+  "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
@@ -4390,67 +4459,216 @@ $("addpl").onclick = (e) => {
   const m = $("ctxmenu");
   m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";   // siempre ARRIBA del player
 };
-/* ---------- letra (karaoke, LRCLIB vía /lyrics) ---------- */
-let lyricsLines = [], lyricActive = -1, lyricsFor = null, lyricRAF = null;
-function renderLyrics(d) {
-  const body = $("lbody"); body.innerHTML = ""; lyricsLines = []; lyricActive = -1;
-  cancelAnimationFrame(lyricRAF); lyricRAF = null;
-  if (!d.lines || !d.lines.length) { body.innerHTML = '<div class="lempty">No se encontró letra para esta canción.</div>'; return; }
-  const isStatic = d.type === "Static";
-  d.lines.forEach(line => {
-    const el = document.createElement("div");
-    el.className = "lline" + (isStatic ? " plain" : "");
-    const words = [];
-    if (d.type === "Word" && line.syllabus && line.syllabus.length) {
-      line.syllabus.forEach(s => {
-        const w = document.createElement("span"); w.className = "lword"; w.textContent = s.text;
-        el.appendChild(w);
-        words.push({ time: s.time, end: s.time + (s.duration || 0), el: w });
-      });
-    } else {
-      el.textContent = line.text || "♪";
-    }
-    if (!isStatic) el.onclick = () => { audio.currentTime = line.time / 1000; audio.play(); };
-    body.appendChild(el);
-    lyricsLines.push({ time: line.time, el, words });
+/* ---------- letra estilo Apple Music (/lyrics: palabra a palabra real o estimada) ----------
+   items = lineas + interludios ordenados por inicio; solo la linea activa se actualiza en cada frame. */
+const LYR = { items: [], ai: -1, tops: [], off: 0, free: false, freeT: 0, raf: 0, for: null, isStatic: false,
+              lastT: -1, vel: 0 };
+let lyricsFor = null;   // compat: el cambio de cancion pone null para recargar
+const _lsyl = w => Math.max(1, (w.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[aeiouy]+/g) || []).length);
+// letra solo por linea: reparte el tiempo entre palabras segun sus silabas al ritmo de canto de ESTA cancion
+// (mediana de ms por silaba entre lineas), sin estirar la ultima palabra hasta el comienzo de la siguiente linea
+function lyrSynth(lines, total) {
+  const rates = [];
+  lines.forEach((l, i) => {
+    const gap = (lines[i + 1] ? lines[i + 1].time : total) - l.time;
+    const syl = (l.text.match(/\S+/g) || []).reduce((a, w) => a + _lsyl(w) + .35, 0);
+    if (syl > 3 && gap > 400 && gap < 12000) rates.push(gap / syl);
   });
-  if (!isStatic) startLyricLoop();
+  rates.sort((a, b) => a - b);
+  const per = Math.min(420, Math.max(150, (rates[rates.length >> 1] || 300) * .86));
+  lines.forEach((l, i) => {
+    const gap = (lines[i + 1] ? lines[i + 1].time : total) - l.time;
+    const toks = l.text.match(/\S+\s*/g) || [];
+    const ws = toks.map(w => _lsyl(w) + .35), sum = ws.reduce((a, b) => a + b, 0) || 1;
+    const sung = Math.max(350, Math.min(gap - 120, sum * per * 1.08));
+    let t = l.time;
+    l.syllabus = toks.map((w, k) => { const d = sung * ws[k] / sum, o = { time: t, duration: d, text: w }; t += d; return o; });
+  });
 }
-async function loadLyrics() {
-  $("lsong").textContent = current ? current.title + " - " + current.artist : "";
-  if (!current) { $("lbody").innerHTML = '<div class="lempty">Reproduce una cancion para ver su letra.</div>'; return; }
-  if (lyricsFor === current.id && lyricsLines.length) { startLyricLoop(); return; }
-  lyricsFor = current.id;
-  $("lbody").innerHTML = '<div class="lempty">Buscando letra...</div>';
-  try {
-    const r = await fetch(`/lyrics?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}`);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    if (lyricsFor === current.id) renderLyrics(d);
-  } catch (e) { $("lbody").innerHTML = '<div class="lempty">No se encontro letra.</div>'; lyricsFor = null; }
+function lyrBuild(d) {
+  const body = $("lbody"); body.innerHTML = ""; body.className = "";
+  LYR.items = []; LYR.ai = -1; LYR.free = false; LYR.off = 0; body.style.removeProperty("--off");
+  // lineas vacias o solo "♪" = instrumental: se omiten y el hueco muestra los puntos de interludio
+  const lines = (d.lines || []).filter(l => d.type === "Static" || (l.text || "").replace(/[♪♫♬~\s]/g, ""));
+  if (!lines.length) { body.className = "static"; body.innerHTML = '<div class="lempty">' + esc(t("No se encontró letra para esta canción.")) + "</div>"; return; }
+  LYR.isStatic = d.type === "Static";
+  if (LYR.isStatic) {
+    body.className = "static";
+    lines.forEach(l => { const el = document.createElement("div"); el.className = "lline plain"; el.textContent = l.text || " "; body.appendChild(el); });
+    return;
+  }
+  const total = (audio.duration || 0) * 1000 || (lines[lines.length - 1].time + 5000);
+  if (d.type !== "Word" || lines.some(l => !(l.syllabus && l.syllabus.length))) lyrSynth(lines.filter(l => !(l.syllabus && l.syllabus.length)), total);
+  const gap = (start, end) => {   // interludio con puntos (como Apple) si hay > 4.5 s sin cantar
+    if (end - start < 4500) return;
+    const el = document.createElement("div"); el.className = "lgap"; el.innerHTML = "<i></i><i></i><i></i>";
+    body.appendChild(el);
+    LYR.items.push({ kind: "gap", start, end, el, dots: el.children });
+  };
+  gap(0, lines[0].time);
+  lines.forEach((l, i) => {
+    const el = document.createElement("div"); el.className = "lline";
+    const words = [];
+    let grp = null;
+    l.syllabus.forEach(sy => {
+      const txt = sy.text, core = txt.replace(/\s+$/, "");
+      if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; el.appendChild(grp); }
+      if (core) {
+        const w = document.createElement("span"); w.className = "lw"; w.textContent = core;
+        const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
+        if (e0 - s0 >= 1000) w.classList.add("long");   // nota sostenida: brilla
+        grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null });
+      }
+      if (txt !== core) { el.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
+    });
+    const start = l.time, end = words.length ? Math.max(words[words.length - 1].e, start + 400) : start + (l.duration || 2000);
+    el.onclick = () => { LYR.free = false; $("lbody").classList.remove("free"); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
+    body.appendChild(el);
+    LYR.items.push({ kind: "line", start, end, el, words });
+    const next = lines[i + 1];
+    gap(end + 250, next ? next.time : total);
+  });
+  const src = { netease: "NetEase Cloud Music", lrclib: "LRCLIB" }[d.source];
+  if (src) { const f = document.createElement("div"); f.className = "lsrc"; f.textContent = t("Letra") + " · " + src; body.appendChild(f); }
+  lyrMeasure();
 }
-function startLyricLoop() {
-  if (lyricRAF) return;
-  const step = () => { tickLyrics(); lyricRAF = $("lyricsPanel").classList.contains("show") ? requestAnimationFrame(step) : null; };
-  lyricRAF = requestAnimationFrame(step);
+function lyrMeasure() {   // posiciones de cada item (solo al construir / redimensionar: nada de layout por frame)
+  LYR.tops = LYR.items.map(it => it.el.offsetTop);
+  LYR.anchor = $("lbody").clientHeight * (innerWidth < 760 ? .26 : .3);
+  if (!LYR.free) lyrMove(Math.max(0, LYR.ai), false);
+}
+function lyrMove(i, wave) {   // coloca el item i en el ancla; la "ola": las lineas de abajo arrancan con retraso
+  const body = $("lbody");
+  if (!LYR.items.length) return;
+  LYR.off = (LYR.tops[i] || 0) - (LYR.anchor || 0);
+  const wide = innerWidth >= 760;
+  LYR.items.forEach((it, k) => {
+    const dist = k - i;
+    if (Math.abs(dist) > 14 && !it._near) return;   // fuera de pantalla: no se toca (ahorra estilo)
+    it._near = Math.abs(dist) <= 14;
+    it.el.style.setProperty("--d", wave && dist > -2 ? Math.min(dist + 1, 9) * 0.045 + "s" : "0s");
+    if (it.kind === "line") it.el.style.setProperty("--bl", Math.min(Math.abs(dist), 5) * (wide ? .55 : .3) + "px");
+  });
+  body.style.setProperty("--off", LYR.off.toFixed(1));
+}
+function lyrSetActive(i) {
+  const prev = LYR.items[LYR.ai];
+  if (prev) {
+    prev.el.classList.remove("active", "end");
+    if (prev.kind === "line") prev.words.forEach(w => { w.el.style.removeProperty("--p"); w.el.style.removeProperty("--q"); w.p = null; });
+  }
+  LYR.ai = i;
+  const cur = LYR.items[i];
+  if (cur) cur.el.classList.add("active");
+  if (!LYR.free && i >= 0) lyrMove(i, true);
 }
 function tickLyrics() {
-  if (!lyricsLines.length) return;
-  const t = audio.currentTime * 1000;
-  let idx = -1;
-  for (let i = 0; i < lyricsLines.length; i++) { if (t >= lyricsLines[i].time) idx = i; else break; }
-  if (idx !== lyricActive) {
-    if (lyricActive >= 0) lyricsLines[lyricActive].el.classList.remove("active");
-    lyricActive = idx;
-    if (idx >= 0) { lyricsLines[idx].el.classList.add("active"); lyricsLines[idx].el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+  if (!LYR.items.length) return;
+  const t = audio.currentTime * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
+  let i = LYR.ai;
+  if (i < 0 || t < LYR.items[i].start) {   // salto atras/seek: busqueda binaria
+    let lo = 0, hi = LYR.items.length - 1; i = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (LYR.items[m].start <= t) { i = m; lo = m + 1; } else hi = m - 1; }
   }
-  if (lyricActive >= 0) for (const w of lyricsLines[lyricActive].words) {
-    const p = t <= w.time ? 0 : t >= w.end ? 1 : (t - w.time) / (w.end - w.time);
-    w.el.style.setProperty("--p", (p * 100).toFixed(1) + "%");
+  while (i + 1 < LYR.items.length && LYR.items[i + 1].start <= t) i++;
+  if (i !== LYR.ai) lyrSetActive(i);
+  const it = LYR.items[i];
+  if (!it) return;
+  if (it.kind === "gap") {
+    const g = Math.min(1, (t - it.start) / (it.end - it.start - 400));
+    for (let k = 0; k < 3; k++) it.dots[k].style.setProperty("--g", Math.max(0, Math.min(1, g * 3 - k)).toFixed(3));
+    it.el.classList.toggle("end", it.end - t < 450);
+    return;
+  }
+  for (const w of it.words) {
+    const p = t <= w.s ? 0 : t >= w.e ? 1 : (t - w.s) / (w.e - w.s);
+    const pr = Math.round(p * 140);   // pasos de ~0.7%: sin escrituras inutiles
+    if (pr === w.p) continue;
+    w.p = pr;
+    w.el.style.setProperty("--p", (pr - 20).toString());
+    w.el.style.setProperty("--q", (Math.min(1, p * 1.6)).toFixed(3));
   }
 }
+function startLyricLoop() {
+  if (LYR.raf) return;
+  const step = () => {
+    if (!$("lyricsPanel").classList.contains("show")) { LYR.raf = 0; return; }
+    tickLyrics(); LYR.raf = requestAnimationFrame(step);
+  };
+  LYR.raf = requestAnimationFrame(step);
+}
+// desplazamiento manual (rueda / dedo) -> modo libre: sin desenfoque; a los 3 s vuelve solo a la linea actual
+function lyrFree(dy) {
+  if (LYR.isStatic || !LYR.items.length) return;
+  const body = $("lbody");
+  if (!LYR.free) { LYR.free = true; body.classList.add("free"); }
+  const min = (LYR.tops[0] || 0) - LYR.anchor, max = (LYR.tops[LYR.tops.length - 1] || 0) - LYR.anchor;
+  LYR.off = Math.max(min, Math.min(max, LYR.off + dy));
+  body.style.setProperty("--off", LYR.off.toFixed(1));
+  clearTimeout(LYR.freeT);
+  LYR.freeT = setTimeout(() => { LYR.free = false; body.classList.remove("free"); lyrMove(Math.max(0, LYR.ai), true); }, 3000);
+}
+(() => {
+  const body = $("lbody");
+  body.addEventListener("wheel", e => { if (LYR.isStatic) return; e.preventDefault(); lyrFree(e.deltaY * (e.deltaMode === 1 ? 32 : 1)); }, { passive: false });
+  let y0 = null, ty = 0, raf = 0;
+  body.addEventListener("touchstart", e => { y0 = e.touches[0].clientY; ty = performance.now(); LYR.vel = 0; cancelAnimationFrame(raf); }, { passive: true });
+  body.addEventListener("touchmove", e => {
+    if (y0 == null) return;
+    const y = e.touches[0].clientY, now = performance.now();
+    LYR.vel = (y0 - y) / Math.max(1, now - ty); lyrFree(y0 - y); y0 = y; ty = now;
+  }, { passive: true });
+  body.addEventListener("touchend", () => {   // inercia
+    y0 = null;
+    const glide = () => { if (Math.abs(LYR.vel) < .02 || !LYR.free) return; lyrFree(LYR.vel * 16); LYR.vel *= .94; raf = requestAnimationFrame(glide); };
+    raf = requestAnimationFrame(glide);
+  });
+  new ResizeObserver(() => { if (LYR.items.length) lyrMeasure(); }).observe(body);
+})();
+function lyrHeader() {
+  const c = current;
+  $("ltit").textContent = c ? c.title : t("Letra");
+  $("lsong").textContent = c ? c.artist : "";
+  $("lsideT").textContent = c ? c.title : ""; $("lsideA").textContent = c ? c.artist : "";
+  const big = c && c.cover ? hiCover(c.cover) : "";
+  if (c && c.cover) { $("lthumb").src = c.cover; $("lcover").src = big; } else { $("lthumb").removeAttribute("src"); $("lcover").removeAttribute("src"); }
+  const bg = $("lyricsPanel").querySelector(".lbg");
+  if (!big) { bg.classList.remove("on"); return; }
+  if (bg._url === big) return;
+  bg._url = big;
+  const im = new Image();   // el fondo aparece cuando la imagen ya esta decodificada (sin parpadeo)
+  im.onload = () => { if (bg._url !== big) return; $("lyricsPanel").style.setProperty("--lcov", `url("${big.replace(/"/g, "%22")}")`); bg.classList.add("on"); };
+  im.src = big;
+}
+async function loadLyrics() {
+  lyrHeader();
+  if (!current) { lyrBuild({ lines: [] }); $("lbody").innerHTML = '<div class="lempty">' + esc(t("Reproduce una canción para ver su letra.")) + "</div>"; return; }
+  if (lyricsFor === current.id && LYR.for === current.id) { startLyricLoop(); return; }
+  const id = current.id;
+  lyricsFor = LYR.for = id;
+  $("lbody").className = "static"; $("lbody").innerHTML = '<div class="lempty">' + esc(t("Buscando letra…")) + "</div>";
+  LYR.items = []; LYR.ai = -1;
+  try {
+    const dur = Math.round(audio.duration || current.dur || 0);
+    const d = await jget(`/lyrics?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}`);
+    if (d.error) throw new Error(d.error);
+    if (LYR.for !== id) return;
+    lyrBuild(d);
+    startLyricLoop();
+  } catch (e) {
+    if (LYR.for !== id) return;
+    $("lbody").innerHTML = '<div class="lempty">' + esc(t("No se encontró letra.")) + "</div>"; lyricsFor = LYR.for = null;
+  }
+}
+function lyrFull(on) {
+  document.body.classList.toggle("lyr-full", on);
+  $("lyricsFull").querySelector("i").className = "ph " + (on ? "ph-arrows-in-simple" : "ph-arrows-out-simple");
+  $("lyricsFull").setAttribute("aria-label", t(on ? "Salir de pantalla completa" : "Pantalla completa"));
+}
 $("lyricsBtn").onclick = () => togglePanel($("lyricsPanel"), $("lyricsBtn"), loadLyrics);
-$("lyricsClose").onclick = () => { $("lyricsPanel").classList.remove("show"); $("lyricsBtn").classList.remove("on"); };
+$("lyricsClose").onclick = () => { $("lyricsPanel").classList.remove("show"); $("lyricsBtn").classList.remove("on"); lyrFull(false); };
+$("lyricsFull").onclick = () => lyrFull(!document.body.classList.contains("lyr-full"));
+document.addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("lyr-full")) lyrFull(false); });
 
 /* ---------- UI de tiempo (rAF: el motor Web Audio no emite timeupdate) ---------- */
 let seeking = false;

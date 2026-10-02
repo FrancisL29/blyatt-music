@@ -969,56 +969,163 @@ def _get_json(url):
         return json.loads(r.read())
 
 
+_LRC_TS = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
+_LRC_WORD = re.compile(r"<(\d+):(\d+(?:\.\d+)?)>")
+_USPACE = re.compile("[%s%s-%s%s]" % (chr(0xA0), chr(0x2000), chr(0x200B), chr(0x3000)))   # NetEase separa con espacios unicode (U+2005)
+# lineas de creditos (NetEase las mete en la letra: "作词 : ...", "Produced by ...")
+_CREDIT = re.compile(r"^\s*(作词|作曲|编曲|制作|混音|母带|监制|和声|吉他|贝斯|鼓|录音|出品|发行|词|曲|OP|SP|Lyricist|Composer|"
+                     r"Producer|Produced by|Written by|Arranger|Mixing|Mastering)\s*[:：]", re.I)
+
+
 def _lrc_to_lines(lrc):
-    # LRC "[mm:ss.xx] texto" -> lineas con tiempo en ms (sin sincronia por palabra)
-    import re
+    """LRC -> lineas {time, duration, text, syllabus} (ms). Con "enhanced LRC" (<mm:ss.xx> por palabra)
+    rellena syllabus; si no, va vacio y el cliente estima las palabras."""
     items = []
     for raw in lrc.split("\n"):
-        txt = re.sub(r"\[[^\]]*\]", "", raw).strip()
-        for m, s in re.findall(r"\[(\d+):(\d+(?:\.\d+)?)\]", raw):
-            items.append({"time": int((int(m) * 60 + float(s)) * 1000), "duration": 0,
-                          "text": txt, "syllabus": []})
+        stamps = _LRC_TS.findall(raw)
+        body = _USPACE.sub(" ", _LRC_TS.sub("", raw)).strip()
+        if not stamps or _CREDIT.search(body):
+            continue
+        words = []
+        if _LRC_WORD.search(body):
+            parts = _LRC_WORD.split(body)   # [texto, m, s, texto, m, s, texto...]
+            for i in range(1, len(parts) - 2, 3):
+                txt = parts[i + 2]
+                if txt.strip():
+                    words.append({"time": int((int(parts[i]) * 60 + float(parts[i + 1])) * 1000), "text": txt})
+            body = _LRC_WORD.sub("", body)
+        for m, sec in stamps:
+            items.append({"time": int((int(m) * 60 + float(sec)) * 1000), "duration": 0, "text": body.strip(),
+                          "syllabus": [dict(w) for w in words]})
     items.sort(key=lambda x: x["time"])
-    for i in range(len(items) - 1):
-        items[i]["duration"] = max(0, items[i + 1]["time"] - items[i]["time"])
+    for i, it in enumerate(items):
+        nxt = items[i + 1]["time"] if i + 1 < len(items) else it["time"] + 5000
+        it["duration"] = max(0, nxt - it["time"])
+        sy = it["syllabus"]
+        for j, w in enumerate(sy):   # enhanced LRC solo marca el inicio: fin = inicio de la siguiente
+            w["duration"] = max(80, (sy[j + 1]["time"] if j + 1 < len(sy) else min(nxt, w["time"] + 900)) - w["time"])
+    while items and not items[-1]["text"]:
+        items.pop()
     return items
 
 
-def lyrics(title, artist):
-    # letra estable: cache larga (1 dia)
-    return cached("l:" + (title + "|" + artist).lower(), 86400, lambda: _lyrics(title, artist))
+def _yrc_to_lines(yrc):
+    """Letra palabra a palabra de NetEase: "[inicio,dur](t,d,0)palabra(t,d,0)palabra..." (ms)."""
+    lines = []
+    for raw in yrc.split("\n"):
+        m = re.match(r"\[(\d+),(\d+)\](.*)", raw.strip())
+        if not m:
+            continue   # "{...}" = creditos en JSON
+        words = [{"time": int(t), "duration": int(d), "text": _USPACE.sub(" ", txt)}
+                 for t, d, txt in re.findall(r"\((\d+),(\d+),\d+\)([^(]*)", m.group(3)) if txt]
+        text = "".join(w["text"] for w in words).strip()
+        if not text or _CREDIT.search(text):
+            continue
+        lines.append({"time": int(m.group(1)), "duration": int(m.group(2)), "text": text, "syllabus": words})
+    return lines
 
 
-def _lyrics(title, artist):
-    # Estructura unificada: {type: Word|Line|Static, lines:[{time,duration,text,syllabus:[{time,duration,text}]}]}
+def _yrc_spaces(lines, ref):
+    """yrc a veces pierde espacios ("how" + "to " -> "howto"): se recolocan con la LRC de la misma cancion."""
+    for ln in lines:
+        key = re.sub(r"\s+", "", ln["text"])
+        r = next((x for x in ref if abs(x["time"] - ln["time"]) < 2500 and re.sub(r"\s+", "", x["text"]) == key), None)
+        if not r:
+            continue
+        txt, i = r["text"], 0
+        for w in ln["syllabus"]:
+            core = w["text"].strip()
+            j = txt.find(core, i) if core else -1
+            if j < 0:
+                break
+            i = j + len(core)
+            w["text"] = core + (" " if i < len(txt) and txt[i] == " " else "")
+        ln["text"] = "".join(w["text"] for w in ln["syllabus"]).strip()
+
+
+def _ne_get(path, params):
+    req = urllib.request.Request("https://music.163.com" + path + "?" + urlencode(params),
+                                 headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read())
+
+
+def _ne_lyrics(title, artist, dur):
+    """NetEase Cloud Music: la mayor fuente abierta de letra POR PALABRA (yrc). Solo si la cancion coincide
+    (titulo + artista + duracion): otra version desincronizaria la letra."""
+    res = (_ne_get("/api/search/get", {"s": "%s %s" % (title, artist), "type": 1, "limit": 10}).get("result") or {})
+    nt, na = _mnorm(title), _mnorm(artist)
+    best = None
+    for sg in res.get("songs") or []:
+        if _mnorm(sg.get("name")) != nt:
+            continue
+        names = [_mnorm(a.get("name")) for a in sg.get("artists") or []]
+        if na and not any(n and (n in na or na in n) for n in names):
+            continue
+        if dur and sg.get("duration") and abs(sg["duration"] / 1000 - dur) > 4:
+            continue
+        best = sg
+        break
+    if not best:
+        return None
+    d = _ne_get("/api/song/lyric/v1", {"id": best["id"], "lv": 1, "yv": 1, "tv": -1, "rv": -1, "kv": -1})
+    yrc = (d.get("yrc") or {}).get("lyric") or ""
+    lrc = (d.get("lrc") or {}).get("lyric") or ""
+    if yrc:
+        lines = _yrc_to_lines(yrc)
+        if len(lines) > 3:
+            _yrc_spaces(lines, _lrc_to_lines(lrc) if lrc else [])
+            return {"type": "Word", "lines": lines, "source": "netease"}
+    lines = _lrc_to_lines(lrc) if lrc else []
+    return {"type": "Line", "lines": lines, "source": "netease"} if len(lines) > 3 else None
+
+
+def _lrclib(title, artist, dur):
     from urllib.parse import quote
-    t, a = quote(title), quote(artist)
-    # 1) KPoe/LyricsPlus: sincronia por palabra (como monochrome). ms en time/duration.
-    try:
-        k = _get_json("https://lyricsplus.binimum.org/v2/lyrics/get?title=%s&artist=%s&source=%s"
-                      % (t, a, quote("apple,lyricsplus,musixmatch-word,musixmatch,spotify")))
-        if k.get("lyrics"):
-            return {"type": k.get("type", "Line"), "lines": k["lyrics"], "source": "kpoe"}
-    except Exception:
-        pass
-    # 2) LRCLIB: sincronia por linea / texto plano
+    q = "track_name=%s&artist_name=%s" % (quote(title), quote(artist))
     d = None
     try:
-        d = _get_json("https://lrclib.net/api/get?track_name=%s&artist_name=%s" % (t, a))
+        d = _get_json("https://lrclib.net/api/get?" + q + ("&duration=%d" % round(dur) if dur else ""))
     except Exception:
         pass
     if not (d and (d.get("syncedLyrics") or d.get("plainLyrics"))):
         try:
-            res = _get_json("https://lrclib.net/api/search?q=%s" % quote((title + " " + artist).strip()))
-            d = next((x for x in res if x.get("syncedLyrics")), res[0] if res else None)
+            res = _get_json("https://lrclib.net/api/search?" + q) or \
+                _get_json("https://lrclib.net/api/search?q=%s" % quote((title + " " + artist).strip()))
+            ok = [x for x in res if not dur or not x.get("duration") or abs(x["duration"] - dur) <= 4] or res
+            d = next((x for x in ok if x.get("syncedLyrics")), ok[0] if ok else None)
         except Exception:
             d = None
     if d and d.get("syncedLyrics"):
-        return {"type": "Line", "lines": _lrc_to_lines(d["syncedLyrics"]), "source": "lrclib"}
+        lines = _lrc_to_lines(d["syncedLyrics"])
+        word = bool(lines) and all(ln["syllabus"] for ln in lines if ln["text"])
+        return {"type": "Word" if word else "Line", "lines": lines, "source": "lrclib"}
     if d and d.get("plainLyrics"):
         return {"type": "Static", "source": "lrclib",
-                "lines": [{"time": 0, "duration": 0, "text": x, "syllabus": []}
-                          for x in d["plainLyrics"].split("\n")]}
+                "lines": [{"time": 0, "duration": 0, "text": x, "syllabus": []} for x in d["plainLyrics"].split("\n")]}
+    return None
+
+
+def lyrics(title, artist, dur=0):
+    # letra estable: cache larga (1 dia)
+    return cached("l2:" + (title + "|" + artist).lower(), 86400, lambda: _lyrics(title, artist, dur))
+
+
+def _lyrics(title, artist, dur=0):
+    """{type: Word|Line|Static, lines:[{time,duration,text,syllabus:[{time,duration,text}]}]} en ms.
+    Por palabra real (NetEase / enhanced LRC) > por linea (el cliente estima las palabras) > texto plano.
+    Las dos fuentes se consultan en paralelo."""
+    def safe(f):
+        try:
+            return f.result()
+        except Exception:
+            return None
+    with concurrent.futures.ThreadPoolExecutor(2) as ex:
+        fne, flr = ex.submit(_ne_lyrics, title, artist, dur), ex.submit(_lrclib, title, artist, dur)
+        ne, lr = safe(fne), safe(flr)
+    for d in (ne if ne and ne["type"] == "Word" else None, lr if lr and lr["type"] != "Static" else None, ne, lr):
+        if d and d["lines"]:
+            return d
     return {"type": "Static", "lines": [], "source": None}
 
 
@@ -3610,7 +3717,11 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/lyrics":
             qs = parse_qs(u.query)
             try:
-                payload = json.dumps(lyrics(qs.get("title", [""])[0], qs.get("artist", [""])[0])).encode()
+                try:
+                    ldur = float(qs.get("dur", ["0"])[0])
+                except ValueError:
+                    ldur = 0
+                payload = json.dumps(lyrics(qs.get("title", [""])[0], qs.get("artist", [""])[0], ldur)).encode()
                 self.send_response(200); self.send_header("Content-Type", "application/json")
             except Exception as e:
                 payload = json.dumps({"error": str(e)}).encode()

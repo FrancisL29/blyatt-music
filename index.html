@@ -650,6 +650,11 @@
                      transition: scale .45s cubic-bezier(.5, 0, .75, 0), opacity .4s ease-in .05s, box-shadow .3s; }
   #lyricsPanel.lyr-paused .lgi { animation-play-state: paused; }
   @keyframes lbreath { 50% { scale: 1.05; } }
+  .lline.alt { text-align: right; }
+  .lline.alt .lin { transform-origin: 100% 50%; }
+  /* coros de fondo: debajo de la linea, mas pequenos y algo mas tenues */
+  .lbgv { display: block; font-size: .64em; font-weight: 700; margin-top: .3em; letter-spacing: -.01em; opacity: .9; }
+  .lsrc div + div { margin-top: 4px; }
   .lline.plain { font-size: 1.15rem; font-weight: 600; color: rgb(255 255 255 / .82); cursor: default; padding: 5px 0;
                  transform: none; letter-spacing: 0; }
   .lempty { color: var(--muted); padding: 40px 4px; font-size: .95rem; }
@@ -1462,7 +1467,7 @@ const EN = {
   "Nueva versión de Blyatt": "New version of Blyatt", "Reiniciar ahora": "Restart now",
   "No se encontró letra.": "No lyrics found.",
   "Reproduce una canción para ver su letra.": "Play a song to see its lyrics.", "Buscando letra…": "Looking for lyrics…",
-  "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen",
+  "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen", "Compuesta por": "Written by",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
@@ -4525,6 +4530,12 @@ function lyrSynth(lines, total) {
     l.syllabus = toks.map((w, k) => { const d = sung * ws[k] / sum, o = { time: t, duration: d, text: w }; t += d; return o; });
   });
 }
+// duetos (ttm:agent): v1, v2... son cantantes; v1000+ son grupos/todos. Las voces pares van a la derecha
+function LYR_ALT(a) {
+  const m = /^v(\d+)$/.exec(a || "");
+  if (!m || +m[1] >= 1000) return null;
+  return +m[1] % 2 === 0;
+}
 function lyrBuild(d) {
   const lb = $("lbody"); lb.innerHTML = ""; lb.className = "";
   clearTimeout(LYR.freeT);
@@ -4548,35 +4559,53 @@ function lyrBuild(d) {
     LYR.items.push({ kind: "gap", start, end, el, dots: el.firstChild.children });
   };
   gap(0, lines[0].time);
+  const duet = new Set(lines.map(l => l.agent).filter(a => LYR_ALT(a) !== null)).size > 1;
   lines.forEach((l, i) => {
     const el = document.createElement("div"); el.className = "lline";
     const lin = document.createElement("div"); lin.className = "lin"; el.appendChild(lin);
+    if (duet && LYR_ALT(l.agent)) el.classList.add("alt");   // segunda voz del dueto: a la derecha (como Apple Music)
     const words = [];
-    let grp = null, wi = 0;
-    l.syllabus.forEach(sy => {
-      const txt = sy.text, core = txt.replace(/\s+$/, "");
-      if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; lin.appendChild(grp); }
-      if (core) {
-        const w = document.createElement("span"); w.className = "lw"; w.style.setProperty("--wi", wi++);
-        const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
-        const chars = Array.from(core), long = e0 - s0 >= 1000 && chars.length > 1;
-        if (long) {   // nota sostenida: una caja por letra (ola de brillo y elevacion)
-          w.classList.add("long"); w.style.setProperty("--n", chars.length);
-          chars.forEach((c, k) => { const lc = document.createElement("span"); lc.className = "lc"; lc.textContent = c; lc.style.setProperty("--i", k); w.appendChild(lc); });
-        } else w.textContent = core;
-        grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null, long, on: false });
-      }
-      if (txt !== core) { lin.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
-    });
-    const start = l.time, end = words.length ? Math.max(words[words.length - 1].e, start + 400) : start + (l.duration || 2000);
+    let wi = 0;
+    const addWords = (box, syl) => {
+      let grp = null;
+      syl.forEach(sy => {
+        const txt = sy.text, core = txt.replace(/\s+$/, "");
+        if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; box.appendChild(grp); }
+        if (core) {
+          const w = document.createElement("span"); w.className = "lw"; w.style.setProperty("--wi", wi++);
+          const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
+          const chars = Array.from(core), long = e0 - s0 >= 1000 && chars.length > 1;
+          if (long) {   // nota sostenida: una caja por letra (ola de brillo y elevacion)
+            w.classList.add("long"); w.style.setProperty("--n", chars.length);
+            chars.forEach((c, k) => { const lc = document.createElement("span"); lc.className = "lc"; lc.textContent = c; lc.style.setProperty("--i", k); w.appendChild(lc); });
+          } else w.textContent = core;
+          grp.appendChild(w); words.push({ s: s0, e: e0, el: w, p: null, long, on: false });
+        }
+        if (txt !== core) { box.appendChild(document.createTextNode(" ")); grp = null; }   // fin de palabra: corte posible
+      });
+    };
+    addWords(lin, l.syllabus);
+    if (l.bg && l.bg.length) {   // coros / voces de fondo: mas pequenos, debajo, con su propio tiempo
+      const bgv = document.createElement("div"); bgv.className = "lbgv"; lin.appendChild(bgv);
+      addWords(bgv, l.bg);
+    }
+    const start = Math.min(l.time, ...words.map(w => w.s)),
+          end = words.length ? Math.max(start + 400, ...words.map(w => w.e)) : start + (l.duration || 2000);
     el.onclick = () => { lyrUnfree(false); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
     body.appendChild(el);
     LYR.items.push({ kind: "line", start, end, el, words });
     const next = lines[i + 1];
     gap(end + 250, next ? next.time : total);
   });
-  const src = { netease: "NetEase Cloud Music", lrclib: "LRCLIB" }[d.source];
-  if (src) { const f = document.createElement("div"); f.className = "lsrc"; f.textContent = t("Letra") + " · " + src; body.appendChild(f); LYR.src = f; }
+  // creditos: compositores (si la fuente los trae) + fuente (Unison exige atribucion)
+  const src = { lrcred: "lrc.red", deezer: "Deezer", netease: "NetEase Cloud Music", lrclib: "LRCLIB",
+                unison: "Unison (unison.boidu.dev)" }[d.source];
+  if (src || (d.writers && d.writers.length)) {
+    const f = document.createElement("div"); f.className = "lsrc";
+    if (d.writers && d.writers.length) { const w = document.createElement("div"); w.textContent = t("Compuesta por") + ": " + d.writers.join(", "); f.appendChild(w); }
+    if (src) { const w = document.createElement("div"); w.textContent = t("Letra") + " · " + src; f.appendChild(w); }
+    body.appendChild(f); LYR.src = f;
+  }
   lyrMeasure();
 }
 function lyrMeasure() {   // posiciones de cada item (solo al construir / redimensionar: nada de layout por frame)
@@ -4757,7 +4786,7 @@ async function loadLyrics() {
   LYR.items = []; LYR.ai = -1;
   try {
     const dur = Math.round(audio.duration || current.dur || 0);
-    const d = await jget(`/lyrics?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}`);
+    const d = await jget(`/lyrics?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}&id=${encodeURIComponent(current.id)}`);
     if (d.error) throw new Error(d.error);
     if (LYR.for !== id) return;
     lyrBuild(d);

@@ -1080,22 +1080,186 @@ def _ne_lyrics(title, artist, dur):
     return {"type": "Line", "lines": lines, "source": "netease"} if len(lines) > 3 else None
 
 
+_LYR_UA = {"User-Agent": "Blyatt/1.1 (+https://github.com/FrancisL29/blyatt-music)"}
+
+
+def _lhttp(url, data=None, hdr=None, timeout=8, raw=False):
+    req = urllib.request.Request(url, data=data, headers=dict(_LYR_UA, **(hdr or {})))
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        b = r.read()
+    return b if raw else json.loads(b)
+
+
+def _lmatch(t, a, d, ht, ha, hd, tol=3.5):
+    """Es la misma grabacion? Titulo normalizado igual y duracion +-tol s (otra version desincroniza la letra).
+    El artista suma pero no es obligatorio: algunos catalogos lo traen en otro alfabeto (バッド・バニー)."""
+    if not ht or _mnorm(ht) != _mnorm(t):
+        return 0
+    if d and hd and abs(float(hd) - d) > tol:
+        return 0
+    na, nh = _mnorm(a), _mnorm(ha or "")
+    if na and nh and (na in nh or nh in na or any(x in nh for x in na.split() if len(x) > 3)):
+        return 3 if d and hd else 2
+    return 1 if d and hd and abs(float(hd) - d) <= 1.5 else 0
+
+
+def _respace(text, words):
+    """Coloca los espacios entre palabras segun el texto de la linea (algunas fuentes los pierden)."""
+    if any(w["text"][-1:].isspace() for w in words[:-1]):
+        return
+    i = 0
+    for w in words:
+        core = w["text"].strip()
+        j = text.find(core, i) if core else -1
+        if j < 0:
+            return
+        i = j + len(core)
+        w["text"] = core + (" " if i < len(text) and text[i] == " " else "")
+
+
+def _tt(v):
+    """Tiempo TTML ("9.050", "1:02.300", "00:01:02.300", "12.5s") -> ms"""
+    v = (v or "0").strip().rstrip("s")
+    sec = 0.0
+    for part in v.split(":"):
+        sec = sec * 60 + float(part or 0)
+    return int(round(sec * 1000))
+
+
+def _ttml_lines(xml):
+    """TTML de letras (formato Apple/lrc.red): palabra a palabra, coros de fondo (x-bg), duetos (ttm:agent),
+    compositores. -> (type, lines, writers)"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml)
+    timing = next((v for k, v in root.attrib.items() if k.endswith("timing")), "Line").lower()
+    TTM = "{http://www.w3.org/ns/ttml#metadata}"
+    writers = [e.text.strip() for e in root.iter() if e.tag.endswith("songwriter") and e.text and e.text.strip()]
+    word = timing in ("word", "syllable")
+
+    def words_of(el):
+        out = []
+        for sp in el:
+            if not sp.tag.endswith("span") or sp.get(TTM + "role") == "x-bg" or sp.get("begin") is None:
+                continue
+            txt = _USPACE.sub(" ", "".join(sp.itertext()))
+            if not txt.strip():
+                continue
+            b = _tt(sp.get("begin"))
+            out.append({"time": b, "duration": max(0, _tt(sp.get("end")) - b),
+                        "text": txt.strip() + (" " if (sp.tail or "")[:1].isspace() else "")})
+        return out
+
+    lines = []
+    for pe in (e for e in root.iter() if e.tag == "p" or e.tag.endswith("}p")):   # con o sin namespace TTML
+        b = _tt(pe.get("begin"))
+        main = words_of(pe) if word else []
+        bg = []
+        if word:
+            for sp in pe:
+                if sp.get(TTM + "role") == "x-bg":
+                    bg += words_of(sp)
+        if main:
+            text = "".join(w["text"] for w in main).strip()
+        else:   # por linea: el texto sin los coros de fondo
+            parts = [pe.text or ""] + [("" if c.get(TTM + "role") == "x-bg" else "".join(c.itertext())) + (c.tail or "") for c in pe]
+            text = _USPACE.sub(" ", "".join(parts)).strip()
+        if not text and not bg:
+            continue
+        ln = {"time": b, "duration": max(0, _tt(pe.get("end")) - b), "text": text, "syllabus": main}
+        if bg:
+            ln["bg"] = bg
+        ag = pe.get(TTM + "agent")
+        if ag:
+            ln["agent"] = ag
+        lines.append(ln)
+    lines.sort(key=lambda x: x["time"])
+    return ("Word" if word and any(ln["syllabus"] for ln in lines) else "Line"), lines, writers
+
+
+def _lyricsfile(y):
+    """Lyricsfile 1.0 (YAML de LRCLIB / lrc.red): lineas con palabras (start_ms/end_ms). Parser minimo
+    para esta estructura fija (sin dependencia de PyYAML)."""
+    def val(v):
+        v = v.strip()
+        if v.startswith('"'):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return v.strip('"')
+        if v.startswith("'"):
+            return v[1:-1].replace("''", "'")
+        return v
+    lines, cur, w, line_ind, in_lines, in_words = [], None, None, None, False, False
+    for raw in y.splitlines():
+        st = raw.strip()
+        if not st:
+            continue
+        ind = len(raw) - len(raw.lstrip())
+        if st == "lines:":
+            in_lines = True
+            continue
+        if not in_lines:
+            continue
+        if st == "words:":
+            in_words = True
+            continue
+        item = st.startswith("- ")
+        if item:
+            st = st[2:]
+        m = re.match(r"(text|start_ms|end_ms):\s*(.*)$", st)
+        if not m:
+            continue
+        key, v = m.group(1), val(m.group(2))
+        if item and line_ind is None:
+            line_ind = ind
+        if item and ind == line_ind:   # nueva linea (las palabras pueden ir a la misma sangria que "words:")
+            cur = {"text": "", "start_ms": 0, "end_ms": 0, "words": []}
+            lines.append(cur)
+            w, in_words = None, False
+        elif item and cur is not None:   # nueva palabra
+            w = {"text": "", "start_ms": 0, "end_ms": 0}
+            cur["words"].append(w)
+        target = w if (in_words and w is not None) else cur
+        if target is None:
+            continue
+        target[key] = v if key == "text" else int(float(v or 0))
+    out = []
+    for ln in lines:
+        ws = [{"time": x["start_ms"], "duration": max(0, x["end_ms"] - x["start_ms"]), "text": _USPACE.sub(" ", x["text"])}
+              for x in ln["words"] if str(x["text"]).strip()]
+        text = _USPACE.sub(" ", str(ln["text"])).strip()
+        if ws:
+            _respace(text, ws)
+        if text:
+            out.append({"time": ln["start_ms"], "duration": max(0, ln["end_ms"] - ln["start_ms"]), "text": text, "syllabus": ws})
+    return out
+
+
 def _lrclib(title, artist, dur):
+    """LRCLIB (abierto): lyricsfile palabra a palabra si hasWordSync; si no LRC por linea o texto plano."""
     from urllib.parse import quote
     q = "track_name=%s&artist_name=%s" % (quote(title), quote(artist))
     d = None
     try:
-        d = _get_json("https://lrclib.net/api/get?" + q + ("&duration=%d" % round(dur) if dur else ""))
+        d = _lhttp("https://lrclib.net/api/get?" + q + ("&duration=%d" % round(dur) if dur else ""))
     except Exception:
         pass
     if not (d and (d.get("syncedLyrics") or d.get("plainLyrics"))):
         try:
-            res = _get_json("https://lrclib.net/api/search?" + q) or \
-                _get_json("https://lrclib.net/api/search?q=%s" % quote((title + " " + artist).strip()))
+            res = _lhttp("https://lrclib.net/api/search?" + q) or \
+                _lhttp("https://lrclib.net/api/search?q=%s" % quote((title + " " + artist).strip()))
             ok = [x for x in res if not dur or not x.get("duration") or abs(x["duration"] - dur) <= 4] or res
-            d = next((x for x in ok if x.get("syncedLyrics")), ok[0] if ok else None)
+            d = next((x for x in ok if x.get("hasWordSync")), None) or \
+                next((x for x in ok if x.get("syncedLyrics")), ok[0] if ok else None)
         except Exception:
             d = None
+    if d and d.get("hasWordSync") and d.get("lyricsfile"):
+        try:
+            lines = _lyricsfile(d["lyricsfile"])
+            if len(lines) > 3 and sum(1 for ln in lines if ln["syllabus"]) > len(lines) / 2:
+                return {"type": "Word", "lines": lines, "source": "lrclib"}
+        except Exception:
+            pass
     if d and d.get("syncedLyrics"):
         lines = _lrc_to_lines(d["syncedLyrics"])
         word = bool(lines) and all(ln["syllabus"] for ln in lines if ln["text"])
@@ -1106,26 +1270,178 @@ def _lrclib(title, artist, dur):
     return None
 
 
-def lyrics(title, artist, dur=0):
-    # letra estable: cache larga (1 dia)
-    return cached("l2:" + (title + "|" + artist).lower(), 86400, lambda: _lyrics(title, artist, dur))
+# --- Deezer (sesion anonima de su web): busqueda -> ISRC + letra palabra a palabra / por linea ---
+_DZ = {"jwt": None, "t": 0}
+_DZQ = ("query L($id: String!) { track(trackId: $id) { lyrics { synchronizedLines { line milliseconds duration } "
+        "synchronizedWordByWordLines { start end words { start end word } } } } }")
 
 
-def _lyrics(title, artist, dur=0):
-    """{type: Word|Line|Static, lines:[{time,duration,text,syllabus:[{time,duration,text}]}]} en ms.
-    Por palabra real (NetEase / enhanced LRC) > por linea (el cliente estima las palabras) > texto plano.
-    Las dos fuentes se consultan en paralelo."""
-    def safe(f):
+def _dz_jwt(fresh=False):
+    if fresh or not _DZ["jwt"] or time.time() - _DZ["t"] > 1800:
+        _DZ["jwt"] = _lhttp("https://auth.deezer.com/login/anonymous?jo=p&rto=c").get("jwt")
+        _DZ["t"] = time.time()
+    return _DZ["jwt"]
+
+
+def _dz_find(t, a, d):
+    res = _lhttp("https://api.deezer.com/search?" + urlencode({"q": "%s %s" % (t, a), "limit": 10})).get("data") or []
+    sc, hit = max(((_lmatch(t, a, d, x.get("title_short") or x.get("title"), (x.get("artist") or {}).get("name"),
+                            x.get("duration")), x) for x in res), key=lambda z: z[0], default=(0, None))
+    return hit if sc else None
+
+
+def _dz_lyrics(tid):
+    body = json.dumps({"query": _DZQ, "variables": {"id": str(tid)}}).encode()
+    for fresh in (False, True):
         try:
-            return f.result()
-        except Exception:
+            r = _lhttp("https://pipe.deezer.com/api", body, {"Content-Type": "application/json",
+                                                              "Authorization": "Bearer " + (_dz_jwt(fresh) or "")})
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 401 or fresh:
+                raise
+    ly = ((r.get("data") or {}).get("track") or {}).get("lyrics") or {}
+    ww = [ln for ln in ly.get("synchronizedWordByWordLines") or [] if ln.get("words")]
+    if len(ww) > 3:
+        lines = []
+        for ln in ww:
+            ws = [{"time": x["start"], "duration": max(0, x["end"] - x["start"]),
+                   "text": _USPACE.sub(" ", x["word"]).strip() + " "} for x in ln["words"] if x.get("word")]
+            if ws:
+                ws[-1]["text"] = ws[-1]["text"].strip()
+                lines.append({"time": ln["start"], "duration": max(0, ln["end"] - ln["start"]),
+                              "text": "".join(w["text"] for w in ws), "syllabus": ws})
+        return {"type": "Word", "lines": lines, "source": "deezer"}
+    sl = [x for x in ly.get("synchronizedLines") or [] if (x.get("line") or "").strip()]
+    if len(sl) > 3:
+        return {"type": "Line", "source": "deezer", "lines": [
+            {"time": int(x["milliseconds"]), "duration": int(x.get("duration") or 0), "text": _USPACE.sub(" ", x["line"]).strip(),
+             "syllabus": []} for x in sl]}
+    return None
+
+
+# --- lrc.red (API publica y gratuita, por ISRC): TTML palabra a palabra con coros de fondo y duetos ---
+def _lrcred(isrc):
+    try:
+        xml = _lhttp("https://lrc.red/s/%s.ttml" % isrc, raw=True).decode("utf8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
             return None
+        raise
+    typ, lines, writers = _ttml_lines(xml)
+    return {"type": typ, "lines": lines, "writers": writers, "source": "lrcred"} if len(lines) > 3 else None
+
+
+def _lrcred_search(t, a, d):
+    for q in ("%s %s" % (t, a), t):
+        hits = _lhttp("https://lrc.red/search.json?" + urlencode({"q": q})).get("hits") or []
+        sc, hit = max(((_lmatch(t, a, d, h.get("title"), h.get("artist"), h.get("duration")), h) for h in hits),
+                      key=lambda z: z[0], default=(0, None))
+        if sc:
+            return _lrcred(hit["isrc"])
+    return None
+
+
+def _dz_chain(t, a, d):
+    """Deezer da el ISRC exacto de la grabacion -> lrc.red por ISRC (sin falsos positivos) + letra de Deezer."""
+    hit = _dz_find(t, a, d)
+    if not hit:
+        return {}
+    isrc = (_lhttp("https://api.deezer.com/track/%s" % hit["id"]) or {}).get("isrc")
     with concurrent.futures.ThreadPoolExecutor(2) as ex:
-        fne, flr = ex.submit(_ne_lyrics, title, artist, dur), ex.submit(_lrclib, title, artist, dur)
-        ne, lr = safe(fne), safe(flr)
-    for d in (ne if ne and ne["type"] == "Word" else None, lr if lr and lr["type"] != "Static" else None, ne, lr):
-        if d and d["lines"]:
-            return d
+        fl = ex.submit(_lrcred, isrc) if isrc else None
+        fd = ex.submit(_dz_lyrics, hit["id"])
+        out = {}
+        for k, f in (("lrcred", fl), ("deezer", fd)):
+            try:
+                out[k] = f.result() if f else None
+            except Exception:
+                out[k] = None
+    return out
+
+
+# --- Unison (comunidad de Better Lyrics, datos ODbL; atribucion obligatoria): por videoId de YouTube ---
+def _unison(vid, t, a, d):
+    qs = ([{"v": vid}] if vid else []) + [dict({"song": t, "artist": a}, **({"duration": int(d)} if d else {}))]
+    for q in qs:
+        try:
+            j = _lhttp("https://unison.betterlyrics.org/lyrics?" + urlencode(q))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            raise
+        dd = j.get("data") or {}
+        txt, fmt = dd.get("lyrics") or "", (dd.get("format") or "").lower()
+        if not txt:
+            continue
+        low = dd.get("confidence") == "low"
+        if fmt == "ttml":
+            typ, lines, writers = _ttml_lines(txt)
+            return {"type": typ, "lines": lines, "writers": writers, "source": "unison", "low": low}
+        if fmt == "lrc":
+            lines = _lrc_to_lines(txt)
+            return {"type": "Word" if lines and all(x["syllabus"] for x in lines) else "Line", "lines": lines,
+                    "source": "unison", "low": low}
+        return {"type": "Static", "source": "unison", "low": low,
+                "lines": [{"time": 0, "duration": 0, "text": x, "syllabus": []} for x in txt.split("\n")]}
+    return None
+
+
+def lyrics(title, artist, dur=0, vid=""):
+    # letra estable: cache larga (1 dia)
+    return cached("l3:%s|%s|%d" % (title.lower(), artist.lower(), round(dur or 0)), 86400,
+                  lambda: _lyrics(title, artist, dur, vid))
+
+
+def _qtitle(t):
+    """Titulo para BUSCAR: sin "(feat. X)" / "(con X)" / "- Remastered 2011" (los catalogos no lo ponen igual)."""
+    t = re.sub(r"\s*[\(\[](feat|ft|with|con|prod)\.?\s[^\)\]]*[\)\]]", "", t or "", flags=re.I)
+    t = re.sub(r"\s+-\s+.*\b(remaster(ed)?|version|edit|mix|mono|stereo|live|en vivo|acoustic)\b.*$", "", t, flags=re.I)
+    return t.strip() or t
+
+
+def _lyrics(title, artist, dur=0, vid=""):
+    """{type: Word|Line|Static, lines:[{time,duration,text,syllabus,bg?,agent?}], writers?, source} en ms.
+    Todas las fuentes en paralelo; gana la mejor sincronia:
+      palabra:  lrc.red (por ISRC de Deezer o por busqueda) > Deezer > NetEase > Unison > LRCLIB (lyricsfile)
+      linea:    LRCLIB > Deezer > NetEase > lrc.red > Unison   (el cliente estima las palabras)
+      texto:    LRCLIB > Unison"""
+    title = _qtitle(title)
+    # todas arrancan a la vez, pero se responde en cuanto la mejor opcion posible esta lista (lrc.red suele
+    # tenerla en ~1 s): no se espera a las fuentes lentas (NetEase ~2 s) si ya no pueden ganar
+    ex = concurrent.futures.ThreadPoolExecutor(5)
+    f = {"chain": ex.submit(_dz_chain, title, artist, dur), "lrsearch": ex.submit(_lrcred_search, title, artist, dur),
+         "ne": ex.submit(_ne_lyrics, title, artist, dur), "lrclib": ex.submit(_lrclib, title, artist, dur),
+         "un": ex.submit(_unison, vid, title, artist, dur)}
+    memo = {}
+
+    def res(k):
+        if k not in memo:
+            try:
+                memo[k] = f[k].result(timeout=15)
+            except Exception:
+                memo[k] = None
+        return memo[k]
+
+    def kind(d, k):
+        return d if d and d.get("type") == k and len(d.get("lines") or []) > 3 else None
+    lrc = lambda: (res("chain") or {}).get("lrcred") or res("lrsearch")
+    dz = lambda: (res("chain") or {}).get("deezer")
+    un_ok = lambda: res("un") if res("un") and not res("un").get("low") else None
+    order = [lambda: kind(lrc(), "Word"), lambda: kind(dz(), "Word"), lambda: kind(res("ne"), "Word"),
+             lambda: kind(un_ok(), "Word"), lambda: kind(res("lrclib"), "Word"),
+             lambda: kind(res("lrclib"), "Line"), lambda: kind(dz(), "Line"), lambda: kind(res("ne"), "Line"),
+             lambda: kind(lrc(), "Line"), lambda: kind(res("un"), "Word"), lambda: kind(res("un"), "Line"),
+             lambda: res("lrclib") if res("lrclib") and res("lrclib").get("lines") else None,
+             lambda: res("un") if res("un") and res("un").get("lines") else None]
+    try:
+        for get in order:
+            d = get()
+            if d:
+                d.pop("low", None)
+                return d
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     return {"type": "Static", "lines": [], "source": None}
 
 
@@ -3721,7 +4037,9 @@ class H(BaseHTTPRequestHandler):
                     ldur = float(qs.get("dur", ["0"])[0])
                 except ValueError:
                     ldur = 0
-                payload = json.dumps(lyrics(qs.get("title", [""])[0], qs.get("artist", [""])[0], ldur)).encode()
+                lvid = qs.get("id", [""])[0]
+                payload = json.dumps(lyrics(qs.get("title", [""])[0], qs.get("artist", [""])[0], ldur,
+                                            lvid if re.fullmatch(r"[\w-]{6,20}", lvid) else "")).encode()
                 self.send_response(200); self.send_header("Content-Type", "application/json")
             except Exception as e:
                 payload = json.dumps({"error": str(e)}).encode()

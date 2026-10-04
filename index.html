@@ -583,6 +583,7 @@
   .lbtns { display: flex; align-items: center; gap: 14px; flex: none; }
   .lhead button { border: none; background: none; color: rgb(255 255 255 / .7); cursor: pointer; font-size: 1.45rem; padding: 0; }
   .lhead button:hover { color: var(--text); }
+  #lyricsKaraoke.on { color: var(--accent, #fff); }
   .lmain { flex: 1; min-height: 0; display: flex; }
   .lside { display: none; }
   #lbody { flex: 1; min-width: 0; position: relative; overflow: hidden; padding: 0 30px; touch-action: none;
@@ -1207,6 +1208,7 @@
   <div class="lhead">
     <div class="lmeta"><img id="lthumb" alt=""><div><div class="lt" id="ltit" data-i18n>Letra</div><div class="ls" id="lsong"></div></div></div>
     <div class="lbtns">
+      <button id="lyricsKaraoke" aria-label="Modo karaoke" title="Modo karaoke (quitar la voz)"><i class="ph ph-microphone-slash"></i></button>
       <button id="lyricsFull" aria-label="Pantalla completa"><i class="ph ph-arrows-out-simple"></i></button>
       <button id="lyricsClose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
     </div>
@@ -1499,6 +1501,8 @@ const EN = {
   "No se encontró letra.": "No lyrics found.",
   "Reproduce una canción para ver su letra.": "Play a song to see its lyrics.", "Buscando letra…": "Looking for lyrics…",
   "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen", "Compuesta por": "Written by",
+  "Modo karaoke: voz quitada": "Karaoke mode: vocals removed", "Voz restaurada": "Vocals restored",
+  "El modo karaoke se activa en el dispositivo que está sonando": "Karaoke mode is turned on in the device that is playing",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
@@ -1682,6 +1686,38 @@ const gainNode = AC.createGain();
 // "ducking" (como Spotify o la radio): nodo propio tras el volumen del usuario. Cuando otra app habla un momento
 // (audio de WhatsApp, navegacion...) la musica baja suave y al terminar vuelve; el volumen elegido no se toca
 const duckNode = AC.createGain(); gainNode.connect(duckNode); duckNode.connect(AC.destination);
+/* MODO KARAOKE (tiempo real, coste ~0): la voz principal va centrada en la mezcla (igual en L y R). Se queda
+   la parte lateral (L-R: instrumentos abiertos en estereo) y, del centro, solo graves (<130 Hz: bajo, bombo) y
+   agudos (>8 kHz: platos, aire); la banda de la voz del centro desaparece. Las fuentes entran a srcBus y un
+   fundido entre la ruta directa y la karaoke evita clics. En grabaciones mono no puede separar la voz. */
+const srcBus = AC.createGain(), dryG = AC.createGain(), wetG = AC.createGain();
+srcBus.channelCount = 2; srcBus.channelCountMode = "explicit"; srcBus.channelInterpretation = "speakers";
+srcBus.connect(dryG); dryG.connect(gainNode); wetG.connect(gainNode); wetG.gain.value = 0;
+(() => {
+  const g = v => { const n = AC.createGain(); n.gain.value = v; return n; };
+  const sp = AC.createChannelSplitter(2), mg = AC.createChannelMerger(2);
+  const mid = g(1), side = g(1.35), outL = g(1), outR = g(1);   // compensa solo lo lateral (al quitar el centro baja el volumen)
+  const lm = g(.5), rm = g(.5), ls = g(.5), rs = g(-.5);
+  srcBus.connect(sp);
+  sp.connect(lm, 0); sp.connect(rm, 1); lm.connect(mid); rm.connect(mid);
+  sp.connect(ls, 0); sp.connect(rs, 1); ls.connect(side); rs.connect(side);
+  const lp = AC.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 130; lp.Q.value = .707;
+  const hp = AC.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 8000; hp.Q.value = .707;
+  mid.connect(lp); mid.connect(hp);
+  // lo lateral va EN FASE a los dos canales: en contrafase (+L/-R) se anularia en el altavoz mono del movil
+  side.connect(outL); side.connect(outR);
+  [lp, hp].forEach(f => { f.connect(outL); f.connect(outR); });
+  outL.connect(mg, 0, 0); outR.connect(mg, 0, 1); mg.connect(wetG);
+})();
+let karaoke = false;
+function setKaraoke(on) {
+  karaoke = !!on;
+  const t0 = AC.currentTime;
+  [[dryG, karaoke ? 0 : 1], [wetG, karaoke ? 1 : 0]].forEach(([n, v]) => {
+    n.gain.cancelScheduledValues(t0); n.gain.setValueAtTime(n.gain.value, t0); n.gain.setTargetAtTime(v, t0, .08); });
+  try { localStorage.setItem("lightning.karaoke", karaoke ? "1" : ""); } catch (e) {}
+  const b = document.getElementById("lyricsKaraoke"); if (b) b.classList.toggle("on", karaoke);
+}
 function setDuck(on) {
   const t0 = AC.currentTime, g = duckNode.gain;
   g.cancelScheduledValues(t0); g.setValueAtTime(g.value, t0);
@@ -1781,7 +1817,7 @@ function _clearGapless() { if (eng.gNode) { try { eng.gNode.stop(); } catch (e) 
 function _stop() { _clearGapless(); if (eng.node) { eng.node.onended = null; try { eng.node.stop(); } catch (e) {} eng.node.disconnect(); eng.node = null; } if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; } }
 function _startBuf(buf, offset) {
   const lead = buf._lead || 0, eff = buf._eff || buf.duration;
-  const n = AC.createBufferSource(); n.buffer = buf; n.connect(gainNode);
+  const n = AC.createBufferSource(); n.buffer = buf; n.connect(srcBus);
   n.start(0, lead + offset);                 // arranca en el audio real (omite el silencio de priming)
   eng.node = n; eng.buf = buf; eng.dur = eff; eng.start = AC.currentTime - offset; eng.offset = offset; eng.playing = true;
   try { n.stop(eng.start + eff); } catch (e) {}   // corta antes del padding final
@@ -1823,7 +1859,7 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
   if (!eng.playing || eng.gInfo) return;
   const when = eng.start + eng.dur;          // momento exacto en que termina el audio real actual
   if (when <= AC.currentTime) return;        // ya muy tarde
-  const n = AC.createBufferSource(); n.buffer = buf; n.connect(gainNode);
+  const n = AC.createBufferSource(); n.buffer = buf; n.connect(srcBus);
   n.start(when, buf._lead || 0);             // la siguiente entra en su audio real, sin su silencio inicial
   eng.gNode = n; eng.gInfo = { buf, song, when };
 }
@@ -4936,6 +4972,16 @@ function lyrFull(on) {
 $("lyricsBtn").onclick = () => togglePanel($("lyricsPanel"), $("lyricsBtn"), loadLyrics);
 $("lyricsClose").onclick = () => { $("lyricsPanel").classList.remove("show"); $("lyricsBtn").classList.remove("on"); lyrFull(false); };
 $("lyricsFull").onclick = () => lyrFull(!document.body.classList.contains("lyr-full"));
+// karaoke: solo donde la musica pasa por Web Audio (en iPhone/Safari suena por <audio> nativo)
+if (IOS_WEB) $("lyricsKaraoke").hidden = true;
+else {
+  try { if (localStorage.getItem("lightning.karaoke") === "1") setKaraoke(true); } catch (e) {}
+  $("lyricsKaraoke").onclick = () => {
+    if (CX.remote) { toast(t("El modo karaoke se activa en el dispositivo que está sonando")); return; }
+    setKaraoke(!karaoke);
+    toast(t(karaoke ? "Modo karaoke: voz quitada" : "Voz restaurada"));
+  };
+}
 document.addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("lyr-full")) lyrFull(false); });
 
 /* ---------- UI de tiempo (rAF: el motor Web Audio no emite timeupdate) ---------- */
@@ -5489,7 +5535,10 @@ function cxExec(c) {
 }
 function cxMirror(st) {   // modo remoto: la UI refleja lo que suena en el otro dispositivo
   if (!st || !st.track) return;
-  if (!current || current.id !== st.track.id) { paintNowPlaying(st.track); if (npOpen) paintNp(st.track); }
+  if (!current || current.id !== st.track.id) {
+    paintNowPlaying(st.track); if (npOpen) paintNp(st.track);
+    if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }   // la letra sigue a la cancion remota
+  }
   if (st.queue && st.queue.length) { queue = cxUnpick(st.queue); qIndex = Math.min(st.qi || 0, queue.length - 1); queueOrig = null; }
   if (!!st.shuffle !== shuffle) { shuffle = !!st.shuffle; syncShuffleUI(); }
   if ((st.repeat || "off") !== repeat) {

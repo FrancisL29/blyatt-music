@@ -1388,9 +1388,16 @@ def _unison(vid, t, a, d):
 
 
 def lyrics(title, artist, dur=0, vid=""):
-    # letra estable: cache larga (1 dia)
-    return cached("l3:%s|%s|%d" % (title.lower(), artist.lower(), round(dur or 0)), 86400,
-                  lambda: _lyrics(title, artist, dur, vid))
+    """Una sola respuesta por cancion (clave = videoId): todos los dispositivos ven la MISMA letra. Palabra a
+    palabra se guarda 1 dia; algo peor (por linea/texto, p. ej. por un fallo puntual de lrc.red) solo 20 min,
+    para que el siguiente intento pueda conseguir la mejor."""
+    key = "l4:" + (vid or "%s|%s|%d" % (title.lower(), artist.lower(), round(dur or 0)))
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < hit[2]:
+        return hit[1]
+    d = _lyrics(title, artist, dur, vid)
+    _CACHE[key] = (time.time(), d, 86400 if d.get("type") == "Word" else 1200)
+    return d
 
 
 def _qtitle(t):
@@ -2369,6 +2376,19 @@ def _cx_snap(h, dev, now, take_cmds=False):
 
 
 def connect_api(path, qs, d):
+    if path == "/connect/time":   # para medir la latencia (ida y vuelta) y compensar la posicion remota
+        return {"t": time.time()}
+    if path == "/connect/lyrics":   # letra compartida: escritorio y movil usan la misma (misma cache del servidor)
+        g0 = lambda k: (qs.get(k) or [""])[0]
+        try:
+            ldur = float(g0("dur") or 0)
+        except ValueError:
+            ldur = 0
+        vid = g0("id")
+        try:
+            return lyrics(g0("title"), g0("artist"), ldur, vid if re.fullmatch(r"[\w-]{6,20}", vid) else "")
+        except Exception as e:
+            return {"error": str(e)[:200]}
     acct = _cx_key()
     if not acct:
         return {"error": "no_account"}

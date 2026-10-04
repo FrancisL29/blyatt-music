@@ -1982,9 +1982,18 @@ const CX = { dev: "", name: "", type: "web", hub: null, ver: -1, rxAt: 0, remote
 })();
 let _cxSeek = null, _cxAutoplay = true, _cxPushT = null;
 const cxSt = () => (CX.hub && CX.hub.state) || {};
+// la posicion que llega ya es vieja: lo que tardo en subir desde el que suena + en bajar hasta aqui (~ida y
+// vuelta medida). Sin compensarlo la letra en el otro dispositivo iba 0.1-0.4 s por detras
+async function cxMeasureLat() {
+  const t0 = performance.now();
+  try { const r = await jget("/connect/time"); if (!r || !r.t) return; } catch (e) { return; }
+  const rtt = (performance.now() - t0) / 1000, a = CX.rtts || (CX.rtts = []);
+  a.push(rtt); if (a.length > 5) a.shift();
+  CX.lat = Math.min(.6, [...a].sort((x, y) => x - y)[a.length >> 1]);
+}
 function cxPos() {
   const st = cxSt(); if (!st.track) return 0;
-  const p = (st.pos || 0) + (st.playing ? (st.age || 0) + (performance.now() - CX.rxAt) / 1000 : 0);
+  const p = (st.pos || 0) + (st.playing ? (st.age || 0) + (CX.lat || 0) + (performance.now() - CX.rxAt) / 1000 : 0);
   return Math.max(0, Math.min(p, st.dur || p));
 }
 (() => {
@@ -4116,7 +4125,7 @@ function paintPlayer(s) {
 }
 function paintNowPlaying(s) {
   paintPlayer(s);
-  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
 let _loadTimer = null;
@@ -4166,7 +4175,7 @@ function onPlaybackStarted(s) {
   }
   cxPush(!audio.paused);
   paintPlayer(s);
-  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit };
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
   applyAccent(s.cover); pushRecent(current); refreshLikeUI(); markPlaying();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
@@ -4952,8 +4961,16 @@ async function loadLyrics() {
   $("lbody").className = "static"; $("lbody").innerHTML = '<div class="lempty">' + esc(t("Buscando letra…")) + "</div>";
   LYR.items = []; LYR.ai = -1;
   try {
-    const dur = Math.round(audio.duration || current.dur || 0);
-    const d = await jget(`/lyrics?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}&id=${encodeURIComponent(current.id)}`);
+    // duracion del CATALOGO (igual en todos los dispositivos aunque uno suene otra subida del tema); si no, la del audio
+    const cat = String(current.duration || "").split(":").reduce((a, x) => a * 60 + (+x || 0), 0);
+    const dur = Math.round(cat || audio.duration || 0);
+    const qs = `title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}&id=${encodeURIComponent(current.id)}`;
+    let d = null;
+    // escritorio con Dispositivos: la letra la da el servidor (la misma que ve el movil, misma cache); si falla, la local
+    if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
+      try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) d = r; } catch (e) {}
+    }
+    if (!d) d = await jget("/lyrics?" + qs);
     if (d.error) throw new Error(d.error);
     if (LYR.for !== id) return;
     lyrBuild(d);
@@ -5420,7 +5437,7 @@ renderLibrary();
 (() => {
   const s = getRecents()[0];
   if (!s || !s.id) return;
-  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+  current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration };
   queue = [s]; qIndex = 0;
   paintPlayer(s); applyAccent(s.cover); refreshLikeUI();
 })();
@@ -5557,6 +5574,8 @@ function cxApply(r) {
   CX.remote = !!act; CX.activeName = act ? act.name : "";
   if (CX.remote) {
     if (!was && !audio.paused) { CX.remote = false; audio.pause(); CX.remote = true; }   // por si acaso: nunca dos sonando
+    const nw = performance.now();   // latencia: al entrar en modo remoto y cada minuto (la red cambia)
+    if (!was || !CX.latAt || nw - CX.latAt > 60000) { CX.latAt = nw; for (let k = 0; k < 3; k++) setTimeout(cxMeasureLat, k * 400); }
     cxMirror(r.state);
   } else if (was && !took) {
     // el otro se desconecto: al darle play aqui sigue la misma cancion donde iba

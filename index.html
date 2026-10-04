@@ -37,12 +37,12 @@
     transition: --accent .5s;
   }
 
-  #bg {
-    position: fixed; inset: 0; z-index: 0; background-size: cover; background-position: center;
-    filter: blur(90px) saturate(140%) brightness(.4); transform: scale(1.3);
-    opacity: 0; transition: opacity .6s, background-image .6s;
-  }
+  /* fondo difuminado de la portada: 2 canvas de 48 px pintados UNA vez y estirados por la GPU (antes un
+     blur CSS de 90 px a pantalla completa que se recalculaba en cada cambio); fundido entre los dos */
+  #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .6s; }
   #bg.on { opacity: .5; }
+  #bg canvas { position: absolute; left: -10%; top: -10%; width: 120%; height: 120%; opacity: 0; transition: opacity .6s; }
+  #bg canvas.on { opacity: 1; }
 
   /* vista artista: la foto ocupa TODA la ventana (tambien detras de la tarjeta del sidebar, que es glass) */
   #abg { position: fixed; inset: 0; z-index: 0; opacity: 0; transition: opacity .45s; pointer-events: none; }
@@ -565,6 +565,7 @@
                       z-index: -1; pointer-events: none; opacity: 0; transition: opacity .9s;
                       animation: lbgdrift 40s ease-in-out infinite alternate; will-change: transform; }
   #lyricsPanel .lbg.on { opacity: 1; }
+  #lyricsPanel .lbg.gl { left: 0; top: 0; width: 100%; height: 100%; animation: none; will-change: auto; }
   @keyframes lbgdrift { from { transform: scale(1.1) rotate(-6deg) translate3d(-4%, -3%, 0); }
                         to { transform: scale(1.35) rotate(10deg) translate3d(4%, 3%, 0); } }
   /* --sat/--sab: barras del sistema en la app movil a pantalla completa (0 en escritorio) */
@@ -822,6 +823,10 @@
               background-size: cover; background-position: center; filter: blur(7px) saturate(1.35) brightness(.7);
               opacity: 0; transition: opacity .5s ease; will-change: opacity, transform; backface-visibility: hidden; }
   .np-bgimg.on { opacity: 1; }
+  /* fondo fluido (WebGL): la portada difuminada se deforma lentamente; si hay WebGL sustituye a las capas */
+  .np-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity .6s; }
+  .np-gl.on { opacity: 1; }
+  .np-bg.gl .np-bgimg { display: none; }
   /* capas de GPU PERMANENTES en lo que se anima: al acabar una animacion el navegador quitaba la capa y
      re-rasterizaba (el blur del fondo es caro) -> un frame vacio = parpadeo al abrir y al cambiar de pista */
   #npv { will-change: clip-path, transform; }
@@ -1113,10 +1118,19 @@
     form, #player, .sidepanel, .tab, .back-fab, #ctxmenu { background: #14141b; backdrop-filter: none; -webkit-backdrop-filter: none; }
     #bg { display: none; }
   }
+  /* RENDIMIENTO movil: backdrop-filter encima de listas que hacen scroll obliga a re-difuminar lo de debajo en
+     cada frame (lo que mas tironea en Android). Fondos casi opacos (el mini player tintado con el color de la portada) */
+  @media (max-width: 820px) {
+    form, #player, .back-fab, #mUser, body[data-mv="lib"] #mAdd, #iosBack.on {
+      backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+    form { background: rgb(30 30 38 / .95); }
+    #player { background: color-mix(in srgb, var(--accent, #2a2a33) 16%, rgb(22 22 28 / .97)); }
+    #mUser, body[data-mv="lib"] #mAdd, #iosBack.on { background: rgb(24 24 30 / .94); }
+  }
 </style>
 </head>
 <body>
-<div id="bg"></div>
+<div id="bg"><canvas width="48" height="48"></canvas><canvas width="48" height="48"></canvas></div>
 <div id="abg"><div class="lo"></div><div class="hi"></div></div>
 
 <aside>
@@ -1384,7 +1398,7 @@
 </div>
 
 <div id="npv" hidden role="dialog" aria-label="Reproduciendo">
-  <div class="np-bg"><div class="np-bgimg"></div><div class="np-bgimg"></div></div>
+  <div class="np-bg"><div class="np-bgimg"></div><div class="np-bgimg"></div><canvas class="np-gl"></canvas></div>
   <div class="np-top np-fade">
     <button id="npClose" class="iconbtn" aria-label="Cerrar"><i class="ph ph-caret-down"></i></button>
     <div class="np-src" data-i18n>Reproduciendo</div>
@@ -1453,6 +1467,23 @@
 })();
 const $ = id => document.getElementById(id);
 const player = $("player"), bg = $("bg");
+// fondo general: la portada difuminada en un canvas de 48 px (sin filtro CSS); fundido entre los dos canvas
+function setBgCover(url) {
+  if (!url || bg._url === url) return;
+  bg._url = url;
+  const im = new Image();
+  im.onload = () => {
+    if (bg._url !== url) return;
+    const cs = bg.querySelectorAll("canvas"); bg._i = bg._i ? 0 : 1;
+    const sm = document.createElement("canvas"); sm.width = sm.height = 12;
+    const a = sm.getContext("2d"); a.filter = "saturate(1.4)"; a.drawImage(im, 0, 0, 12, 12);
+    const x = cs[bg._i].getContext("2d"); x.clearRect(0, 0, 48, 48); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.filter = "blur(2.5px)"; x.drawImage(sm, -6, -6, 60, 60); x.filter = "none";
+    x.fillStyle = "rgba(0, 0, 0, .6)"; x.fillRect(0, 0, 48, 48);
+    cs[bg._i].classList.add("on"); cs[1 - bg._i].classList.remove("on");
+  };
+  im.src = url;
+}
 
 /* ---------- i18n: clave = texto en español; el dict EN traduce. t(s) devuelve segun idioma ---------- */
 const EN = {
@@ -2529,7 +2560,7 @@ function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + fil
   const hero = document.createElement("div"); hero.className = "col-hero";
   hero.innerHTML = '<div class="cov"><img alt=""></div><div><div class="ct"></div><h1></h1><div class="cmeta"></div></div>';
   const seedCov = seed.ccover || seed.cover;
-  if (seedCov) { hero.querySelector("img").src = seedCov; bg.style.backgroundImage = `url("${seedCov}")`; bg.classList.add("on"); }
+  if (seedCov) { hero.querySelector("img").src = seedCov; setBgCover(seedCov); bg.classList.add("on"); }
   else hero.querySelector(".cov").classList.add("shimmer");
   hero.querySelector(".ct").textContent = seed.subtitle || (isAlb ? "Álbum" : "Playlist");
   hero.querySelector("h1").textContent = seed.title || "";
@@ -2699,7 +2730,7 @@ function renderCollection(d) {
   _ctxMeta.col = { kind: d.kind === "album" ? "album" : "playlist", id: _colId, title: d.title || "", cover: heroCover };
   if (heroCover) {
     hero.querySelector("img").src = heroCover;
-    bg.style.backgroundImage = `url("${heroCover}")`; bg.classList.add("on");   // fondo blur = caratula de la coleccion
+    setBgCover(heroCover); bg.classList.add("on");   // fondo blur = caratula de la coleccion
   }
   const covplayBtn = hero.querySelector(".covplay");
   hero.querySelector(".ct").innerHTML = expBadge(d) + esc(d.subtitle || (d.kind === "album" ? "Álbum" : "Playlist"));
@@ -3862,7 +3893,7 @@ function setCcover(id, url) {
     const c = url || hit.cover || PL_EMPTY_COVER;
     const img = document.querySelector("#collectionView .col-hero .cov img");
     if (img) img.src = c;
-    bg.style.backgroundImage = `url("${c}")`;
+    setBgCover(c);
   }
   toast(url ? t("Portada actualizada") : t("Portada personalizada quitada"));
 }
@@ -4751,6 +4782,97 @@ function lyrUnfree(back) {
   new ResizeObserver(remeasure).observe(body);
   addEventListener("resize", remeasure);
 })();
+/* ---------- fondo fluido (WebGL) ----------
+   La portada, ya difuminada en una textura de 64 px, se deforma con un campo de flujo lento (giro + ondas) y
+   se mezclan dos lecturas desfasadas: parece una malla de color viva, como Apple Music. Se dibuja a ~96 px de
+   ancho y la GPU lo estira (el contenido es borroso: no se nota), a 30 fps y solo mientras se ve. */
+const FLUID_VS = "attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}";
+const FLUID_FS = `precision mediump float;
+uniform sampler2D A,B;uniform float T,M,K,R;varying vec2 uv;
+vec2 w(vec2 q,float t,float s){vec2 p=q-.5;p.x*=R;p*=.6;
+ float a=.6*sin(t*.07+s)+.35*length(p)*sin(t*.11-s);float c=cos(a),n=sin(a);p=mat2(c,-n,n,c)*p;
+ p+=.075*vec2(sin(p.y*6.3+t*.29+s)+sin((p.x+p.y)*4.1-t*.21),cos(p.x*5.4-t*.25+s)+cos((p.x-p.y)*3.4+t*.19));
+ return p+.5;}
+vec3 f(sampler2D x,float t){return mix(texture2D(x,w(uv,t,0.)).rgb,texture2D(x,w(uv.yx,t*.83+31.,2.1)).rgb,.42);}
+void main(){vec3 c=mix(f(A,T),f(B,T),M);float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,1.45)*K;
+ gl_FragColor=vec4(c,1.);}`;
+class FluidBg {
+  constructor(cv, dim) {
+    this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;
+    let gl = null;
+    try { gl = cv.getContext("webgl", { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" }); } catch (e) {}
+    if (!gl) return;
+    const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return gl.getShaderParameter(o, gl.COMPILE_STATUS) ? o : null; };
+    const vs = sh(gl.VERTEX_SHADER, FLUID_VS), fs = sh(gl.FRAGMENT_SHADER, FLUID_FS);
+    if (!vs || !fs) return;
+    const pr = gl.createProgram(); gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+    gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    this.u = {}; ["A", "B", "T", "M", "K", "R"].forEach(k => this.u[k] = gl.getUniformLocation(pr, k));
+    gl.uniform1i(this.u.A, 0); gl.uniform1i(this.u.B, 1);
+    this.tex = [0, 1].map(() => {
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([12, 12, 16, 255]));
+      return t;
+    });
+    this.cur = 0; this.gl = gl; this.ok = true;
+    this.pre = document.createElement("canvas"); this.pre.width = this.pre.height = 64;
+    cv.addEventListener("webglcontextlost", e => { e.preventDefault(); this.ok = false; this.onlost && this.onlost(); });
+  }
+  set(url) {   // proxy /img: mismo origen (WebGL no acepta imagenes de otro dominio sin CORS)
+    if (!this.ok || !url || url === this.url) return;
+    this.url = url;
+    const im = new Image(); im.crossOrigin = "anonymous";
+    im.onload = () => { if (this.url === url && this.ok) this._upload(im); };
+    im.src = /^https?:/.test(url) ? "/img?u=" + encodeURIComponent(url) : url;
+  }
+  _upload(im) {
+    const sm = document.createElement("canvas"); sm.width = sm.height = 12;
+    const a = sm.getContext("2d"); a.filter = "saturate(1.6)"; a.drawImage(im, 0, 0, 12, 12);
+    const x = this.pre.getContext("2d"); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.clearRect(0, 0, 64, 64); x.filter = "blur(3px)"; x.drawImage(sm, -8, -8, 80, 80); x.filter = "none";
+    const gl = this.gl, nx = this.has ? 1 - this.cur : this.cur;
+    gl.activeTexture(gl.TEXTURE0 + nx); gl.bindTexture(gl.TEXTURE_2D, this.tex[nx]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.pre);
+    if (this.has) this.fade = performance.now();   // fundido con la anterior
+    this.has = true;
+    this.draw(performance.now(), true);
+    this.onready && this.onready();
+  }
+  draw(now, force) {
+    if (!this.ok || (!force && now - this.last < 32)) return;   // ~30 fps: el movimiento es lento
+    this.last = now;
+    const gl = this.gl, cv = this.cv;
+    const W = 96, H = Math.max(48, Math.min(256, Math.round(W * (cv.clientHeight || 2) / (cv.clientWidth || 1))));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; gl.viewport(0, 0, W, H); }
+    let m = 0;
+    if (this.fade >= 0) {
+      m = Math.min(1, (now - this.fade) / 900);
+      if (m >= 1) { this.cur = 1 - this.cur; this.fade = -1; m = 0; }
+    }
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex[this.cur]);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex[1 - this.cur]);
+    gl.uniform1f(this.u.T, now / 1000); gl.uniform1f(this.u.M, m * m * (3 - 2 * m));
+    gl.uniform1f(this.u.K, this.dim); gl.uniform1f(this.u.R, W / H);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  // alive(): seguir el bucle; visible(): dibujar este frame (tapado por otra vista = no gasta GPU)
+  run(alive, visible) {
+    if (!this.ok || this.raf) return;
+    const step = now => {
+      if (!this.ok || !alive() || document.hidden) { this.raf = 0; return; }
+      if (!visible || visible()) this.draw(now);
+      this.raf = requestAnimationFrame(step);
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+}
+let LYR_FLUID = null;
 function lyrHeader() {
   const c = current;
   $("ltit").textContent = c ? c.title : t("Letra");
@@ -4760,6 +4882,15 @@ function lyrHeader() {
   if (c && c.cover) { $("lthumb").src = c.cover; $("lcover").src = big; } else { $("lthumb").removeAttribute("src"); $("lcover").removeAttribute("src"); }
   const bg = $("lyricsPanel").querySelector(".lbg"), src = c && c.cover;
   if (!src) { bg.classList.remove("on"); return; }
+  if (LYR_FLUID === null) {   // primera vez: WebGL si se puede; si no, el canvas estatico de siempre
+    LYR_FLUID = new FluidBg(bg, .46);
+    if (LYR_FLUID.ok) { bg.classList.add("gl"); LYR_FLUID.onready = () => bg.classList.add("on"); LYR_FLUID.onlost = () => { bg.classList.remove("gl"); bg._url = null; }; }
+  }
+  if (LYR_FLUID.ok) {
+    LYR_FLUID.set(src);
+    LYR_FLUID.run(() => $("lyricsPanel").classList.contains("show"));
+    return;
+  }
   if (bg._url === src) return;
   bg._url = src;
   const im = new Image();   // el fondo aparece cuando la imagen ya esta decodificada (sin parpadeo)
@@ -4847,8 +4978,27 @@ function npPreload(u) {
 function npPrefetchNeighbors() {   // cover en alta (centro/peek) + la de baja (fondo difuminado) de las vecinas
   [qIndex + 1, qIndex - 1].forEach(i => { const q = queue[i]; if (q && q.cover) { npPreload(hiCover(q.cover)); npPreload(q.cover); } });
 }
+let NP_FLUID = null;
+function npFluid() {   // fondo fluido de la vista completa (si hay WebGL); null = capas difuminadas de siempre
+  if (NP_FLUID === null) {
+    const npb = npv.querySelector(".np-bg"), cv = npb.querySelector(".np-gl");
+    NP_FLUID = new FluidBg(cv, .8);
+    if (NP_FLUID.ok) {
+      npb.classList.add("gl"); NP_FLUID.onready = () => cv.classList.add("on");
+      NP_FLUID.onlost = () => { npb.classList.remove("gl"); npb._url = null; };
+    }
+  }
+  return NP_FLUID.ok ? NP_FLUID : null;
+}
+function npFluidRun() {
+  const f = npFluid();
+  // con la letra o la cola encima la vista queda tapada: el bucle sigue pero no dibuja
+  if (f) f.run(() => npOpen, () => !$("lyricsPanel").classList.contains("show") && !$("queue").classList.contains("show"));
+}
 function npPaintBg(url) {   // crossfade entre las dos capas del fondo
   const npb = npv.querySelector(".np-bg");
+  const fl = npFluid();
+  if (fl) { fl.set(url); if (npOpen) npFluidRun(); return; }
   if (!url || npb._url === url) return;
   npb._url = url;
   const pre = npPreload(url);
@@ -4936,6 +5086,7 @@ function openNp() {
   if (npOpen || !current || !_mqMobile.matches) return;
   npOpen = true; closeMenu();
   paintNp(current); npv.hidden = false; npv.style.transform = ""; document.body.classList.add("np-open");
+  npFluidRun();
   try { history.pushState({ t: "np" }, ""); } catch (e) {}   // boton/gesto atras de Android la cierra
   _npRun(false).then(() => {
     if (!npOpen) return;

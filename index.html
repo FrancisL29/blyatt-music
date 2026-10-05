@@ -4830,20 +4830,47 @@ function lyrUnfree(back) {
 /* ---------- fondo fluido (WebGL) ----------
    La portada, ya difuminada en una textura de 64 px, se deforma con un campo de flujo lento (giro + ondas) y
    se mezclan dos lecturas desfasadas: parece una malla de color viva, como Apple Music. Se dibuja a ~96 px de
-   ancho y la GPU lo estira (el contenido es borroso: no se nota), a 30 fps y solo mientras se ve. */
+   ancho y la GPU lo estira (el contenido es borroso: no se nota), a 30 fps y solo mientras se ve.
+   Las fases del movimiento (tiempo x velocidad) se calculan en JS en doble precision y se envian ya reducidas a
+   [0, 2pi): con el tiempo crudo, tras horas con la app abierta, la GPU del movil (mediump = 16 bits) perdia
+   precision y el fondo salia en franjas pixeladas. */
 const FLUID_VS = "attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}";
-const FLUID_FS = `precision mediump float;
-uniform sampler2D A,B;uniform float T,M,K,R;varying vec2 uv;
-vec2 w(vec2 q,float t,float s){vec2 p=q-.5;p.x*=R;p*=.6;
- float a=.6*sin(t*.07+s)+.35*length(p)*sin(t*.11-s);float c=cos(a),n=sin(a);p=mat2(c,-n,n,c)*p;
- p+=.075*vec2(sin(p.y*6.3+t*.29+s)+sin((p.x+p.y)*4.1-t*.21),cos(p.x*5.4-t*.25+s)+cos((p.x-p.y)*3.4+t*.19));
+const FLUID_FS = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform sampler2D A,B;uniform float M,K,R;uniform vec3 P0,P1,Q0,Q1;varying vec2 uv;
+vec2 w(vec2 q,vec3 a3,vec3 b3,float s){vec2 p=q-.5;p.x*=R;p*=.6;
+ float a=.6*sin(a3.x+s)+.35*length(p)*sin(a3.y-s);float c=cos(a),n=sin(a);p=mat2(c,-n,n,c)*p;
+ p+=.075*vec2(sin(p.y*6.3+a3.z+s)+sin((p.x+p.y)*4.1-b3.x),cos(p.x*5.4-b3.y+s)+cos((p.x-p.y)*3.4+b3.z));
  return p+.5;}
-vec3 f(sampler2D x,float t){return mix(texture2D(x,w(uv,t,0.)).rgb,texture2D(x,w(uv.yx,t*.83+31.,2.1)).rgb,.42);}
-void main(){vec3 c=mix(f(A,T),f(B,T),M);float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,1.45)*K;
+vec3 f(sampler2D x){return mix(texture2D(x,w(uv,P0,P1,0.)).rgb,texture2D(x,w(uv.yx,Q0,Q1,2.1)).rgb,.42);}
+void main(){vec3 c=mix(f(A),f(B),M);float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,1.45)*K;
  gl_FragColor=vec4(c,1.);}`;
+const FLUID_TAU = Math.PI * 2;
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;
+    this.pre = document.createElement("canvas"); this.pre.width = this.pre.height = 64;
+    this._init();
+    if (!this.ok) return;
+    // Android puede quitar el contexto de la GPU con la app en segundo plano: se espera a que lo devuelva y
+    // se reconstruye todo (programa, texturas, portada actual) sin recargar la pagina
+    cv.addEventListener("webglcontextlost", e => {
+      e.preventDefault(); this.ok = false; cancelAnimationFrame(this.raf); this.raf = 0; this.onlost && this.onlost();
+    });
+    cv.addEventListener("webglcontextrestored", () => {
+      this._init();
+      if (!this.ok) return;
+      const u = this.url; this.url = null; this.has = false; this.fade = -1; this.cur = 0;
+      this.onrestore && this.onrestore();
+      this.set(u);
+      if (this._alive) this.run(this._alive, this._vis);
+    });
+  }
+  _init() {
+    const cv = this.cv;
     let gl = null;
     try { gl = cv.getContext("webgl", { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" }); } catch (e) {}
     if (!gl) return;
@@ -4856,7 +4883,7 @@ class FluidBg {
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(pr, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    this.u = {}; ["A", "B", "T", "M", "K", "R"].forEach(k => this.u[k] = gl.getUniformLocation(pr, k));
+    this.u = {}; ["A", "B", "M", "K", "R", "P0", "P1", "Q0", "Q1"].forEach(k => this.u[k] = gl.getUniformLocation(pr, k));
     gl.uniform1i(this.u.A, 0); gl.uniform1i(this.u.B, 1);
     this.tex = [0, 1].map(() => {
       const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
@@ -4866,8 +4893,7 @@ class FluidBg {
       return t;
     });
     this.cur = 0; this.gl = gl; this.ok = true;
-    this.pre = document.createElement("canvas"); this.pre.width = this.pre.height = 64;
-    cv.addEventListener("webglcontextlost", e => { e.preventDefault(); this.ok = false; this.onlost && this.onlost(); });
+    this.W = this.H = 0;   // fuerza a fijar tamano y viewport en el primer dibujo
   }
   set(url) {   // proxy /img: mismo origen (WebGL no acepta imagenes de otro dominio sin CORS)
     if (!this.ok || !url || url === this.url) return;
@@ -4894,7 +4920,9 @@ class FluidBg {
     this.last = now;
     const gl = this.gl, cv = this.cv;
     const W = 96, H = Math.max(48, Math.min(256, Math.round(W * (cv.clientHeight || 2) / (cv.clientWidth || 1))));
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; gl.viewport(0, 0, W, H); }
+    if (this.W !== W || this.H !== H || cv.width !== W || cv.height !== H) {
+      this.W = cv.width = W; this.H = cv.height = H; gl.viewport(0, 0, W, H);
+    }
     let m = 0;
     if (this.fade >= 0) {
       m = Math.min(1, (now - this.fade) / 900);
@@ -4902,12 +4930,16 @@ class FluidBg {
     }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex[this.cur]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex[1 - this.cur]);
-    gl.uniform1f(this.u.T, now / 1000); gl.uniform1f(this.u.M, m * m * (3 - 2 * m));
+    const t = now / 1000, t2 = t * .83 + 31, ph = (x, k) => (x * k) % FLUID_TAU;
+    gl.uniform3f(this.u.P0, ph(t, .07), ph(t, .11), ph(t, .29)); gl.uniform3f(this.u.P1, ph(t, .21), ph(t, .25), ph(t, .19));
+    gl.uniform3f(this.u.Q0, ph(t2, .07), ph(t2, .11), ph(t2, .29)); gl.uniform3f(this.u.Q1, ph(t2, .21), ph(t2, .25), ph(t2, .19));
+    gl.uniform1f(this.u.M, m * m * (3 - 2 * m));
     gl.uniform1f(this.u.K, this.dim); gl.uniform1f(this.u.R, W / H);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   // alive(): seguir el bucle; visible(): dibujar este frame (tapado por otra vista = no gasta GPU)
   run(alive, visible) {
+    this._alive = alive; this._vis = visible;   // para reanudar al volver a primer plano o al recuperar la GPU
     if (!this.ok || this.raf) return;
     const step = now => {
       if (!this.ok || !alive() || document.hidden) { this.raf = 0; return; }
@@ -4918,6 +4950,11 @@ class FluidBg {
   }
 }
 let LYR_FLUID = null;
+// al volver a primer plano el bucle (que se para con la app oculta) se reanuda solo
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  [LYR_FLUID, NP_FLUID].forEach(f => { if (f && f.ok && f._alive) { f.draw(performance.now(), true); f.run(f._alive, f._vis); } });
+});
 function lyrHeader() {
   const c = current;
   $("ltit").textContent = c ? c.title : t("Letra");
@@ -4929,9 +4966,10 @@ function lyrHeader() {
   if (!src) { bg.classList.remove("on"); return; }
   if (LYR_FLUID === null) {   // primera vez: WebGL si se puede; si no, el canvas estatico de siempre
     LYR_FLUID = new FluidBg(bg, .46);
-    if (LYR_FLUID.ok) { bg.classList.add("gl"); LYR_FLUID.onready = () => bg.classList.add("on"); LYR_FLUID.onlost = () => { bg.classList.remove("gl"); bg._url = null; }; }
+    if (LYR_FLUID.ok) { bg.classList.add("gl"); LYR_FLUID.onready = () => bg.classList.add("on"); LYR_FLUID.onlost = () => bg.classList.remove("on"); }
   }
-  if (LYR_FLUID.ok) {
+  if (LYR_FLUID.ok || bg.classList.contains("gl")) {   // con la GPU perdida un momento: se repinta al recuperarla
+    LYR_FLUID.url = LYR_FLUID.ok ? LYR_FLUID.url : src;
     LYR_FLUID.set(src);
     LYR_FLUID.run(() => $("lyricsPanel").classList.contains("show"));
     return;
@@ -5048,7 +5086,8 @@ function npFluid() {   // fondo fluido de la vista completa (si hay WebGL); null
     NP_FLUID = new FluidBg(cv, .8);
     if (NP_FLUID.ok) {
       npb.classList.add("gl"); NP_FLUID.onready = () => cv.classList.add("on");
-      NP_FLUID.onlost = () => { npb.classList.remove("gl"); npb._url = null; };
+      NP_FLUID.onlost = () => { npb.classList.remove("gl"); npb._url = null; };   // mientras: capas difuminadas
+      NP_FLUID.onrestore = () => npb.classList.add("gl");
     }
   }
   return NP_FLUID.ok ? NP_FLUID : null;

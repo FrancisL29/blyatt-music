@@ -46,9 +46,9 @@ try {
     & $Python -m PyInstaller --noconfirm --clean --windowed --name Blyatt `
         --icon "$root\assets\blyatt.ico" `
         --distpath "$root\build\dist" --workpath "$root\build\work" --specpath "$root\build" `
-        --add-data "$root\index.html;." --add-data "$root\assets;assets" `
+        --add-data "$root\index.html;." --add-data "$root\kara.html;." --add-data "$root\assets;assets" `
         --add-data "$bin\ffmpeg.exe;bin" --add-data "$bin\node.exe;bin" `
-        --collect-data ytmusicapi --collect-all yt_dlp_ejs `
+        --collect-data ytmusicapi --collect-all yt_dlp_ejs --collect-binaries onnxruntime `
         --exclude-module tkinter `
         "$root\main.py"
     if ($LASTEXITCODE) { throw "PyInstaller fallo" }

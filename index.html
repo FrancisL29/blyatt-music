@@ -1128,6 +1128,185 @@
     #player { background: color-mix(in srgb, var(--accent, #2a2a33) 16%, rgb(22 22 28 / .97)); }
     #mUser, body[data-mv="lib"] #mAdd, #iosBack.on { background: rgb(24 24 30 / .94); }
   }
+
+  /* ---------- MODO KARAOKE (app de escritorio) ----------
+     Escenario a pantalla completa: el panel de letra (mismo motor) ocupa todo y encima va esta capa con el
+     cantante, la puntuacion, el carril de melodia y las pantallas de sala / presentacion / resultados. */
+  body.kara-on #lyricsPanel { left: 0; width: auto !important; z-index: 40; border-left: 0; box-shadow: none;
+                              transform: none; transition: none; }
+  body.kara-on #lyricsPanel .lhead, body.kara-on #lyricsPanel .resizer { display: none; }
+  body.kara-on .lmain { opacity: 0; transition: opacity .7s ease; }
+  body.kara-on.kara-sing .lmain { opacity: 1; }
+  body.kara-on .lside { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
+                        width: 36%; padding: 100px 2vw 210px 5vw; text-align: center; }
+  body.kara-on .lside img { width: min(24vw, 38vh, 400px); aspect-ratio: 1; border-radius: 16px; object-fit: cover;
+                            box-shadow: 0 30px 80px rgb(0 0 0 / .55); margin-bottom: 18px; }
+  body.kara-on .lside .lst { font-size: 1.35rem; font-weight: 800; max-width: 100%; }
+  body.kara-on .lside .lsa { color: rgb(255 255 255 / .62); font-weight: 600; }
+  body.kara-on #lbody { padding: 0 6vw 0 1vw; margin: 92px 0 200px; }
+  body.kara-on .lline { font-size: clamp(2rem, 2.5vw + .6rem, 3.3rem); cursor: default; }
+  body.kara-on .lline:not(.active):hover .lin { filter: blur(var(--bl, 0px)); --la: .3; --ld: .3; }
+  #kara { position: fixed; inset: 0; z-index: 41; color: #fff; user-select: none; font-variant-numeric: tabular-nums; }
+  #kara[hidden] { display: none; }
+  body.kara-sing #kara:not(.ctl) { cursor: none; }
+  .kav { width: 44px; height: 44px; border-radius: 50%; background: var(--c, #8e8e93); display: grid; place-items: center;
+         font-weight: 800; font-size: 1.05rem; color: #fff; flex: none; text-transform: uppercase;
+         box-shadow: 0 8px 22px rgb(0 0 0 / .35), inset 0 0 0 2px rgb(255 255 255 / .22); }
+  .kav.sm { width: 26px; height: 26px; font-size: .72rem; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .22); }
+  .kav.lg { width: 76px; height: 76px; font-size: 1.9rem; }
+  .kglass { background: rgb(255 255 255 / .07); border: 1px solid rgb(255 255 255 / .08);
+            backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); }
+  /* barra superior: cantante + puntuacion + como unirse */
+  .ktop { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 24px 36px;
+          opacity: 0; transform: translateY(-8px); transition: opacity .6s, transform .6s cubic-bezier(.22, .9, .25, 1); }
+  body.kara-sing .ktop, body.kara-int .ktop { opacity: 1; transform: none; }
+  .ksinger { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .ksn { font-weight: 800; font-size: 1.12rem; white-space: nowrap; }
+  .kss { font-size: .8rem; color: rgb(255 255 255 / .6); margin-top: 2px; }
+  .kscore { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  #kScore { font-size: 2.3rem; font-weight: 800; letter-spacing: -.02em; min-width: 4.2ch; text-align: right; }
+  .kscore small { display: block; font-size: .7rem; font-weight: 600; color: rgb(255 255 255 / .55); text-align: right;
+                  letter-spacing: .06em; text-transform: uppercase; }
+  .krate { padding: 6px 13px; border-radius: 999px; font-weight: 800; font-size: .92rem; background: var(--c, #fff);
+           color: #fff; opacity: 0; transform: scale(.7); box-shadow: 0 8px 26px rgb(0 0 0 / .3); }
+  .krate.pop { animation: kpop 1.7s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+  @keyframes kpop { 0% { opacity: 0; transform: scale(.6); } 14% { opacity: 1; transform: scale(1.08); }
+                    24%, 78% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.94); } }
+  .kmic { font-size: .78rem; font-weight: 700; padding: 6px 11px; border-radius: 999px; background: rgb(255 69 58 / .9);
+          border: 0; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .kmic[hidden] { display: none; }
+  .kjoin { display: flex; align-items: center; gap: 12px; padding: 7px 14px 7px 7px; border-radius: 16px; }
+  .kjoin .kqr { width: 56px; height: 56px; background: #fff; border-radius: 9px; padding: 5px; flex: none; }
+  .kjoin b { display: block; font-size: .85rem; }
+  .kjoin span { font-size: .78rem; color: rgb(255 255 255 / .62); }
+  .kqr svg, #kQr svg { width: 100%; height: 100%; display: block; }
+  /* carril de melodia + lo que viene */
+  #kPitch { position: absolute; left: 4vw; bottom: 66px; width: 92vw; height: 120px; opacity: 0; transition: opacity .6s; }
+  body.kara-sing #kPitch { opacity: 1; }
+  .knext { position: absolute; left: 4vw; right: 4vw; bottom: 24px; display: flex; gap: 22px; align-items: center;
+           font-size: .84rem; color: rgb(255 255 255 / .55); white-space: nowrap; overflow: hidden; opacity: 0; transition: opacity .6s; }
+  body.kara-sing .knext { opacity: 1; }
+  .knext b { color: rgb(255 255 255 / .85); font-weight: 700; }
+  .knext .ki { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .knext .ki img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; }
+  /* pantallas */
+  .kscreen { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden;
+             transition: opacity .55s ease, visibility .55s; }
+  .kscreen.on { opacity: 1; visibility: visible; }
+  .kscreen > div { transform: scale(.97); transition: transform .7s cubic-bezier(.22, .9, .25, 1); }
+  .kscreen.on > div { transform: none; }
+  #kLobby { background: radial-gradient(120% 90% at 20% 10%, #2a1740 0%, #0c0c14 55%), #0c0c14; }
+  #kLobby::before { content: ""; position: absolute; inset: -20%; background:
+      radial-gradient(40% 40% at 25% 30%, rgb(255 55 95 / .35), transparent 70%),
+      radial-gradient(35% 35% at 75% 65%, rgb(94 92 230 / .38), transparent 70%),
+      radial-gradient(30% 30% at 60% 20%, rgb(10 132 255 / .25), transparent 70%);
+      filter: blur(40px); animation: klobg 22s ease-in-out infinite alternate; }
+  @keyframes klobg { to { transform: rotate(14deg) scale(1.12) translate3d(3%, -2%, 0); } }
+  .klob { position: relative; display: flex; align-items: center; gap: 6vw; padding: 0 6vw; width: 100%; max-width: 1500px; }
+  .kqrcard { flex: none; width: min(34vh, 380px); aspect-ratio: 1; background: #fff; border-radius: 28px; padding: 22px;
+             box-shadow: 0 40px 90px rgb(0 0 0 / .5); }
+  .klobr { flex: 1; min-width: 0; }
+  .kh1 { font-size: clamp(2.6rem, 4.4vw, 4.6rem); font-weight: 800; letter-spacing: -.035em; line-height: 1; }
+  .kh2 { font-size: 1.15rem; color: rgb(255 255 255 / .66); margin-top: 12px; font-weight: 500; }
+  .kaddr { margin-top: 18px; font-size: 1.05rem; color: rgb(255 255 255 / .8); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .kaddr code { font: inherit; font-weight: 700; padding: 5px 12px; border-radius: 10px; background: rgb(255 255 255 / .1); }
+  .kaddr .kcode { letter-spacing: .14em; }
+  .ksec { margin: 34px 0 12px; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
+  .kplayers { display: flex; flex-wrap: wrap; gap: 12px; min-height: 44px; }
+  .kplayer { display: flex; align-items: center; gap: 9px; padding: 5px 14px 5px 5px; border-radius: 999px; font-weight: 700;
+             background: rgb(255 255 255 / .08); animation: kin .55s cubic-bezier(.2, 1.3, .4, 1); }
+  @keyframes kin { from { opacity: 0; transform: scale(.6); } }
+  .kempty { color: rgb(255 255 255 / .45); font-size: .95rem; }
+  .kq { display: flex; flex-direction: column; gap: 8px; }
+  .kqi { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; border-radius: 14px; background: rgb(255 255 255 / .06);
+         animation: kin .45s cubic-bezier(.2, 1.2, .4, 1); }
+  .kqi img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none; }
+  .kqi .kqm { flex: 1; min-width: 0; }
+  .kqi .kqt { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kqi .kqa { font-size: .82rem; color: rgb(255 255 255 / .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kqi .kqby { display: flex; align-items: center; gap: 7px; font-size: .85rem; font-weight: 600; flex: none; }
+  .kst { width: 22px; height: 22px; flex: none; }
+  .kst circle { fill: none; stroke-width: 3; }
+  .kst .bg { stroke: rgb(255 255 255 / .15); }
+  .kst .fg { stroke: #fff; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .5s; }
+  .kst.ok .fg { stroke: #30d158; }
+  .kst.err .fg { stroke: #ff453a; }
+  .keng { margin-top: 26px; font-size: .85rem; color: rgb(255 255 255 / .5); display: flex; align-items: center; gap: 8px; }
+  .keng i { font-size: 1rem; }
+  /* presentacion de la cancion */
+  .kin { display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 80vw; }
+  .kin img { width: min(36vh, 380px); aspect-ratio: 1; border-radius: 20px; object-fit: cover; box-shadow: 0 40px 100px rgb(0 0 0 / .6); }
+  .kint { font-size: clamp(2rem, 3.4vw, 3.4rem); font-weight: 800; letter-spacing: -.03em; margin-top: 30px; line-height: 1.05; }
+  .kina { font-size: 1.25rem; color: rgb(255 255 255 / .66); font-weight: 600; margin-top: 8px; }
+  .kinby { display: flex; align-items: center; gap: 12px; margin-top: 26px; padding: 8px 18px 8px 8px; border-radius: 999px; font-size: 1.15rem; font-weight: 700; }
+  .kinby span { color: rgb(255 255 255 / .6); font-weight: 500; }
+  .kinst { margin-top: 26px; height: 64px; display: flex; align-items: center; gap: 14px; font-size: 1rem; color: rgb(255 255 255 / .7); }
+  .kring { width: 64px; height: 64px; position: relative; display: grid; place-items: center; font-size: 1.7rem; font-weight: 800; }
+  .kring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .kring circle { fill: none; stroke-width: 4; }
+  .kring .bg { stroke: rgb(255 255 255 / .15); }
+  .kring .fg { stroke: #fff; stroke-linecap: round; stroke-dasharray: 176; transition: stroke-dashoffset .4s; }
+  .kring.spin svg { animation: kspin 1.1s linear infinite; }
+  @keyframes kspin { to { transform: rotate(270deg); } }
+  #kInNum.tick { animation: ktick .9s cubic-bezier(.2, 1.3, .4, 1); }
+  @keyframes ktick { from { transform: scale(1.6); opacity: 0; } 40% { opacity: 1; } }
+  /* resultados */
+  .kres { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: min(560px, 90vw); }
+  .kresby { display: flex; align-items: center; gap: 14px; font-size: 1.4rem; font-weight: 800; }
+  .kresn { font-size: clamp(5rem, 11vw, 9rem); font-weight: 800; letter-spacing: -.05em; line-height: 1; margin-top: 18px;
+           background: linear-gradient(180deg, #fff, rgb(255 255 255 / .72)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .kstars { display: flex; gap: 10px; margin-top: 12px; font-size: 2.1rem; }
+  .kstars i { color: rgb(255 255 255 / .18); transition: color .3s, transform .5s cubic-bezier(.2, 1.6, .4, 1); transform: scale(.6); }
+  .kstars i.on { color: #ffd60a; transform: none; text-shadow: 0 0 22px rgb(255 214 10 / .55); }
+  .kresm { font-size: 1.35rem; font-weight: 700; margin-top: 12px; min-height: 1.6em; }
+  .kboard { margin-top: 30px; width: min(560px, 90vw); display: flex; flex-direction: column; gap: 8px; }
+  .kbr { display: flex; align-items: center; gap: 12px; padding: 9px 16px 9px 10px; border-radius: 16px; background: rgb(255 255 255 / .06);
+         text-align: left; transition: background .4s; }
+  .kbr.me { background: rgb(255 255 255 / .16); }
+  .kbr .kbn { width: 1.6em; font-weight: 800; color: rgb(255 255 255 / .55); text-align: center; }
+  .kbr .kbname { flex: 1; font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kbr .kbs { font-weight: 800; }
+  .kbr .kbx { font-size: .78rem; color: rgb(255 255 255 / .5); margin-left: 6px; font-weight: 600; }
+  .kresnext { margin-top: 26px; font-size: .95rem; color: rgb(255 255 255 / .6); }
+  .kbar { width: 200px; height: 4px; border-radius: 4px; background: rgb(255 255 255 / .14); margin-top: 12px; overflow: hidden; }
+  .kbar i { display: block; height: 100%; width: 0; background: #fff; border-radius: 4px; }
+  /* pausa, cargando, controles, ajustes, reacciones */
+  .kpz { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 1.5rem; font-weight: 800; }
+  .kpz > i { font-size: 4.4rem; }
+  #kPause { background: rgb(0 0 0 / .45); }
+  .kstall { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px;
+            font-size: .88rem; font-weight: 700; display: flex; gap: 8px; align-items: center; opacity: 0; transition: opacity .3s; }
+  .kstall.on { opacity: 1; }
+  .kstall i { animation: kspin2 1s linear infinite; }
+  @keyframes kspin2 { to { transform: rotate(360deg); } }
+  .kctl { position: absolute; left: 50%; bottom: 196px; transform: translate(-50%, 10px); display: flex; gap: 6px; padding: 7px;
+          border-radius: 999px; opacity: 0; transition: opacity .35s, transform .35s; }
+  #kara.ctl .kctl, .kctl:hover { opacity: 1; transform: translate(-50%, 0); }
+  body:not(.kara-sing):not(.kara-int) .kctl #kPlay { display: none; }
+  .kctl button { width: 48px; height: 48px; border-radius: 50%; border: 0; background: none; color: #fff; font-size: 1.35rem;
+                 cursor: pointer; display: grid; place-items: center; transition: background .2s; }
+  .kctl button:hover { background: rgb(255 255 255 / .14); }
+  .klobx { position: absolute; top: 22px; right: 26px; display: flex; gap: 8px; }
+  .klobx[hidden] { display: none; }
+  .klobx button { width: 44px; height: 44px; border-radius: 50%; border: 0; color: #fff; font-size: 1.2rem; cursor: pointer;
+                  display: grid; place-items: center; }
+  .kset { position: absolute; right: 26px; top: 76px; width: 320px; padding: 18px; border-radius: 20px; display: flex;
+          flex-direction: column; gap: 14px; background: rgb(28 28 34 / .82); }
+  .kset[hidden] { display: none; }
+  .kset label { display: flex; flex-direction: column; gap: 8px; font-size: .82rem; font-weight: 700; color: rgb(255 255 255 / .7); }
+  .kset select { background: rgb(255 255 255 / .1); color: #fff; border: 0; border-radius: 10px; padding: 9px 10px; font: inherit; }
+  .kset select option { background: #222; }
+  .kset input[type=range] { accent-color: #fff; }
+  .kset .kms { font-size: .78rem; color: rgb(255 255 255 / .55); font-weight: 500; }
+  .kset .kmeter { height: 6px; border-radius: 6px; background: rgb(255 255 255 / .12); overflow: hidden; }
+  .kset .kmeter i { display: block; height: 100%; width: 0; background: #30d158; transition: width .08s; }
+  #kReacts { position: absolute; inset: 0; overflow: hidden; }
+  .kre { position: absolute; bottom: 150px; font-size: 46px; animation: krise 3.4s cubic-bezier(.2, .7, .3, 1) forwards;
+         filter: drop-shadow(0 6px 14px rgb(0 0 0 / .35)); }
+  .kre small { display: block; font-size: 12px; font-weight: 700; text-align: center; color: #fff; opacity: .8; }
+  @keyframes krise { 0% { transform: translateY(30px) scale(.4); opacity: 0; } 12% { transform: translateY(0) scale(1.15); opacity: 1; }
+                     70% { opacity: 1; } 100% { transform: translateY(-46vh) translateX(var(--dx, 0)) scale(.9); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #kLobby::before, .kre { animation: none; } }
 </style>
 </head>
 <body>
@@ -1142,6 +1321,7 @@
   <nav>
     <button class="nav-item active" data-view="home"><i class="ph ph-house"></i> <span data-i18n>Inicio</span></button>
     <button class="nav-item" data-view="buscar"><i class="ph ph-magnifying-glass"></i> <span data-i18n>Buscar</span></button>
+    <button class="nav-item" id="karaNav" hidden><i class="ph ph-microphone-stage"></i> <span data-i18n>Karaoke</span></button>
   </nav>
   <div class="lib-head"><i class="ph ph-books"></i> <span data-i18n>Biblioteca</span>
     <button class="libadd" id="plNew" aria-label="Nueva playlist" title="Nueva playlist"><i class="ph ph-plus"></i></button>
@@ -1219,6 +1399,64 @@
   </div>
 </div>
 
+
+<div id="kara" hidden>
+  <div id="kLobby" class="kscreen">
+    <div class="klob">
+      <div class="kqrcard"><div id="kQr"></div></div>
+      <div class="klobr">
+        <div class="kh1" data-i18n>Karaoke</div>
+        <div class="kh2" data-i18n>Escanea el código con el móvil para unirte y elegir canciones.</div>
+        <div class="kaddr"><span data-i18n>O abre</span> <code id="kUrl"></code> <span data-i18n>con el código</span> <code class="kcode" id="kCode"></code></div>
+        <div class="ksec" data-i18n>Jugadores</div><div id="kPlayers" class="kplayers"></div>
+        <div class="ksec" data-i18n>En cola</div><div id="kLobQ" class="kq"></div>
+        <div id="kEng" class="keng"></div>
+      </div>
+    </div>
+  </div>
+  <div id="kIntro" class="kscreen"><div class="kin">
+    <img id="kInCov" alt="">
+    <div class="kint" id="kInT"></div><div class="kina" id="kInA"></div>
+    <div class="kinby kglass" id="kInBy"></div>
+    <div class="kinst"><div class="kring" id="kRing"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="28"/><circle class="fg" id="kRingFg" cx="32" cy="32" r="28"/></svg><span id="kInNum"></span></div><span id="kInSt"></span></div>
+  </div></div>
+  <div id="kRes" class="kscreen"><div class="kres">
+    <div class="kresby" id="kResBy"></div>
+    <div class="kresn" id="kResN">0</div>
+    <div class="kstars" id="kStars"></div>
+    <div class="kresm" id="kResM"></div>
+    <div class="kboard" id="kBoard"></div>
+    <div class="kresnext" id="kResNext"></div><div class="kbar"><i id="kResBar"></i></div>
+  </div></div>
+  <div class="ktop">
+    <div class="ksinger" id="kSinger"></div>
+    <div class="kscore">
+      <span class="krate" id="kRate"></span>
+      <button class="kmic" id="kMicWarn" hidden><i class="ph ph-microphone-slash"></i><span></span></button>
+      <div><small data-i18n>Puntos</small><span id="kScore">0</span></div>
+    </div>
+    <div class="kjoin kglass"><div class="kqr" id="kQrMini"></div><div><b data-i18n>Únete</b><span id="kUrlMini"></span></div></div>
+  </div>
+  <canvas id="kPitch"></canvas>
+  <div class="knext" id="kNext"></div>
+  <div id="kPause" class="kscreen"><div class="kpz"><i class="ph-fill ph-pause-circle"></i><div data-i18n>En pausa</div><div class="kh2" data-i18n>Pulsa Espacio para continuar</div></div></div>
+  <div class="kstall kglass" id="kStall"><i class="ph ph-circle-notch"></i><span data-i18n>Preparando la pista…</span></div>
+  <div id="kReacts"></div>
+  <div class="kctl kglass" id="kCtl">
+    <button id="kPlay" title="Pausa (Espacio)"><i class="ph-fill ph-pause"></i></button>
+    <button id="kSkip" title="Saltar (→)"><i class="ph-fill ph-skip-forward"></i></button>
+    <button id="kSetBtn" title="Ajustes"><i class="ph ph-sliders-horizontal"></i></button>
+    <button id="kExit" title="Salir del karaoke (Esc)"><i class="ph ph-x"></i></button>
+  </div>
+  <div class="klobx" id="kLobX"><button class="kglass" id="kSetBtn2" title="Ajustes"><i class="ph ph-sliders-horizontal"></i></button><button class="kglass" id="kExit2" title="Salir del karaoke"><i class="ph ph-x"></i></button></div>
+  <div class="kset kglass" id="kSet" hidden>
+    <label><span data-i18n>Micrófono</span><select id="kMicSel"></select></label>
+    <div class="kmeter"><i id="kMeter"></i></div>
+    <div class="kms" id="kMicSt"></div>
+    <label><span data-i18n>Voz guía</span><input type="range" id="kGuide" min="0" max="100" step="1"></label>
+    <div class="kms" data-i18n>Con la voz guía alta el micrófono también la oye: mejor bajita.</div>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="ctxmenu"></div>
 <div id="ctxsub"></div>
@@ -1503,6 +1741,26 @@ const EN = {
   "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen", "Compuesta por": "Written by",
   "Modo karaoke: voz quitada": "Karaoke mode: vocals removed", "Voz restaurada": "Vocals restored",
   "El modo karaoke se activa en el dispositivo que está sonando": "Karaoke mode is turned on in the device that is playing",
+  "Karaoke": "Karaoke", "Escanea el código con el móvil para unirte y elegir canciones.": "Scan the code with your phone to join and pick songs.",
+  "O abre": "Or open", "con el código": "with the code", "Jugadores": "Players", "Puntos": "Points", "Únete": "Join",
+  "Pulsa Espacio para continuar": "Press Space to continue", "Voz guía": "Guide vocals",
+  "Con la voz guía alta el micrófono también la oye: mejor bajita.": "With loud guide vocals the mic hears them too: keep it low.",
+  "Predeterminado del sistema": "System default", "Micrófono": "Microphone", "Micrófono bloqueado": "Microphone blocked",
+  "Sin micrófono": "No microphone", "Puntuación activada: canta cerca del micrófono.": "Scoring on: sing close to the microphone.",
+  "Permite el micrófono para puntuar (se puede cantar igual).": "Allow the microphone to get scored (you can sing anyway).",
+  "No se encontró ningún micrófono: se canta sin puntuación.": "No microphone found: singing without a score.",
+  "¡Perfecto!": "Perfect!", "¡Genial!": "Great!", "¡Bien!": "Good!", "canta": "sings", "Preparando la pista…": "Preparing the track…",
+  "No se pudo continuar": "Could not continue", "No se pudo preparar": "Could not prepare",
+  "Descargando el motor de voz (solo la primera vez)": "Downloading the vocal engine (first time only)",
+  "Cargando el motor de voz…": "Loading the vocal engine…", "Descargando la canción…": "Downloading the song…",
+  "Quitando la voz…": "Removing vocals…", "¡Prepárate!": "Get ready!", "¡Gracias por cantar!": "Thanks for singing!",
+  "¡Leyenda!": "Legendary!", "¡Increíble!": "Amazing!", "¡Muy bien!": "Very good!", "¡Bien hecho!": "Well done!",
+  "¡Buen intento!": "Nice try!", "A continuación": "Up next", "Elige otra canción desde el móvil": "Pick another song from your phone",
+  "canción": "song", "canciones": "songs", "Aún no se ha unido nadie": "Nobody has joined yet",
+  "La cola está vacía: elige canciones desde el móvil": "The queue is empty: pick songs from your phone",
+  "Motor de voz listo": "Vocal engine ready", "El motor de voz no está disponible": "The vocal engine is not available",
+  "Preparando el motor de voz…": "Preparing the vocal engine…", "No se pudo abrir el karaoke": "Could not open the karaoke",
+  "Pulsa otra vez para salir del karaoke": "Press again to leave the karaoke",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
@@ -4583,7 +4841,7 @@ $("addpl").onclick = (e) => {
 /* ---------- letra estilo Apple Music (/lyrics: palabra a palabra real o estimada) ----------
    items = lineas + interludios ordenados por inicio; solo la linea activa se actualiza en cada frame. */
 const LYR = { items: [], ai: -1, tops: [], off: 0, free: false, freeT: 0, raf: 0, for: null, isStatic: false,
-              vel: 0, paused: null };
+              vel: 0, paused: null, clock: null };
 let lyricsFor = null;   // compat: el cambio de cancion pone null para recargar
 const _lsyl = w => Math.max(1, (w.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[aeiouy]+/g) || []).length);
 // letra solo por linea: reparte el tiempo entre palabras segun sus silabas al ritmo de canto de ESTA cancion
@@ -4626,7 +4884,7 @@ function lyrBuild(d) {
     lines.forEach(l => { const el = document.createElement("div"); el.className = "lline plain"; el.textContent = l.text || " "; body.appendChild(el); });
     return;
   }
-  const total = (audio.duration || 0) * 1000 || (lines[lines.length - 1].time + 5000);
+  const total = ((LYR.clock ? LYR.clock.dur() : audio.duration) || 0) * 1000 || (lines[lines.length - 1].time + 5000);
   if (d.type !== "Word" || lines.some(l => !(l.syllabus && l.syllabus.length))) lyrSynth(lines.filter(l => !(l.syllabus && l.syllabus.length)), total);
   const gap = (start, end) => {   // interludio con puntos (como Apple) si hay > 4.5 s sin cantar
     if (end - start < 4500) return;
@@ -4667,7 +4925,7 @@ function lyrBuild(d) {
     }
     const start = Math.min(l.time, ...words.map(w => w.s)),
           end = words.length ? Math.max(start + 400, ...words.map(w => w.e)) : start + (l.duration || 2000);
-    el.onclick = () => { lyrUnfree(false); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
+    el.onclick = () => { if (LYR.clock) return; lyrUnfree(false); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
     body.appendChild(el);
     LYR.items.push({ kind: "line", start, end, el, words });
     const next = lines[i + 1];
@@ -4734,8 +4992,10 @@ function lyrSetActive(i) {
 }
 function tickLyrics() {
   if (!LYR.items.length) return;
-  if (audio.paused !== LYR.paused) { LYR.paused = audio.paused; $("lyricsPanel").classList.toggle("lyr-paused", LYR.paused); }
-  const t = audio.currentTime * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
+  const ck = LYR.clock;   // karaoke: otro reloj (su propio reproductor); si no, el de la musica
+  const paused = ck ? ck.paused() : audio.paused;
+  if (paused !== LYR.paused) { LYR.paused = paused; $("lyricsPanel").classList.toggle("lyr-paused", LYR.paused); }
+  const t = (ck ? ck.time() : audio.currentTime) * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
   let i = LYR.ai;
   if (i < 0 || t < LYR.items[i].start) {   // salto atras/seek: busqueda binaria
     let lo = 0, hi = LYR.items.length - 1; i = -1;
@@ -4956,13 +5216,17 @@ document.addEventListener("visibilitychange", () => {
   [LYR_FLUID, NP_FLUID].forEach(f => { if (f && f.ok && f._alive) { f.draw(performance.now(), true); f.run(f._alive, f._vis); } });
 });
 function lyrHeader() {
+  if (LYR.clock) return;   // modo karaoke: la cabecera y el fondo los pone el karaoke
   const c = current;
   $("ltit").textContent = c ? c.title : t("Letra");
   $("lsong").textContent = c ? c.artist : "";
   $("lsideT").textContent = c ? c.title : ""; $("lsideA").textContent = c ? c.artist : "";
   const big = c && c.cover ? hiCover(c.cover) : "";
   if (c && c.cover) { $("lthumb").src = c.cover; $("lcover").src = big; } else { $("lthumb").removeAttribute("src"); $("lcover").removeAttribute("src"); }
-  const bg = $("lyricsPanel").querySelector(".lbg"), src = c && c.cover;
+  lyrBg(c && c.cover);
+}
+function lyrBg(src) {
+  const bg = $("lyricsPanel").querySelector(".lbg");
   if (!src) { bg.classList.remove("on"); return; }
   if (LYR_FLUID === null) {   // primera vez: WebGL si se puede; si no, el canvas estatico de siempre
     LYR_FLUID = new FluidBg(bg, .46);
@@ -4991,6 +5255,7 @@ function lyrPaintBg(cv, im) {
   x.fillStyle = "rgba(0, 0, 0, .56)"; x.fillRect(0, 0, 48, 48);
 }
 async function loadLyrics() {
+  if (LYR.clock) return;   // modo karaoke: la letra es la de la cancion del karaoke
   lyrHeader();
   if (!current) { lyrBuild({ lines: [] }); $("lbody").innerHTML = '<div class="lempty">' + esc(t("Reproduce una canción para ver su letra.")) + "</div>"; return; }
   if (lyricsFor === current.id && LYR.for === current.id) { startLyricLoop(); return; }
@@ -5767,6 +6032,667 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
   eng.onState = () => { _ost(); _mcPush(); };
   setInterval(() => { if (current && !audio.paused) _mcPush(); }, 10000);   // corrige drift del seekbar
   if (current) _mcPush();   // arranque: la ultima cancion restaurada ya aparece en la notificacion
+}
+/* ====================== MODO KARAOKE (app de escritorio) ======================
+   El PC es el escenario: QR para que los moviles de la red se unan, cola, letra palabra a palabra (el mismo
+   motor de la letra, con el reloj de este reproductor), carril de melodia con la voz del cantante en directo
+   y puntuacion. El audio llega en trozos PCM ya separados (sin voz) mientras el servidor los procesa: cada
+   trozo se programa sin huecos en un AudioContext propio a 44.1 kHz (sin remuestreo por trozo = sin costuras).
+   Puntuacion: la melodia de la voz original (servidor, 50 por segundo) contra la del micro (YIN aqui), sin
+   importar la octava (cada cual canta en su registro), con tolerancia de tiempo para la latencia. */
+const KARA_OK = !IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const K_STEP = 251904, K_SR = 44100, K_FR = .02;
+const KS = { on: false, st: null, v: -1, phase: "off", now: null, info: null, pitchRaw: [], ref: null, notes: [],
+             lo: 55, hi: 75, voiced: 0, ev: 0, pts: 0, fp: null, lit: null, sing: [], lat: .06, outLat: .03,
+             shown: 0, reactSeen: -1, introAt: 0, countAt: 0, resAt: 0, liveAt: 0, rating: "", lineAi: -1,
+             pend: [], rate: [], escAt: 0, prevShow: false, qrDone: false, infoGen: 0 };
+const kSet = (() => {
+  const d = { mic: "", guide: 0 };
+  try { return Object.assign(d, JSON.parse(localStorage.getItem("lightning.kara") || "{}")); } catch (e) { return d; }
+})();
+function kSave() { try { localStorage.setItem("lightning.kara", JSON.stringify(kSet)); } catch (e) {} }
+const kpost = (u, d) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d || {}) }).then(r => r.json());
+const kWait = ms => new Promise(r => setTimeout(r, ms));
+const kPl = id => (KS.st && KS.st.players.find(p => p.id === id)) || { name: t("Invitado"), color: "#8e8e93", id: "" };
+const kAv = (p, cls) => `<span class="kav ${cls || ""}" style="--c:${esc(p.color)}">${esc(Array.from(p.name || "?")[0] || "?")}</span>`;
+const kNum = n => Math.round(n).toLocaleString(lang === "en" ? "en-US" : "es-ES");
+
+/* ---------- reproductor por trozos ---------- */
+const KP = { ctx: null, inst: null, guide: null, vid: null, fetched: 0, sched: 0, t0: 0, bufs: new Map(), srcs: [],
+             started: false, stalled: false, paused: false, fetching: false, gen: 0 };
+function kpCtx() {
+  if (!KP.ctx) {
+    KP.ctx = new AudioContext({ sampleRate: K_SR });
+    KP.inst = KP.ctx.createGain(); KP.inst.connect(KP.ctx.destination);
+    KP.guide = KP.ctx.createGain(); KP.guide.connect(KP.ctx.destination);
+  }
+  KP.guide.gain.value = kSet.guide / 100;
+  return KP.ctx;
+}
+function kpReset() {
+  KP.gen++;
+  KP.srcs.forEach(s => { try { s.stop(); } catch (e) {} });
+  KP.srcs = []; KP.bufs.clear();
+  Object.assign(KP, { vid: null, fetched: 0, sched: 0, started: false, stalled: false, paused: false, fetching: false });
+  if (KP.ctx) { KP.inst.gain.cancelScheduledValues(0); KP.inst.gain.value = 1; if (KP.ctx.state === "suspended") KP.ctx.resume(); }
+}
+async function kpFetch() {   // trozos listos con poco adelanto (lo ya sonado se libera)
+  if (KP.fetching || !KP.vid || !KS.info) return;
+  KP.fetching = true;
+  const g = KP.gen;
+  try {
+    while (g === KP.gen && KP.fetched < KS.info.chunks && KP.fetched < KP.sched + 3) {
+      const n = KP.fetched;
+      const r = await fetch(`/kara/pcm?id=${KP.vid}&n=${n}`);
+      if (!r.ok) break;
+      const ab = await r.arrayBuffer();
+      if (g !== KP.gen) return;
+      const pcm = new Int16Array(ab), len = pcm.length / 3, ctx = KP.ctx;
+      const ib = ctx.createBuffer(2, len, K_SR), vb = ctx.createBuffer(1, len, K_SR);
+      const L = ib.getChannelData(0), R = ib.getChannelData(1), V = vb.getChannelData(0), k = 1 / 32767;
+      for (let i = 0; i < len; i++) { L[i] = pcm[i] * k; R[i] = pcm[len + i] * k; V[i] = pcm[2 * len + i] * k; }
+      KP.bufs.set(n, [ib, vb]);
+      KP.fetched++;
+      if (KP.started) kpSchedule();
+    }
+  } catch (e) {} finally { if (g === KP.gen) KP.fetching = false; }
+}
+function kpSchedule() {   // programa lo descargado hasta ~25 s por delante
+  if (!KP.started) return;
+  const ctx = KP.ctx;
+  while (KP.bufs.has(KP.sched) && KP.sched * K_STEP / K_SR - kpPos() < 25) {
+    const [ib, vb] = KP.bufs.get(KP.sched);
+    KP.bufs.delete(KP.sched);
+    const when = KP.t0 + KP.sched * K_STEP / K_SR, late = Math.max(0, ctx.currentTime - when);
+    [[ib, KP.inst], [vb, KP.guide]].forEach(([b, dst]) => {
+      if (late >= b.duration) return;
+      const s = ctx.createBufferSource(); s.buffer = b; s.connect(dst);
+      s.start(when + late, late);
+      s.onended = () => { const i = KP.srcs.indexOf(s); if (i >= 0) KP.srcs.splice(i, 1); };
+      KP.srcs.push(s);
+    });
+    KP.sched++;
+  }
+  if (KP.stalled && (kpAhead() > 1.5 || KP.sched >= KS.info.nch)) { KP.stalled = false; if (!KP.paused) ctx.resume(); kStall(false); }
+  kpFetch();
+}
+const kpPos = () => KP.started ? Math.max(0, KP.ctx.currentTime - KP.t0) : 0;
+const kpAhead = () => KP.sched * K_STEP / K_SR - kpPos();   // segundos ya programados por delante
+function kpStart() {
+  const ctx = kpCtx();
+  ctx.resume();
+  KP.t0 = ctx.currentTime + .12; KP.started = true;
+  KS.outLat = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
+  KS.lat = KS.outLat + .045;   // + media ventana del analisis del micro y su latencia de entrada
+  kpSchedule();
+}
+function kpPause(p) {
+  if (!KP.started) return;
+  KP.paused = p;
+  if (p) KP.ctx.suspend(); else if (!KP.stalled) KP.ctx.resume();
+}
+
+/* ---------- micro: altura en directo (YIN sobre la senal a la mitad de muestras) ---------- */
+const KM = { ctx: null, an: null, stream: null, raw: null, x: null, d: null, sr2: 0, tmin: 0, tmax: 0, floor: .01,
+             on: false, err: "", last: 0, rms: 0 };
+async function kMic() {
+  kMicStop();
+  try {
+    KM.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      deviceId: kSet.mic ? { exact: kSet.mic } : undefined,
+      echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    if (kSet.mic) { kSet.mic = ""; kSave(); return kMic(); }   // el micro elegido ya no esta: el predeterminado
+    KM.on = false; KM.err = e && e.name === "NotAllowedError" ? "denied" : "none";
+    kPaintMic(); return;
+  }
+  if (!KM.ctx) KM.ctx = new AudioContext();
+  KM.ctx.resume();
+  KM.an = KM.ctx.createAnalyser(); KM.an.fftSize = 2048;
+  KM.ctx.createMediaStreamSource(KM.stream).connect(KM.an);
+  KM.raw = new Float32Array(2048); KM.x = new Float32Array(1024);
+  KM.sr2 = KM.ctx.sampleRate / 2;
+  KM.tmin = Math.floor(KM.sr2 / 1050); KM.tmax = Math.min(420, Math.ceil(KM.sr2 / 75));
+  KM.d = new Float32Array(KM.tmax + 2);
+  KM.on = true; KM.err = ""; KM.floor = .01;
+  kPaintMic(); kMicList();
+}
+function kMicStop() { if (KM.stream) KM.stream.getTracks().forEach(tr => tr.stop()); KM.stream = null; KM.on = false; }
+function kYin() {
+  KM.an.getFloatTimeDomainData(KM.raw);
+  const r = KM.raw, x = KM.x, n = x.length;
+  let e = 0;
+  for (let i = 0; i < n; i++) { const v = (r[2 * i] + r[2 * i + 1]) * .5; x[i] = v; e += v * v; }
+  const rms = Math.sqrt(e / n);
+  KM.rms = rms;
+  KM.floor = Math.min(KM.floor * 1.003 + 1e-5, Math.max(rms, .0015));   // suelo de ruido: baja al instante, sube despacio
+  if (rms < Math.max(.006, KM.floor * 2.4)) return 0;
+  const tmax = KM.tmax, W = n - tmax, d = KM.d;
+  for (let tau = 1; tau <= tmax; tau++) {
+    let sum = 0;
+    for (let j = 0; j < W; j++) { const q = x[j] - x[j + tau]; sum += q * q; }
+    d[tau] = sum;
+  }
+  let run = 0;
+  for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
+  let tau = -1;
+  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .15) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  if (tau < 0) {
+    let b = KM.tmin;
+    for (let k = KM.tmin; k < tmax; k++) if (d[k] < d[b]) b = k;
+    if (d[b] < .3) tau = b; else return 0;
+  }
+  const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
+  const f = KM.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
+  return f > 70 && f < 1100 ? 69 + 12 * Math.log2(f / 440) : 0;
+}
+async function kMicList() {
+  const sel = $("kMicSel");
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+    sel.innerHTML = `<option value="">${esc(t("Predeterminado del sistema"))}</option>` +
+      devs.filter(d => d.deviceId && d.deviceId !== "default").map(d => `<option value="${esc(d.deviceId)}">${esc(d.label || t("Micrófono"))}</option>`).join("");
+    sel.value = kSet.mic;
+  } catch (e) {}
+}
+function kPaintMic() {
+  const w = $("kMicWarn");
+  w.hidden = KM.on;
+  w.lastElementChild.textContent = t(KM.err === "denied" ? "Micrófono bloqueado" : "Sin micrófono");
+  $("kMicSt").textContent = KM.on ? t("Puntuación activada: canta cerca del micrófono.")
+    : t(KM.err === "denied" ? "Permite el micrófono para puntuar (se puede cantar igual)." : "No se encontró ningún micrófono: se canta sin puntuación.");
+}
+
+/* ---------- melodia de referencia: limpieza, notas para el carril, rango ---------- */
+function kRefPrep() {
+  const raw = KS.pitchRaw, n = raw.length, ref = new Float32Array(n), w = [];
+  for (let i = 0; i < n; i++) {   // mediana de 5: quita saltos sueltos (consonantes, octavas erroneas)
+    if (!raw[i]) continue;
+    w.length = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) if (raw[j]) w.push(raw[j]);
+    w.sort((a, b) => a - b);
+    ref[i] = w[w.length >> 1] / 10;
+  }
+  // octavas: el detector a veces salta una octava (o pilla el bajo); todo se pliega a +-9 semitonos de la
+  // mediana de la cancion (una melodia cantada rara vez se sale de ahi) -> carril limpio y legible
+  const med = (() => { const v = []; for (let i = 0; i < n; i += 3) if (ref[i]) v.push(ref[i]); v.sort((a, b) => a - b); return v[v.length >> 1] || 0; })();
+  if (med) for (let i = 0; i < n; i++) if (ref[i]) { while (ref[i] - med > 9) ref[i] -= 12; while (med - ref[i] > 9) ref[i] += 12; }
+  for (let i = 0; i < n;) {   // tramos de voz de menos de 100 ms: ruido
+    if (!ref[i]) { i++; continue; }
+    let j = i; while (j < n && ref[j]) j++;
+    if (j - i < 5) ref.fill(0, i, j);
+    i = j;
+  }
+  KS.ref = ref;
+  const notes = []; let cur = null;   // notas: tramos de altura estable (se parten en saltos de > 0.8 semitonos)
+  for (let i = 0; i <= n; i++) {
+    const m = i < n ? ref[i] : 0;
+    if (cur && m && Math.abs(m - cur.sum / cur.c) <= .8) { cur.sum += m; cur.c++; continue; }
+    if (cur) { cur.e = i; cur.m = cur.sum / cur.c; if (cur.c >= 4) notes.push(cur); cur = null; }
+    if (m) cur = { s: i, sum: m, c: 1 };
+  }
+  KS.notes = notes;
+  const vs = Array.from(ref.filter(Boolean)).sort((a, b) => a - b);
+  KS.voiced = vs.length;
+  if (vs.length > 50) {
+    let lo = vs[Math.floor(vs.length * .04)] - 1.5, hi = vs[Math.floor(vs.length * .96)] + 1.5;
+    if (hi - lo < 11) { const c = (hi + lo) / 2; lo = c - 5.5; hi = c + 5.5; }
+    KS.lo = lo; KS.hi = hi;
+  }
+  if (!KS.fp || KS.fp.length < n) {
+    const a = new Float32Array(n + 1000), b = new Uint8Array(n + 1000);
+    if (KS.fp) { a.set(KS.fp); b.set(KS.lit); }
+    KS.fp = a; KS.lit = b;
+  }
+}
+function kTotalVoiced() {   // frames con voz de toda la cancion (estimado mientras aun se procesa)
+  const i = KS.info;
+  if (!i || !KS.pitchRaw.length) return 1;
+  if (i.status === "ready") return Math.max(1, KS.voiced);
+  return Math.max(1, KS.voiced * (i.n / 882) / KS.pitchRaw.length);
+}
+const kCurve = raw => Math.round(10000 * Math.pow(Math.min(1, raw / .8), .8));
+const kScoreNow = () => kCurve(KS.pts / kTotalVoiced());
+function kEval(f) {
+  const r = KS.ref[f];
+  if (!r) return;
+  const ft = f * K_FR;
+  let best = 99;
+  for (let i = KS.sing.length - 1; i >= 0; i--) {
+    const sm = KS.sing[i];
+    if (sm.t < ft - .14) break;
+    if (sm.t > ft + .14 || !sm.m) continue;
+    const dd = Math.abs(((sm.m - r) % 12 + 18) % 12 - 6);
+    if (dd < best) best = dd;
+  }
+  const p = best <= .8 ? 1 : best <= 1.6 ? .65 : best <= 2.6 ? .3 : best < 99 ? .1 : 0;
+  KS.pts += p; KS.fp[f] = p;
+  if (p >= .65) KS.lit[f] = 1;
+}
+
+/* ---------- carril de melodia ---------- */
+const KC = { cv: null, g: null, w: 0, h: 0, dpr: 1 };
+function kPitchSize() {
+  const cv = $("kPitch"), r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  KC.cv = cv; KC.g = cv.getContext("2d"); KC.dpr = dpr; KC.w = r.width; KC.h = r.height;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+}
+function kDraw() {
+  const g = KC.g;
+  if (!g || !KC.w) return;
+  const W = KC.w, H = KC.h, dpr = KC.dpr, now = kpPos() - KS.lat, pre = 2.2, post = 4.6;
+  const px = W * .26, sx = (W - px) / post, X = tt => px + (tt - now) * sx;
+  const lo = KS.lo, hi = KS.hi, Y = m => 10 + (1 - Math.max(0, Math.min(1, (m - lo) / (hi - lo)))) * (H - 20);
+  const col = kPl(KS.now && KS.now.by).color;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const grd = g.createLinearGradient(px, 0, px, H);   // linea del "ahora"
+  grd.addColorStop(0, "rgba(255,255,255,0)"); grd.addColorStop(.5, "rgba(255,255,255,.5)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(px - .75, 0, 1.5, H);
+  const f0 = Math.max(0, Math.floor((now - pre) / K_FR)), f1 = Math.ceil((now + post) / K_FR);
+  const bh = 9;
+  for (const nt of KS.notes) {
+    if (nt.e < f0 || nt.s > f1) continue;
+    const x0 = Math.max(0, X(nt.s * K_FR)), x1 = Math.min(W, X(nt.e * K_FR)), y = Y(nt.m) - bh / 2;
+    if (x1 - x0 < 1) continue;
+    const past = X(nt.e * K_FR) < px;
+    g.fillStyle = past ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.24)";
+    g.beginPath(); g.roundRect(x0, y, x1 - x0, bh, bh / 2); g.fill();
+    let a = -1;   // tramos acertados: color del cantante con brillo
+    g.save(); g.shadowColor = col; g.shadowBlur = 14; g.fillStyle = col;
+    for (let f = nt.s; f <= nt.e; f++) {
+      const on = f < nt.e && KS.lit[f];
+      if (on && a < 0) a = f;
+      if (!on && a >= 0) {
+        const xa = Math.max(0, X(a * K_FR)), xb = Math.min(W, X(f * K_FR));
+        if (xb > xa) { g.beginPath(); g.roundRect(xa, y, Math.max(bh, xb - xa), bh, bh / 2); g.fill(); }
+        a = -1;
+      }
+    }
+    g.restore();
+  }
+  // voz del cantante: estela a la altura relativa a la nota que toca (sin importar la octava)
+  let lastRef = (lo + hi) / 2, head = null;
+  g.fillStyle = "#fff";
+  for (const sm of KS.sing) {
+    if (sm.t < now - pre || !sm.m) continue;
+    const fi = Math.round(sm.t / K_FR), rf = KS.ref && KS.ref[fi];
+    if (rf) lastRef = rf;
+    const dd = ((sm.m - lastRef) % 12 + 18) % 12 - 6, x = X(sm.t);
+    if (x > px + 2) continue;
+    const age = (now - sm.t) / pre;
+    g.globalAlpha = Math.max(0, .75 - age * .7);
+    g.beginPath(); g.arc(x, Y(lastRef + dd), 2.6, 0, 6.2832); g.fill();
+    head = now - sm.t < .12 ? [x, Y(lastRef + dd)] : null;
+  }
+  g.globalAlpha = 1;
+  if (head) {
+    g.save(); g.shadowColor = "#fff"; g.shadowBlur = 16;
+    g.beginPath(); g.arc(px, head[1], 6, 0, 6.2832); g.fill(); g.restore();
+  }
+}
+
+/* ---------- valoracion por linea ---------- */
+const K_RATES = [[.85, "¡Perfecto!"], [.65, "¡Genial!"], [.45, "¡Bien!"]];
+function kLineRate(it) {
+  const a = Math.floor(it.start / 1000 / K_FR), b = Math.ceil(it.end / 1000 / K_FR);
+  let sum = 0, cnt = 0;
+  for (let f = a; f < b && f < KS.ev; f++) if (KS.ref[f]) { sum += KS.fp[f]; cnt++; }
+  if (cnt < 12) return;
+  const hit = K_RATES.find(([v]) => sum / cnt >= v);
+  if (!hit) return;
+  const el = $("kRate");
+  KS.rating = t(hit[1]);
+  el.textContent = KS.rating; el.style.setProperty("--c", kPl(KS.now && KS.now.by).color);
+  el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+}
+
+/* ---------- bucle principal ---------- */
+function kLoop() {
+  if (!KS.on) return;
+  requestAnimationFrame(kLoop);
+  const now = performance.now();
+  if (KM.on && now - KM.last > 22) {   // ~45 lecturas/s del micro
+    KM.last = now;
+    const m = kYin();
+    if (KS.phase === "sing" && KP.started && !KP.paused && !KP.stalled) KS.sing.push({ t: kpPos() - KS.lat, m });
+    if (!$("kSet").hidden) $("kMeter").style.width = Math.min(100, KM.rms * 900) + "%";
+  }
+  if (KS.phase === "intro") return kIntroTick(now);
+  if (KS.phase === "results") return kResTick(now);
+  if (KS.phase !== "sing") return;
+  const pos = kpPos(), info = KS.info;
+  if (!info) return;
+  if (KP.started && !KP.paused && !KP.stalled && KP.sched < info.nch && kpAhead() < .3) {   // aun no ha llegado: espera
+    KP.stalled = true; KP.ctx.suspend(); kStall(true);
+  }
+  if (now - (KS._sch || 0) > 500) { KS._sch = now; kpSchedule(); }
+  const refNow = pos - KS.lat;
+  while (KS.sing.length && KS.sing[0].t < refNow - 3) KS.sing.shift();
+  if (KS.ref) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - .2) kEval(KS.ev++);
+  if (LYR.ai !== KS.lineAi) {   // linea terminada: valoracion un poco despues (lo ultimo cantado ya evaluado)
+    const prev = LYR.items[KS.lineAi];
+    if (prev && prev.kind === "line") KS.pend.push([now + 450, prev]);
+    KS.lineAi = LYR.ai;
+  }
+  while (KS.pend.length && KS.pend[0][0] < now) kLineRate(KS.pend.shift()[1]);
+  if (KM.on) {
+    const target = kScoreNow();
+    KS.shown += (target - KS.shown) * .12;
+    $("kScore").textContent = kNum(KS.shown);
+    if (now - KS.liveAt > 1000) { KS.liveAt = now; kpost("/kara/live", { score: target, rating: KS.rating }).catch(() => {}); }
+  }
+  kDraw();
+  if (info.dur && pos >= info.dur - .05) kEnd();
+}
+function kStall(on) { $("kStall").classList.toggle("on", on); }
+
+/* ---------- fases: sala -> presentacion -> cantar -> resultados -> siguiente ---------- */
+function kScreen(id) {
+  ["kLobby", "kIntro", "kRes"].forEach(x => $(x).classList.toggle("on", x === id));
+  document.body.classList.toggle("kara-sing", KS.phase === "sing");
+  document.body.classList.toggle("kara-int", KS.phase === "intro");
+  $("kLobX").hidden = KS.phase === "sing" || KS.phase === "intro";
+  $("kPause").classList.toggle("on", KS.phase === "sing" && KP.paused);
+}
+function kLobby() {
+  KS.phase = "lobby"; KS.now = null;
+  kpReset(); kLyrClear(); kStall(false);
+  kScreen("kLobby");
+  if (KS.st && KS.st.queue.length) setTimeout(() => { if (KS.phase === "lobby" && KS.st.queue.length) kNext(); }, 1200);
+}
+async function kNext() {
+  if (KS._nexting) return;
+  KS._nexting = true;
+  try {
+    kpReset(); kLyrClear();
+    const st = await kpost("/kara/next");
+    kApply(st);
+    if (st.now) kIntro(st.now); else kLobby();
+  } catch (e) { toast(t("No se pudo continuar")); } finally { KS._nexting = false; }
+}
+function kIntro(now) {
+  KS.phase = "intro"; KS.now = now;
+  Object.assign(KS, { info: null, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0, pts: 0, fp: null, lit: null,
+                      sing: [], shown: 0, rating: "", lineAi: -1, pend: [], introAt: performance.now(), countAt: 0, rate: [] });
+  $("kScore").textContent = "0";
+  KP.vid = now.vid; kpCtx();
+  const big = hiCover(now.cover);
+  $("kInCov").src = big || ""; $("kInT").textContent = now.title; $("kInA").textContent = now.artist;
+  const p = kPl(now.by);
+  $("kInBy").innerHTML = `${kAv(p)}<div>${esc(p.name)} <span>${esc(t("canta"))}</span></div>`;
+  $("kSinger").innerHTML = `${kAv(p)}<div><div class="ksn">${esc(p.name)}</div><div class="kss">${esc(now.title)} · ${esc(now.artist)}</div></div>`;
+  $("lcover").src = big || ""; $("lsideT").textContent = now.title; $("lsideA").textContent = now.artist;
+  lyrBg(big || now.cover);
+  $("kInNum").textContent = ""; $("kInSt").textContent = t("Preparando la pista…");
+  kScreen("kIntro");
+  kInfoPoll(now.qid);
+  kpost("/kara/phase", { phase: "intro" }).catch(() => {});
+}
+async function kInfoPoll(qid) {   // estado del procesado + melodia (incremental) + letra, hasta tenerlo todo
+  const g = ++KS.infoGen;
+  while (KS.on && KS.infoGen === g && KS.now && KS.now.qid === qid) {
+    let d = null;
+    try { d = await jget(`/kara/song?id=${KS.now.vid}&from=${KS.pitchRaw.length}`); } catch (e) {}
+    if (KS.infoGen !== g || !KS.now || KS.now.qid !== qid) return;
+    if (d && !d.error) {
+      if (d.from === KS.pitchRaw.length && d.pitch.length) { KS.pitchRaw.push(...d.pitch); kRefPrep(); }
+      const had = KS.info && KS.info.lyrics;
+      if (KS.info && d.chunks > KS.info.chunks) KS.rate.push([performance.now(), d.chunks]);
+      KS.info = d;
+      if (d.lyrics && !had) kLyrBuild(d.lyrics);
+      kpFetch();
+      if (d.status === "error") { kSongError(d.error); return; }
+      if (d.status === "ready" && d.lyrics) return;
+    }
+    await kWait(d && d.status === "ready" ? 1500 : 650);
+  }
+}
+function kSongError(msg) {
+  toast(t("No se pudo preparar") + " «" + (KS.now ? KS.now.title : "") + "»" + (msg ? " · " + msg : ""));
+  const qid = KS.now && KS.now.qid;
+  setTimeout(() => { if (KS.on && KS.now && KS.now.qid === qid && (KS.phase === "intro" || KS.phase === "sing")) kNext(); }, 2500);
+}
+function kSpeed() {   // velocidad del procesado medida (x tiempo real) a partir de los trozos que van llegando
+  const r = KS.rate;
+  if (r.length < 2) return 0;
+  const a = r[Math.max(0, r.length - 6)], b = r[r.length - 1];
+  return (b[1] - a[1]) * K_STEP / K_SR / Math.max(.2, (b[0] - a[0]) / 1000);
+}
+function kCanStart() {
+  const i = KS.info;
+  if (!i || i.status === "error" || !i.nch) return false;
+  if (KP.fetched < Math.min(2, i.nch)) return false;
+  if (i.status === "ready") return true;
+  const sp = kSpeed();
+  if (!sp) return i.chunks >= 4;
+  if (sp >= 1.25) return true;
+  return (i.nch - i.chunks) * K_STEP / K_SR / sp < i.dur - 8;   // va mas lento que la musica: buffer suficiente
+}
+function kIntroTick(now) {
+  const i = KS.info, fg = $("kRingFg"), ring = $("kRing");
+  if (!KS.countAt) {
+    const ready = kCanStart();
+    if (ready && now - KS.introAt > 2500) { KS.countAt = now; return; }
+    const eng = KS.st && KS.st.engine;
+    let pr = 0, txt = t("Preparando la pista…");
+    if (eng && eng.status === "download") { pr = eng.progress / 100; txt = t("Descargando el motor de voz (solo la primera vez)") + " · " + eng.progress + "%"; }
+    else if (eng && eng.status === "loading") txt = t("Cargando el motor de voz…");
+    else if (i && (i.status === "download" || i.status === "wait")) txt = t("Descargando la canción…");
+    else if (i && i.status === "sep") { pr = i.chunks / Math.max(1, i.nch); txt = t("Quitando la voz…") + " " + Math.round(pr * 100) + "%"; }
+    else if (ready) { pr = 1; txt = t("¡Prepárate!"); }
+    ring.classList.toggle("spin", !pr);
+    fg.style.strokeDashoffset = 176 * (1 - (pr || .25));
+    $("kInNum").textContent = "";
+    if ($("kInSt").textContent !== txt) $("kInSt").textContent = txt;
+    return;
+  }
+  const left = 3 - Math.floor((now - KS.countAt) / 1000);
+  ring.classList.remove("spin");
+  fg.style.strokeDashoffset = 176 * ((now - KS.countAt) % 1000) / 1000;
+  const num = $("kInNum");
+  if (left <= 0) return kSing();
+  if (num.textContent !== String(left)) {
+    num.textContent = left; num.classList.remove("tick"); void num.offsetWidth; num.classList.add("tick");
+    $("kInSt").textContent = t("¡Prepárate!");
+  }
+}
+function kSing() {
+  KS.phase = "sing";
+  kScreen(null);
+  kpStart();
+  if (KS.info && KS.info.lyrics && !LYR.items.length) kLyrBuild(KS.info.lyrics);
+  requestAnimationFrame(() => { kPitchSize(); lyrMeasure(); });
+  kpost("/kara/phase", { phase: "sing" }).catch(() => {});
+}
+function kLyrBuild(d) {
+  LYR.clock = {
+    time: () => Math.max(0, kpPos() - KS.outLat),
+    paused: () => KS.phase !== "sing" || KP.paused || KP.stalled,
+    dur: () => (KS.info && KS.info.dur) || 0,
+  };
+  LYR.for = null; lyricsFor = null;
+  lyrBuild(d && d.lines ? d : { lines: [] });
+  startLyricLoop();
+}
+function kLyrClear() {
+  if (!LYR.clock) return;
+  lyrBuild({ lines: [] });
+  $("lbody").innerHTML = "";
+}
+async function kEnd() {
+  if (KS.phase !== "sing") return;
+  KS.phase = "results"; KS.resAt = performance.now();
+  const g = KP.inst.gain, t0 = KP.ctx.currentTime;   // final suave
+  g.setValueAtTime(g.value, t0); g.linearRampToValueAtTime(0, t0 + 1.2);
+  const gen = KP.gen;
+  setTimeout(() => { if (KP.gen === gen) kpReset(); }, 1300);
+  const score = KM.on ? kScoreNow() : null, by = KS.now.by;
+  $("kResN").textContent = "0";
+  const p = kPl(by);
+  $("kResBy").innerHTML = `${kAv(p)}<span>${esc(p.name)}</span>`;
+  $("kStars").innerHTML = "";
+  $("kResM").textContent = score == null ? t("¡Gracias por cantar!") : "";
+  $("kBoard").innerHTML = ""; $("kResNext").textContent = ""; $("kResBar").style.width = "0";
+  KS.resScore = score;
+  kScreen("kRes");
+  try { kApply(await kpost("/kara/result", { score })); } catch (e) {}
+  kPaintBoard(by);
+}
+const K_MSG = [[9000, "¡Leyenda!"], [7500, "¡Increíble!"], [6000, "¡Muy bien!"], [4000, "¡Bien hecho!"], [0, "¡Buen intento!"]];
+function kResTick(now) {
+  const el = (now - KS.resAt) / 1000, sc = KS.resScore;
+  if (sc != null) {
+    const k = Math.min(1, Math.max(0, (el - .4) / 1.8)), v = sc * (1 - Math.pow(1 - k, 3));
+    $("kResN").textContent = kNum(v);
+    if (k >= 1 && !$("kStars").childElementCount) {
+      const n = Math.round(sc / 2000 * 2) / 2;
+      $("kStars").innerHTML = [0, 1, 2, 3, 4].map(i => `<i class="ph-fill ${n >= i + 1 ? "ph-star" : n >= i + .5 ? "ph-star-half" : "ph-star"}"></i>`).join("");
+      [...$("kStars").children].forEach((s, i) => setTimeout(() => s.classList.toggle("on", n >= i + .5), 120 * i));
+      $("kResM").textContent = t(K_MSG.find(([v2]) => sc >= v2)[1]);
+    }
+  } else $("kResN").textContent = "—";
+  const nx = KS.st && KS.st.queue[0];
+  const wait = 10;
+  $("kResNext").textContent = nx ? t("A continuación") + ": " + nx.title + " · " + kPl(nx.by).name : t("Elige otra canción desde el móvil");
+  $("kResBar").style.width = Math.min(100, el / wait * 100) + "%";
+  if (el >= wait) { if (nx) kNext(); else kLobby(); }
+}
+function kPaintBoard(meId) {
+  const pl = (KS.st ? KS.st.players : []).filter(p => p.songs);
+  $("kBoard").innerHTML = pl.slice(0, 5).map((p, i) => `<div class="kbr${p.id === meId ? " me" : ""}"><span class="kbn">${i + 1}</span>${kAv(p, "sm")}<span class="kbname">${esc(p.name)}</span><span class="kbs">${kNum(p.total)}</span><span class="kbx">${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))}</span></div>`).join("");
+}
+
+/* ---------- estado compartido (long-poll) ---------- */
+function kRing(q) {
+  const pr = q.status === "ready" ? 1 : q.status === "sep" ? q.progress / 100 : q.status === "download" ? .06 : 0;
+  const c = 2 * Math.PI * 9;
+  return `<svg class="kst ${q.status === "ready" ? "ok" : q.status === "error" ? "err" : ""}" viewBox="0 0 22 22"><circle class="bg" cx="11" cy="11" r="9"/><circle class="fg" cx="11" cy="11" r="9" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - (q.status === "error" ? 1 : pr))).toFixed(1)}"/></svg>`;
+}
+function kApply(st) {
+  if (!st || st.error) return;
+  KS.st = st;
+  const pl = st.players;
+  $("kPlayers").innerHTML = pl.length ? pl.map(p => `<span class="kplayer" data-id="${esc(p.id)}">${kAv(p, "sm")}${esc(p.name)}</span>`).join("")
+    : `<span class="kempty">${esc(t("Aún no se ha unido nadie"))}</span>`;
+  $("kLobQ").innerHTML = st.queue.length ? st.queue.slice(0, 5).map(q => { const p = kPl(q.by);
+    return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kRing(q)}</div>`; }).join("")
+    : `<span class="kempty">${esc(t("La cola está vacía: elige canciones desde el móvil"))}</span>`;
+  const e = st.engine || {};
+  $("kEng").innerHTML = e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}${e.gpu ? " · GPU" : " · CPU"}`
+    : e.status === "download" ? `<i class="ph ph-download-simple"></i>${esc(t("Descargando el motor de voz (solo la primera vez)"))} · ${e.progress}%`
+    : e.status === "error" ? `<i class="ph ph-warning"></i>${esc(t("El motor de voz no está disponible"))}: ${esc(e.error || "")}`
+    : `<i class="ph ph-circle-notch"></i>${esc(t("Preparando el motor de voz…"))}`;
+  $("kNext").innerHTML = st.queue.length ? `<span>${esc(t("A continuación"))}</span>` + st.queue.slice(0, 3).map(q =>
+    `<span class="ki"><img src="${esc(q.cover)}" alt=""><b>${esc(q.title)}</b> · ${esc(kPl(q.by).name)}</span>`).join("") : "";
+  if (KS.reactSeen < 0) KS.reactSeen = st.reacts.reduce((a, r) => Math.max(a, r.id), 0);   // al abrir: no repetir las viejas
+  for (const r of st.reacts) if (r.id > KS.reactSeen) { KS.reactSeen = r.id; kReact(r); }
+  if (KS.phase === "lobby" && st.queue.length && !KS._nexting) setTimeout(() => { if (KS.phase === "lobby" && KS.st.queue.length) kNext(); }, 1200);
+}
+function kReact(r) {
+  const el = document.createElement("div"); el.className = "kre";
+  el.style.right = (6 + Math.random() * 22) + "vw"; el.style.setProperty("--dx", (Math.random() * 120 - 60) + "px");
+  el.innerHTML = esc(r.e) + `<small>${esc(kPl(r.by).name)}</small>`;
+  $("kReacts").appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+async function kPoll() {
+  while (KS.on) {
+    try {
+      const st = await jget(`/kara/state?v=${KS.v}`);
+      if (!KS.on) return;
+      KS.v = st.v; kApply(st);
+    } catch (e) { await kWait(1500); }
+  }
+}
+
+/* ---------- abrir / cerrar ---------- */
+async function karaOpen() {
+  if (!KARA_OK || KS.on) return;
+  if (!audio.paused) togglePlay();
+  kpCtx();   // dentro del clic: el audio del karaoke queda desbloqueado
+  KS.on = true; KS.v = -1; KS.reactSeen = -1;
+  const lp = $("lyricsPanel");
+  KS.prevShow = lp.classList.contains("show");
+  if (document.body.classList.contains("lyr-full")) lyrFull(false);
+  lp.classList.add("show");
+  document.body.classList.add("kara-on");
+  $("kara").hidden = false;
+  KS.phase = "lobby";
+  kScreen("kLobby");
+  LYR.clock = { time: () => 0, paused: () => true, dur: () => 0 };
+  $("lbody").innerHTML = "";
+  let st;
+  try { st = await kpost("/kara/open"); } catch (e) { st = { error: String(e) }; }
+  if (!st || st.error) { toast(t("No se pudo abrir el karaoke") + (st && st.error ? ": " + st.error : "")); karaClose(); return; }
+  $("kQr").innerHTML = st.qr || ""; $("kQrMini").innerHTML = st.qr || "";
+  const u = new URL(st.url);
+  $("kUrl").textContent = u.host; $("kCode").textContent = st.code; $("kUrlMini").textContent = u.host + " · " + st.code;
+  KS.v = st.v;
+  kApply(st);
+  kLobby();
+  kPoll();
+  kMic();
+  requestAnimationFrame(kLoop);
+}
+function karaClose() {
+  if (!KS.on) return;
+  KS.on = false; KS.phase = "off"; KS.infoGen++;
+  kpReset(); kMicStop();
+  LYR.clock = null; LYR.for = null; lyricsFor = null;
+  lyrBuild({ lines: [] }); $("lbody").innerHTML = "";
+  document.body.classList.remove("kara-on", "kara-sing", "kara-int");
+  $("kara").hidden = true; $("kSet").hidden = true;
+  if (KS.prevShow) loadLyrics(); else $("lyricsPanel").classList.remove("show");
+  kpost("/kara/close").catch(() => {});
+}
+function kTogglePause() {
+  if (KS.phase !== "sing") return;
+  kpPause(!KP.paused);
+  $("kPlay").innerHTML = `<i class="ph-fill ${KP.paused ? "ph-play" : "ph-pause"}"></i>`;
+  $("kPause").classList.toggle("on", KP.paused);
+  kpost("/kara/phase", { phase: KP.paused ? "paused" : "sing" }).catch(() => {});
+}
+function kSkip() {
+  if (KS.phase === "sing" || KS.phase === "intro" || KS.phase === "results") kNext();
+}
+function kExitAsk() {
+  const t0 = performance.now();
+  if (KS.phase === "lobby" || t0 - KS.escAt < 2500) return karaClose();
+  KS.escAt = t0;
+  toast(t("Pulsa otra vez para salir del karaoke"));
+}
+if (KARA_OK) {
+  $("karaNav").hidden = false;
+  $("karaNav").onclick = karaOpen;
+  $("kPlay").onclick = kTogglePause;
+  $("kSkip").onclick = kSkip;
+  $("kExit").onclick = kExitAsk;
+  $("kExit2").onclick = karaClose;
+  const setT = () => { const sh = $("kSet"); sh.hidden = !sh.hidden; if (!sh.hidden) { kMicList(); kPaintMic(); } };
+  $("kSetBtn").onclick = setT; $("kSetBtn2").onclick = setT;
+  $("kMicWarn").onclick = () => { if (KM.err === "denied") kMic(); setT(); };
+  $("kMicSel").onchange = e => { kSet.mic = e.target.value; kSave(); kMic(); };
+  $("kGuide").value = kSet.guide;
+  $("kGuide").oninput = e => { kSet.guide = +e.target.value; kSave(); if (KP.guide) KP.guide.gain.setTargetAtTime(kSet.guide / 100, KP.ctx.currentTime, .05); };
+  let ctlT = 0;
+  $("kara").addEventListener("mousemove", () => {   // los controles aparecen al mover el raton
+    $("kara").classList.add("ctl"); clearTimeout(ctlT);
+    ctlT = setTimeout(() => $("kara").classList.remove("ctl"), 2600);
+  });
+  // el teclado es del karaoke mientras esta abierto (no del reproductor de debajo)
+  document.addEventListener("keydown", e => {
+    if (!KS.on) return;
+    if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.key !== "Escape") return;
+    if (e.key === " " || e.code === "Space") { kTogglePause(); }
+    else if (e.key === "ArrowRight") kSkip();
+    else if (e.key === "Escape") { if (!$("kSet").hidden) $("kSet").hidden = true; else kExitAsk(); }
+    else if (e.key === "Enter" && KS.phase === "results") kSkip();
+    else return;
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  addEventListener("resize", () => { if (KS.on) kPitchSize(); });
+  addEventListener("beforeunload", () => { if (KS.on) navigator.sendBeacon && navigator.sendBeacon("/kara/close"); });
 }
 </script>
 </body>

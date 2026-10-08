@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0c0c12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Blyatt Karaoke</title>
+<link rel="icon" href="/icon.png">
+<style>
+  /* Pagina de los moviles del karaoke: la sirve la app de escritorio en la red local (sin dependencias). */
+  :root { --bg: #0c0c12; --card: rgb(255 255 255 / .07); --line: rgb(255 255 255 / .09); --muted: rgb(255 255 255 / .56);
+          --accent: #ff375f; --me: #ff375f; --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: #fff; overscroll-behavior: none; }
+  body { font: 16px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; overflow: hidden; }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+  input { font: inherit; color: inherit; }
+  svg.i { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  /* fondo: la portada de la que suena, muy difuminada (imagen estatica: barato) */
+  #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  #bg img { position: absolute; inset: -30%; width: 160%; height: 160%; object-fit: cover; filter: blur(60px) saturate(1.5);
+            opacity: 0; transition: opacity 1s; }
+  #bg img.on { opacity: .5; }
+  #bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(12 12 18 / .2), rgb(12 12 18 / .85) 70%); }
+  .view { position: fixed; inset: 0; z-index: 1; display: none; flex-direction: column; }
+  .view.on { display: flex; }
+  /* entrar */
+  .center { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: calc(30px + var(--sat)) 26px calc(30px + var(--sab)); max-width: 460px; margin: 0 auto; width: 100%; }
+  .logo { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; margin-bottom: 26px;
+          background: linear-gradient(135deg, #ff375f, #bf5af2); box-shadow: 0 16px 40px rgb(255 55 95 / .35); }
+  .logo svg { width: 34px; height: 34px; }
+  h1 { font-size: 2.15rem; letter-spacing: -.03em; margin: 0 0 8px; line-height: 1.05; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 1.02rem; }
+  .field { width: 100%; height: 56px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); padding: 0 18px;
+           font-size: 1.1rem; outline: none; transition: border-color .2s, background .2s; }
+  .field:focus { border-color: rgb(255 255 255 / .3); background: rgb(255 255 255 / .1); }
+  .field.code { text-align: center; letter-spacing: .4em; text-transform: uppercase; font-weight: 800; font-size: 1.5rem; }
+  .btn { width: 100%; height: 56px; border-radius: 16px; margin-top: 14px; font-weight: 700; font-size: 1.08rem; color: #fff;
+         background: var(--accent); box-shadow: 0 12px 30px rgb(255 55 95 / .3); transition: transform .15s, opacity .2s; }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; }
+  .btn.ghost { background: var(--card); box-shadow: none; }
+  .err { color: #ff6961; font-size: .92rem; min-height: 1.4em; margin-top: 12px; text-align: center; }
+  /* app */
+  header { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; padding: calc(12px + var(--sat)) 18px 10px; }
+  .chip { display: flex; align-items: center; gap: 9px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--card);
+          font-weight: 700; font-size: .95rem; min-width: 0; }
+  .chip span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .av { width: 30px; height: 30px; border-radius: 50%; background: var(--c, #8e8e93); display: grid; place-items: center; flex: none;
+        font-weight: 800; font-size: .82rem; text-transform: uppercase; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .2); }
+  .av.lg { width: 44px; height: 44px; font-size: 1.05rem; }
+  .room { margin-left: auto; font-size: .82rem; color: var(--muted); font-weight: 600; }
+  .room b { color: #fff; letter-spacing: .12em; }
+  .conn { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translate(-50%, -10px); z-index: 5; padding: 7px 14px;
+          border-radius: 999px; font-size: .8rem; font-weight: 700; background: rgb(255 159 10 / .95); color: #000;
+          opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; }
+  .conn.on { opacity: 1; transform: translate(-50%, 0); }
+  .pages { position: relative; z-index: 1; flex: 1; min-height: 0; }
+  .page { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 18px calc(110px + var(--sab));
+          opacity: 0; visibility: hidden; transform: translateY(8px); transition: opacity .25s, transform .3s cubic-bezier(.22, .9, .25, 1), visibility .25s; }
+  .page.on { opacity: 1; visibility: visible; transform: none; }
+  .page::-webkit-scrollbar { display: none; }
+  h2 { font-size: 1.75rem; letter-spacing: -.025em; margin: 10px 0 16px; }
+  h3 { font-size: .78rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 26px 0 10px; font-weight: 700; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: space-around;
+        padding: 8px 8px calc(8px + var(--sab)); background: rgb(18 18 24 / .78); border-top: 1px solid var(--line);
+        backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); }
+  nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px 0; font-size: .7rem;
+               font-weight: 600; color: rgb(255 255 255 / .45); transition: color .2s; position: relative; }
+  nav button.on { color: #fff; }
+  nav button .dot { position: absolute; top: 2px; left: calc(50% + 9px); min-width: 17px; height: 17px; border-radius: 9px; padding: 0 5px;
+                    background: var(--accent); color: #fff; font-size: .66rem; font-weight: 800; display: none; place-items: center; }
+  nav button .dot.on { display: grid; }
+  /* ahora */
+  .now { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 6px; }
+  .cov { width: min(72vw, 330px); aspect-ratio: 1; border-radius: 22px; object-fit: cover; background: var(--card);
+         box-shadow: 0 30px 70px rgb(0 0 0 / .55); transition: transform .5s cubic-bezier(.22, .9, .25, 1); }
+  .now.paused .cov { transform: scale(.9); }
+  .nt { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; margin-top: 24px; line-height: 1.15; }
+  .na { color: var(--muted); font-weight: 600; margin-top: 4px; }
+  .by { margin-top: 18px; }
+  .phase { margin-top: 10px; color: var(--muted); font-size: .9rem; font-weight: 600; min-height: 1.3em; }
+  .score { font-size: 3.2rem; font-weight: 800; letter-spacing: -.04em; font-variant-numeric: tabular-nums; margin-top: 4px; line-height: 1; }
+  .rate { display: inline-block; margin-top: 8px; padding: 4px 12px; border-radius: 999px; background: var(--c, var(--accent)); font-weight: 800; font-size: .85rem; }
+  .rate[hidden] { display: none; }
+  .reacts { display: flex; justify-content: center; gap: 6px; margin-top: 26px; }
+  .reacts button { width: min(48px, 13vw); aspect-ratio: 1; border-radius: 50%; background: var(--card); font-size: 1.45rem; display: grid; place-items: center;
+                   transition: transform .2s cubic-bezier(.2, 1.6, .4, 1), background .2s; }
+  .reacts button:active { transform: scale(1.25); background: rgb(255 255 255 / .16); }
+  .banner { width: 100%; margin: 4px 0 16px; padding: 16px 18px; border-radius: 20px; font-weight: 800; font-size: 1.1rem; text-align: left;
+            background: linear-gradient(135deg, var(--me), color-mix(in srgb, var(--me) 55%, #000)); box-shadow: 0 14px 34px rgb(0 0 0 / .35);
+            display: flex; align-items: center; gap: 12px; animation: bin .6s cubic-bezier(.2, 1.4, .4, 1); }
+  .banner small { display: block; font-weight: 600; font-size: .85rem; opacity: .85; }
+  @keyframes bin { from { opacity: 0; transform: translateY(-10px) scale(.95); } }
+  .empty { text-align: center; color: var(--muted); padding: 50px 10px 20px; }
+  .empty .big { width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 24px; display: grid; place-items: center; background: var(--card); color: #fff; }
+  .empty .big svg { width: 40px; height: 40px; }
+  .empty b { display: block; color: #fff; font-size: 1.2rem; margin-bottom: 6px; }
+  .empty .btn { width: auto; padding: 0 26px; display: inline-block; margin-top: 22px; }
+  /* listas */
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); animation: rin .35s ease; }
+  @keyframes rin { from { opacity: 0; transform: translateY(6px); } }
+  .row img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex: none; background: var(--card); }
+  .row .m { flex: 1; min-width: 0; }
+  .row .t { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .a { font-size: .85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+  .row .a .av { width: 18px; height: 18px; font-size: .58rem; }
+  .row .e { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: rgb(255 255 255 / .55); color: #000; font-size: .58rem; font-weight: 800; flex: none; }
+  .add { width: 38px; height: 38px; border-radius: 50%; background: var(--card); display: grid; place-items: center; flex: none;
+         transition: background .25s, transform .2s cubic-bezier(.2, 1.6, .4, 1); }
+  .add:active { transform: scale(.85); }
+  .add svg { width: 20px; height: 20px; }
+  .add.done { background: #30d158; }
+  .rm { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); flex: none; }
+  .rm svg { width: 18px; height: 18px; }
+  .pos { width: 22px; text-align: center; font-weight: 800; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+  .ring { width: 26px; height: 26px; flex: none; }
+  .ring circle { fill: none; stroke-width: 3; }
+  .ring .b { stroke: rgb(255 255 255 / .14); }
+  .ring .f { stroke: #fff; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .5s; }
+  .ring.ok .f { stroke: #30d158; }
+  .ring.err .f { stroke: #ff453a; }
+  .search { position: sticky; top: 0; z-index: 2; padding: 4px 0 10px; background: linear-gradient(var(--bg) 70%, transparent); }
+  .search .field { height: 48px; border-radius: 14px; padding-left: 44px; font-size: 1rem; }
+  .search svg { position: absolute; left: 14px; top: 16px; width: 20px; height: 20px; color: var(--muted); }
+  .spin { width: 26px; height: 26px; border-radius: 50%; border: 3px solid rgb(255 255 255 / .15); border-top-color: #fff;
+          animation: sp 1s linear infinite; margin: 30px auto; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  /* ranking */
+  .rk { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--card); margin-bottom: 8px; }
+  .rk.me { background: rgb(255 255 255 / .14); }
+  .rk .n { width: 26px; font-weight: 800; font-size: 1.05rem; text-align: center; color: var(--muted); }
+  .rk.p1 .n { color: #ffd60a; } .rk.p2 .n { color: #d1d1d6; } .rk.p3 .n { color: #ff9f0a; }
+  .rk .nm { flex: 1; min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rk .nm small { display: block; color: var(--muted); font-weight: 600; font-size: .78rem; }
+  .rk .sc { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  #toast { position: fixed; left: 50%; bottom: calc(96px + var(--sab)); z-index: 9; transform: translate(-50%, 10px); width: max-content; max-width: 88vw;
+           padding: 11px 18px; border-radius: 999px; background: rgb(44 44 52 / .96); font-weight: 650; font-size: .92rem;
+           box-shadow: 0 10px 30px rgb(0 0 0 / .4); opacity: 0; transition: opacity .25s, transform .3s; pointer-events: none; text-align: center; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="bg"><img id="bgimg" alt=""></div>
+
+<section class="view" id="vCode"><div class="center">
+  <div class="logo"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+  <h1 data-t>Karaoke</h1>
+  <p class="sub" id="codeSub" data-t>Escribe el código que aparece en la pantalla.</p>
+  <input class="field code" id="codeIn" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD">
+  <button class="btn" id="codeGo" data-t>Continuar</button>
+  <div class="err" id="codeErr"></div>
+</div></section>
+
+<section class="view" id="vJoin"><div class="center">
+  <div class="logo"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+  <h1 data-t>Únete al karaoke</h1>
+  <p class="sub" data-t>Elige canciones, canta y compite por el primer puesto.</p>
+  <input class="field" id="nameIn" maxlength="24" autocomplete="nickname" placeholder="Tu nombre">
+  <button class="btn" id="joinGo" data-t>Entrar</button>
+  <div class="err" id="joinErr"></div>
+</div></section>
+
+<section class="view" id="vApp">
+  <header><div class="chip" id="meChip"></div><div class="room"><span data-t>Sala</span> <b id="roomCode"></b></div></header>
+  <div class="conn" id="conn" data-t>Reconectando…</div>
+  <div class="pages">
+    <div class="page" id="pNow"></div>
+    <div class="page" id="pSearch">
+      <h2 data-t>Buscar</h2>
+      <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input class="field" id="q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Canción o artista"></div>
+      <div id="res"></div>
+    </div>
+    <div class="page" id="pQueue"><h2 data-t>Cola</h2><div id="qlist"></div></div>
+    <div class="page" id="pRank"><h2 data-t>Ranking</h2><div id="rank"></div></div>
+  </div>
+  <nav>
+    <button data-tab="pNow" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span data-t>Ahora</span></button>
+    <button data-tab="pSearch"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span data-t>Buscar</span></button>
+    <button data-tab="pQueue"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-t>Cola</span><i class="dot" id="qdot"></i></button>
+    <button data-tab="pRank"><svg class="i" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg><span data-t>Ranking</span></button>
+  </nav>
+</section>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const EN = /^en\b/i.test(navigator.language || "");
+const TR = { "Karaoke": "Karaoke", "Escribe el código que aparece en la pantalla.": "Type the code shown on the screen.",
+  "Continuar": "Continue", "Únete al karaoke": "Join the karaoke", "Elige canciones, canta y compite por el primer puesto.": "Pick songs, sing and compete for the top spot.",
+  "Entrar": "Join", "Sala": "Room", "Reconectando…": "Reconnecting…", "Buscar": "Search", "Cola": "Queue", "Ranking": "Leaderboard", "Ahora": "Now",
+  "Canción o artista": "Song or artist", "Tu nombre": "Your name", "Nadie está cantando": "Nobody is singing",
+  "Elige una canción y será la siguiente en sonar.": "Pick a song and it will play next.", "Elegir canción": "Pick a song",
+  "canta": "sings", "Preparando la pista…": "Preparing the track…", "Cantando": "Singing", "En pausa": "Paused", "Resultado": "Score",
+  "¡Te toca!": "Your turn!", "Coge el micrófono": "Grab the microphone", "Eres el siguiente": "You're up next", "Prepárate": "Get ready",
+  "Añadida a la cola": "Added to the queue", "posición": "position", "La cola está vacía": "The queue is empty",
+  "Aquí aparecen las canciones elegidas.": "Songs you pick show up here.", "Sonando": "Now playing", "Lista": "Ready", "Preparando": "Preparing",
+  "No disponible": "Unavailable", "Aún no ha cantado nadie": "Nobody has sung yet", "Últimas canciones": "Recent songs",
+  "Sin puntuación": "No score", "canción": "song", "canciones": "songs", "Sin cantar todavía": "Haven't sung yet",
+  "La sala se cerró o el código no es válido.": "The room closed or the code is wrong.", "Escribe tu nombre": "Type your name",
+  "No se pudo conectar": "Could not connect", "Quitada de la cola": "Removed from the queue", "Tú": "You", "Invitado": "Guest",
+  "Sin resultados": "No results", "No se pudo buscar": "Search failed", "mejor": "best", "Busca una canción para cantarla.": "Search a song to sing it." };
+const t = s => EN ? (TR[s] || s) : s;
+document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.textContent));
+$("nameIn").placeholder = t("Tu nombre"); $("q").placeholder = t("Canción o artista");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const IC = {
+  plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  check: '<svg class="i" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+  x: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  mic: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  list: '<svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  trophy: '<svg class="i" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>',
+};
+const EMO = ["👏", "🔥", "❤️", "😂", "🎉", "😮"];
+const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+             set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
+let ROOM = (new URLSearchParams(location.search).get("r") || ls.get("kara.room") || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+let ME = null, ST = null, V = -1, TAB = "pNow", gen = 0, turnSeen = 0, nextSeen = 0;
+const meKey = () => "kara.me." + ROOM;
+function loadMe() { try { ME = JSON.parse(ls.get(meKey()) || "null"); } catch (e) { ME = null; } }
+const nf = n => Math.round(n || 0).toLocaleString(EN ? "en-US" : "es-ES");
+const vib = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+let toastT = 0;
+function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 2200); }
+function show(id) { ["vCode", "vJoin", "vApp"].forEach(v => $(v).classList.toggle("on", v === id)); }
+
+async function api(path, body) {
+  const u = path + (path.includes("?") ? "&" : "?") + "r=" + encodeURIComponent(ROOM);
+  const r = await fetch(u, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ key: ME && ME.key }, body)) } : {});
+  if (r.status === 403) { roomGone(); throw new Error("room"); }
+  if (r.status === 401) { ME = null; ls.set(meKey(), ""); show("vJoin"); throw new Error("join"); }
+  return r.json();
+}
+function roomGone() {
+  gen++; ST = null;
+  $("codeErr").textContent = ROOM ? t("La sala se cerró o el código no es válido.") : "";
+  $("codeIn").value = "";
+  show("vCode");
+}
+async function start() {
+  if (!ROOM) return show("vCode");
+  ls.set("kara.room", ROOM);
+  history.replaceState(null, "", "/?r=" + ROOM);
+  loadMe();
+  if (!ME || !ME.key) { show("vJoin"); setTimeout(() => $("nameIn").focus(), 300); return; }
+  try {   // reafirma la identidad (y comprueba que la sala existe)
+    const d = await api("/k/join", { name: ME.name });
+    if (d.error) throw new Error(d.error);
+    Object.assign(ME, d); ls.set(meKey(), JSON.stringify(ME));
+  } catch (e) { if (e.message === "room" || e.message === "join") return; }
+  enter();
+}
+function enter() {
+  show("vApp");
+  document.documentElement.style.setProperty("--me", ME.color);
+  $("meChip").innerHTML = av(ME) + `<span>${esc(ME.name)}</span>`;
+  $("roomCode").textContent = ROOM;
+  poll(++gen);
+}
+const av = (p, cls) => `<span class="av ${cls || ""}" style="--c:${esc(p.color)}">${esc(Array.from(p.name || "?")[0] || "?")}</span>`;
+const pl = id => (ST && ST.players.find(p => p.id === id)) || { name: t("Invitado"), color: "#8e8e93" };
+
+$("codeGo").onclick = () => {
+  const c = $("codeIn").value.toUpperCase().replace(/[^A-Z]/g, "");
+  if (c.length !== 4) return;
+  ROOM = c; $("codeErr").textContent = ""; start();
+};
+$("codeIn").addEventListener("keydown", e => { if (e.key === "Enter") $("codeGo").click(); });
+$("joinGo").onclick = async () => {
+  const name = $("nameIn").value.trim();
+  if (!name) { $("joinErr").textContent = t("Escribe tu nombre"); return; }
+  $("joinGo").disabled = true; $("joinErr").textContent = "";
+  try {
+    const d = await api("/k/join", { name, key: ME && ME.key });
+    if (d.error) { $("joinErr").textContent = d.error; return; }
+    ME = d; ls.set(meKey(), JSON.stringify(ME)); vib(15); enter();
+  } catch (e) { if (e.message !== "room") $("joinErr").textContent = t("No se pudo conectar"); }
+  finally { $("joinGo").disabled = false; }
+};
+$("nameIn").addEventListener("keydown", e => { if (e.key === "Enter") $("joinGo").click(); });
+
+/* estado en directo: long-poll (el servidor responde en cuanto algo cambia) */
+async function poll(g) {
+  let fails = 0;
+  while (g === gen) {
+    try {
+      const st = await api("/k/state?v=" + V);
+      if (g !== gen) return;
+      fails = 0; $("conn").classList.remove("on");
+      V = st.v; ST = st; render();
+    } catch (e) {
+      if (e.message === "room" || e.message === "join") return;
+      if (++fails > 1) $("conn").classList.add("on");
+      await new Promise(r => setTimeout(r, Math.min(5000, 800 * fails)));
+    }
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && ME && ROOM && $("vApp").classList.contains("on")) { V = -1; poll(++gen); } });
+
+function ring(q) {
+  const c = 2 * Math.PI * 10, pr = q.status === "ready" ? 1 : q.status === "error" ? 1 : q.status === "sep" ? q.progress / 100 : q.status === "download" ? .06 : 0;
+  return `<svg class="ring ${q.status === "ready" ? "ok" : q.status === "error" ? "err" : ""}" viewBox="0 0 26 26"><circle class="b" cx="13" cy="13" r="10"/><circle class="f" cx="13" cy="13" r="10" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - pr)).toFixed(1)}"/></svg>`;
+}
+function render() {
+  if (!ST) return;
+  const now = ST.now, bg = $("bgimg"), cov = now ? String(now.cover || "").replace(/=w\d+-h\d+/, "=w544-h544") : "";
+  if (cov && bg.dataset.src !== cov) { bg.dataset.src = cov; bg.classList.remove("on"); bg.onload = () => bg.classList.add("on"); bg.src = cov; }
+  if (!cov) bg.classList.remove("on");
+  renderNow(); renderQueue(); renderRank();
+  const mine = ST.queue.filter(q => q.by === ME.id).length;
+  $("qdot").textContent = mine; $("qdot").classList.toggle("on", mine > 0);
+}
+function renderNow() {
+  const now = ST.now, el = $("pNow");
+  let ban = "";
+  if (now && now.by === ME.id && now.phase === "intro") {
+    ban = `<div class="banner">${IC.mic}<div>${esc(t("¡Te toca!"))}<small>${esc(t("Coge el micrófono"))}</small></div></div>`;
+    if (turnSeen !== now.qid) { turnSeen = now.qid; vib([60, 80, 60, 80, 120]); }
+  } else if (ST.queue[0] && ST.queue[0].by === ME.id) {
+    ban = `<div class="banner">${IC.list}<div>${esc(t("Eres el siguiente"))}<small>${esc(t("Prepárate"))}</small></div></div>`;
+    if (nextSeen !== ST.queue[0].qid) { nextSeen = ST.queue[0].qid; vib(40); }
+  }
+  if (!now) {
+    el.innerHTML = ban + `<div class="empty"><div class="big">${IC.mic}</div><b>${esc(t("Nadie está cantando"))}</b>${esc(t("Elige una canción y será la siguiente en sonar."))}<br><button class="btn" onclick="tab('pSearch')">${esc(t("Elegir canción"))}</button></div>`;
+    return;
+  }
+  const p = pl(now.by), live = ST.live && ST.live.qid === now.qid ? ST.live : null;
+  const ph = now.phase === "intro" ? t("Preparando la pista…") : now.phase === "paused" ? t("En pausa")
+    : now.phase === "results" ? t("Resultado") : t("Cantando");
+  const sc = now.phase === "results" ? (now.score == null ? "—" : nf(now.score)) : live ? nf(live.score) : "";
+  const key = now.qid + "|" + now.phase;
+  if (el.dataset.k === key) {   // misma cancion y fase: solo lo que cambia (sin repintar la portada)
+    const s = el.querySelector(".score"); if (s) s.textContent = sc;
+    const r = el.querySelector(".rate"); if (r) { r.textContent = live && live.rating || ""; r.hidden = !(live && live.rating); }
+    const b = el.querySelector(".bslot"); if (b && b.innerHTML !== ban) b.innerHTML = ban;
+    return;
+  }
+  el.dataset.k = key;
+  el.innerHTML = `<div class="bslot">${ban}</div><div class="now${now.phase === "paused" ? " paused" : ""}">
+    <img class="cov" src="${esc(String(now.cover || "").replace(/=w\d+-h\d+/, "=w544-h544"))}" alt="">
+    <div class="nt">${esc(now.title)}</div><div class="na">${esc(now.artist)}</div>
+    <div class="chip by">${av(p)}<span>${esc(p.name)} <span style="color:var(--muted);font-weight:500">${esc(t("canta"))}</span></span></div>
+    <div class="phase">${esc(ph)}</div>
+    <div class="score">${esc(sc)}</div>
+    <span class="rate" style="--c:${esc(p.color)}" ${live && live.rating ? "" : "hidden"}>${esc(live && live.rating || "")}</span>
+    <div class="reacts">${EMO.map(e => `<button data-e="${e}">${e}</button>`).join("")}</div></div>`;
+  el.querySelectorAll(".reacts button").forEach(b => b.onclick = () => { vib(10); api("/k/react", { e: b.dataset.e }).catch(() => {}); });
+}
+function renderQueue() {
+  const el = $("qlist"), q = ST.queue, now = ST.now;
+  let h = "";
+  if (now) {
+    const p = pl(now.by);
+    h += `<h3>${esc(t("Sonando"))}</h3><div class="row"><img src="${esc(now.cover)}" alt=""><div class="m"><div class="t">${esc(now.title)}</div><div class="a">${av(p)}${esc(p.name)}</div></div></div>`;
+  }
+  if (!q.length) h += `<div class="empty"><div class="big">${IC.list}</div><b>${esc(t("La cola está vacía"))}</b>${esc(t("Aquí aparecen las canciones elegidas."))}</div>`;
+  else {
+    h += `<h3>${esc(t("Cola"))}</h3>` + q.map((x, i) => {
+      const p = pl(x.by), mine = x.by === ME.id;
+      const st = x.status === "ready" ? t("Lista") : x.status === "error" ? t("No disponible") : t("Preparando");
+      return `<div class="row"><span class="pos">${i + 1}</span><img src="${esc(x.cover)}" alt=""><div class="m"><div class="t">${esc(x.title)}</div><div class="a">${av(p)}${esc(mine ? t("Tú") : p.name)} · ${esc(st)}</div></div>${ring(x)}${mine ? `<button class="rm" data-q="${x.qid}" aria-label="Quitar">${IC.x}</button>` : ""}</div>`;
+    }).join("");
+  }
+  el.innerHTML = h;
+  el.querySelectorAll(".rm").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const d = await api("/k/remove", { qid: +b.dataset.q }); toast(d.error || t("Quitada de la cola")); } catch (e) {}
+  });
+}
+function renderRank() {
+  const el = $("rank"), sung = ST.players.filter(p => p.songs), rest = ST.players.filter(p => !p.songs);
+  let h = "";
+  if (!sung.length) h += `<div class="empty"><div class="big">${IC.trophy}</div><b>${esc(t("Aún no ha cantado nadie"))}</b></div>`;
+  h += sung.map((p, i) => `<div class="rk p${i + 1}${p.id === ME.id ? " me" : ""}"><span class="n">${i + 1}</span>${av(p, "lg")}<div class="nm">${esc(p.name)}<small>${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))} · ${esc(t("mejor"))} ${nf(p.best)}</small></div><span class="sc">${nf(p.total)}</span></div>`).join("");
+  if (rest.length) h += `<h3>${esc(t("Sin cantar todavía"))}</h3>` + rest.map(p => `<div class="rk${p.id === ME.id ? " me" : ""}"><span class="n">·</span>${av(p, "lg")}<div class="nm">${esc(p.name)}</div></div>`).join("");
+  const hist = ST.history.slice().reverse().slice(0, 12);
+  if (hist.length) h += `<h3>${esc(t("Últimas canciones"))}</h3>` + hist.map(x => { const p = pl(x.by);
+    return `<div class="row"><img src="${esc(x.cover)}" alt=""><div class="m"><div class="t">${esc(x.title)}</div><div class="a">${av(p)}${esc(p.name)}</div></div><b>${x.score == null ? esc(t("Sin puntuación")) : nf(x.score)}</b></div>`; }).join("");
+  el.innerHTML = h;
+}
+function tab(id) {
+  TAB = id;
+  document.querySelectorAll(".page").forEach(p => p.classList.toggle("on", p.id === id));
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === id));
+  if (id === "pSearch") setTimeout(() => { if (!$("q").value) $("q").focus(); }, 250);
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => tab(b.dataset.tab));
+tab("pNow");
+
+/* busqueda (la hace el PC en YouTube Music) */
+let sT = 0, sGen = 0;
+$("res").innerHTML = `<div class="empty"><div class="big"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></div>${esc(t("Busca una canción para cantarla."))}</div>`;
+$("q").addEventListener("input", () => { clearTimeout(sT); sT = setTimeout(search, 380); });
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") { clearTimeout(sT); search(); $("q").blur(); } });
+async function search() {
+  const q = $("q").value.trim(), g = ++sGen, el = $("res");
+  if (!q) return;
+  el.innerHTML = '<div class="spin"></div>';
+  let r;
+  try { r = await api("/k/search?q=" + encodeURIComponent(q)); } catch (e) { r = { error: 1 }; }
+  if (g !== sGen) return;
+  if (!Array.isArray(r)) { el.innerHTML = `<div class="empty">${esc(t("No se pudo buscar"))}</div>`; return; }
+  if (!r.length) { el.innerHTML = `<div class="empty">${esc(t("Sin resultados"))}</div>`; return; }
+  el.innerHTML = r.map((s, i) => `<div class="row"><img src="${esc(s.cover)}" alt="" loading="lazy"><div class="m"><div class="t">${esc(s.title)}</div><div class="a">${s.explicit ? '<span class="e">E</span>' : ""}${esc(s.artist)}${s.duration ? " · " + esc(s.duration) : ""}</div></div><button class="add" data-i="${i}" aria-label="Añadir">${IC.plus}</button></div>`).join("");
+  el.querySelectorAll(".add").forEach(b => b.onclick = async () => {
+    if (b.classList.contains("done")) return;
+    b.classList.add("done"); b.innerHTML = IC.check; vib(15);
+    try {
+      const d = await api("/k/add", { song: r[+b.dataset.i] });
+      if (d.error) { b.classList.remove("done"); b.innerHTML = IC.plus; toast(d.error); return; }
+      toast(t("Añadida a la cola") + " · " + t("posición") + " " + d.pos);
+    } catch (e) { b.classList.remove("done"); b.innerHTML = IC.plus; }
+  });
+}
+start();
+</script>
+</body>
+</html>

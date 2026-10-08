@@ -26,3 +26,7 @@ build/
 packaging/bin/
 _build_version.py
 *.spec
+
+# modo karaoke: modelo de IA (se descarga solo) y canciones procesadas
+models/
+karaoke/

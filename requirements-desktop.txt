@@ -3,3 +3,7 @@ pywebview>=6
 ytmusicapi>=1.12
 yt-dlp[default]
 pyinstaller>=6.16
+# modo karaoke: separacion de voz (MDX-Net en ONNX, GPU via DirectML) y QR para unirse
+numpy
+onnxruntime-directml
+segno

@@ -498,7 +498,7 @@ def _plays_num(text):
     m = re.match(r"\s*([\d.,\s\u00a0\u202f]*\d)\s*(mil\s*M|MM|B|M|mil|k|K)?", text or "")
     if not m or not re.search(r"\d", m.group(1)):
         return None
-    num = re.sub(r"[\s\u00a0\u202f]", "", m.group(1)); unit = (m.group(2) or "").replace(" ", "")
+    num = re.sub(r"[\s\u00a0\u202f]", "", m.group(1)); unit = re.sub(r"\s", "", m.group(2) or "")   # "mil\xa0M"
     mult = {"": 1, "k": 1000, "K": 1000, "mil": 1000, "M": 10 ** 6, "milM": 10 ** 9, "MM": 10 ** 9, "B": 10 ** 9}[unit]
     if mult == 1:
         return (int(re.sub(r"[.,]", "", num)), 1)
@@ -3792,7 +3792,53 @@ def yt_library(parts=None):
     return out
 
 
+def _kara():
+    """Modo karaoke (karaoke.py): se carga al usarlo por primera vez (numpy/onnxruntime solo entonces)."""
+    import karaoke
+    if karaoke.APP is None:
+        karaoke.APP = sys.modules[__name__]
+    return karaoke
+
+
 class H(BaseHTTPRequestHandler):
+    def _kara(self, u, method):
+        # solo la app de escritorio, desde el propio PC (los moviles usan el servidor LAN de karaoke.py)
+        if SERVER_MODE or self.client_address[0] not in ("127.0.0.1", "::1"):
+            return self._json({"error": "Solo en la app de escritorio"}, 403)
+        try:
+            K = _kara()
+        except ImportError as e:
+            return self._json({"error": "Falta el motor de karaoke: %s" % e}, 500)
+        qs = parse_qs(u.query)
+        if u.path == "/kara/pcm":
+            vid = qs.get("id", [""])[0]
+            try:
+                n = int(qs.get("n", ["0"])[0])
+            except ValueError:
+                n = -1
+            b = K.pcm(vid, n) if re.fullmatch(r"[\w-]{6,20}", vid) and n >= 0 else None
+            if b is None:
+                return self._json({"error": "no listo"}, 404)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+            return
+        d = {}
+        if method == "POST":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 65536:
+                return self._json({"error": "demasiado grande"}, 413)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+            except ValueError:
+                d = {}
+        try:
+            return self._json(K.host_api(method, u.path, qs, d if isinstance(d, dict) else {}))
+        except Exception as e:
+            return self._json({"error": str(e)[:200]}, 500)
+
     def _json(self, obj, status=200):
         payload = json.dumps(obj).encode()
         self.send_response(status)
@@ -3835,6 +3881,8 @@ class H(BaseHTTPRequestHandler):
             return self._json(dict(UPDATER.status(), enabled=True) if UPDATER else {"enabled": False, "version": VERSION})
         if u.path.startswith("/connect/"):
             return self._connect(u, "GET")
+        if u.path.startswith("/kara/"):
+            return self._kara(u, "GET")
         if u.path == "/migrate/pull":
             d = migrate_pull(parse_qs(u.query).get("token", [""])[0])
             payload = json.dumps({"ls": d["ls"]} if d else {"error": "token invalido o caducado"}).encode()
@@ -4168,6 +4216,8 @@ class H(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if u.path.startswith("/connect/"):
             return self._connect(u, "POST")
+        if u.path.startswith("/kara/"):
+            return self._kara(u, "POST")
         if u.path == "/migrate/push":
             n = int(self.headers.get("Content-Length") or 0)
             if n > 2 * 1024 * 1024:   # un localStorage real ronda cientos de KB

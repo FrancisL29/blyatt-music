@@ -18,6 +18,7 @@
          -webkit-font-smoothing: antialiased; overflow: hidden; }
   button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
   input { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
   svg.i { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
   /* fondo: la portada de la que suena, muy difuminada (imagen estatica: barato) */
   #bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
@@ -48,12 +49,14 @@
   header { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; padding: calc(12px + var(--sat)) 18px 10px; }
   .chip { display: flex; align-items: center; gap: 9px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--card);
           font-weight: 700; font-size: .95rem; min-width: 0; }
-  .chip span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .av { width: 30px; height: 30px; border-radius: 50%; background: var(--c, #8e8e93); display: grid; place-items: center; flex: none;
         font-weight: 800; font-size: .82rem; text-transform: uppercase; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .2); }
   .av.lg { width: 44px; height: 44px; font-size: 1.05rem; }
-  .room { margin-left: auto; font-size: .82rem; color: var(--muted); font-weight: 600; }
+  .room { margin-left: auto; font-size: .82rem; color: var(--muted); font-weight: 600; text-align: right; line-height: 1.25; }
   .room b { color: #fff; letter-spacing: .12em; }
+  .room .dif { display: block; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; }
+  .micdot { width: 8px; height: 8px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px #30d158; flex: none; }
   .conn { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translate(-50%, -10px); z-index: 5; padding: 7px 14px;
           border-radius: 999px; font-size: .8rem; font-weight: 700; background: rgb(255 159 10 / .95); color: #000;
           opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; }
@@ -77,15 +80,16 @@
   /* ahora */
   .now { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 6px; }
   .cov { width: min(72vw, 330px); aspect-ratio: 1; border-radius: 22px; object-fit: cover; background: var(--card);
-         box-shadow: 0 30px 70px rgb(0 0 0 / .55); transition: transform .5s cubic-bezier(.22, .9, .25, 1); }
+         box-shadow: 0 30px 70px rgb(0 0 0 / .55); transition: transform .5s cubic-bezier(.22, .9, .25, 1), width .5s cubic-bezier(.22, .9, .25, 1); }
   .now.paused .cov { transform: scale(.9); }
-  .nt { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; margin-top: 24px; line-height: 1.15; }
+  .now.mine .cov { width: min(40vw, 170px); border-radius: 16px; }
+  .nt { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; margin-top: 22px; line-height: 1.15; }
+  .now.mine .nt { font-size: 1.25rem; margin-top: 16px; }
   .na { color: var(--muted); font-weight: 600; margin-top: 4px; }
-  .by { margin-top: 18px; }
+  .by { margin-top: 16px; }
   .phase { margin-top: 10px; color: var(--muted); font-size: .9rem; font-weight: 600; min-height: 1.3em; }
-  .score { font-size: 3.2rem; font-weight: 800; letter-spacing: -.04em; font-variant-numeric: tabular-nums; margin-top: 4px; line-height: 1; }
+  .score { font-size: 3.2rem; font-weight: 800; letter-spacing: -.04em; font-variant-numeric: tabular-nums; margin-top: 4px; line-height: 1; min-height: 1em; }
   .rate { display: inline-block; margin-top: 8px; padding: 4px 12px; border-radius: 999px; background: var(--c, var(--accent)); font-weight: 800; font-size: .85rem; }
-  .rate[hidden] { display: none; }
   .reacts { display: flex; justify-content: center; gap: 6px; margin-top: 26px; }
   .reacts button { width: min(48px, 13vw); aspect-ratio: 1; border-radius: 50%; background: var(--card); font-size: 1.45rem; display: grid; place-items: center;
                    transition: transform .2s cubic-bezier(.2, 1.6, .4, 1), background .2s; }
@@ -95,13 +99,42 @@
             display: flex; align-items: center; gap: 12px; animation: bin .6s cubic-bezier(.2, 1.4, .4, 1); }
   .banner small { display: block; font-weight: 600; font-size: .85rem; opacity: .85; }
   @keyframes bin { from { opacity: 0; transform: translateY(-10px) scale(.95); } }
+  /* tu turno: micro + mando */
+  .turn { width: 100%; margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .micbtn { position: relative; width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+            background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--me) 85%, #fff), var(--me));
+            box-shadow: 0 18px 50px color-mix(in srgb, var(--me) 45%, transparent); transition: transform .2s cubic-bezier(.2, 1.4, .4, 1); }
+  .micbtn:active { transform: scale(.94); }
+  .micbtn svg { width: 50px; height: 50px; }
+  .micbtn.off { background: var(--card); box-shadow: none; }
+  .micbtn .lvl { position: absolute; inset: -10px; border-radius: 50%; border: 3px solid var(--me); opacity: 0; transform: scale(calc(.9 + var(--l, 0) * .3));
+                 transition: transform .08s linear, opacity .2s; }
+  .micbtn.live .lvl { opacity: calc(.25 + var(--l, 0) * .75); }
+  .mictxt { font-weight: 700; color: rgb(255 255 255 / .85); text-align: center; }
+  .mictxt small { display: block; color: var(--muted); font-weight: 500; font-size: .82rem; margin-top: 3px; }
+  .ctrls { display: flex; gap: 10px; width: 100%; }
+  .ctrls button { flex: 1; height: 52px; border-radius: 16px; background: var(--card); font-weight: 700; display: flex; align-items: center;
+                  justify-content: center; gap: 8px; transition: background .2s, transform .15s; }
+  .ctrls button:active { transform: scale(.97); background: rgb(255 255 255 / .14); }
+  .ctrls button svg { width: 20px; height: 20px; }
+  .slider { width: 100%; padding: 14px 16px; border-radius: 16px; background: var(--card); display: flex; flex-direction: column; gap: 10px; }
+  .slider label { display: flex; justify-content: space-between; font-weight: 700; font-size: .9rem; }
+  .slider label span { color: var(--muted); font-weight: 600; }
+  .slider input { width: 100%; accent-color: var(--me); }
+  .prep { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 18px; background: var(--card); text-align: left; margin-bottom: 14px; }
+  .prep .ic { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--me); flex: none; }
+  .prep .ic svg { width: 22px; height: 22px; }
+  .prep b { display: block; }
+  .prep small { color: var(--muted); font-size: .82rem; }
+  .prep.ok .ic { background: #30d158; }
   .empty { text-align: center; color: var(--muted); padding: 50px 10px 20px; }
   .empty .big { width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 24px; display: grid; place-items: center; background: var(--card); color: #fff; }
   .empty .big svg { width: 40px; height: 40px; }
   .empty b { display: block; color: #fff; font-size: 1.2rem; margin-bottom: 6px; }
   .empty .btn { width: auto; padding: 0 26px; display: inline-block; margin-top: 22px; }
   /* listas */
-  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); animation: rin .35s ease; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .row.new { animation: rin .35s ease; }
   @keyframes rin { from { opacity: 0; transform: translateY(6px); } }
   .row img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex: none; background: var(--card); }
   .row .m { flex: 1; min-width: 0; }
@@ -120,7 +153,7 @@
   .ring { width: 26px; height: 26px; flex: none; }
   .ring circle { fill: none; stroke-width: 3; }
   .ring .b { stroke: rgb(255 255 255 / .14); }
-  .ring .f { stroke: #fff; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .5s; }
+  .ring .f { stroke: #fff; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .6s ease, stroke .4s; }
   .ring.ok .f { stroke: #30d158; }
   .ring.err .f { stroke: #ff453a; }
   .search { position: sticky; top: 0; z-index: 2; padding: 4px 0 10px; background: linear-gradient(var(--bg) 70%, transparent); }
@@ -130,13 +163,25 @@
           animation: sp 1s linear infinite; margin: 30px auto; }
   @keyframes sp { to { transform: rotate(360deg); } }
   /* ranking */
-  .rk { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--card); margin-bottom: 8px; }
+  .rk { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--card); margin-bottom: 8px;
+        transition: background .3s; }
   .rk.me { background: rgb(255 255 255 / .14); }
   .rk .n { width: 26px; font-weight: 800; font-size: 1.05rem; text-align: center; color: var(--muted); }
   .rk.p1 .n { color: #ffd60a; } .rk.p2 .n { color: #d1d1d6; } .rk.p3 .n { color: #ff9f0a; }
   .rk .nm { flex: 1; min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rk .nm small { display: block; color: var(--muted); font-weight: 600; font-size: .78rem; }
-  .rk .sc { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .rk .sc { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; text-align: right; }
+  .rk .sc small { display: block; font-size: .66rem; color: var(--muted); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  /* hoja inferior */
+  .sheet { position: fixed; inset: 0; z-index: 8; display: flex; align-items: flex-end; background: rgb(0 0 0 / .5); opacity: 0;
+           visibility: hidden; transition: opacity .25s, visibility .25s; }
+  .sheet.on { opacity: 1; visibility: visible; }
+  .sheet > div { width: 100%; padding: 22px 22px calc(22px + var(--sab)); border-radius: 26px 26px 0 0; background: #1c1c22;
+                 transform: translateY(30px); transition: transform .35s cubic-bezier(.22, .9, .25, 1); }
+  .sheet.on > div { transform: none; }
+  .sheet h4 { margin: 0 0 8px; font-size: 1.3rem; }
+  .sheet p { margin: 0 0 6px; color: rgb(255 255 255 / .75); line-height: 1.45; }
+  .sheet ol { margin: 8px 0 4px; padding-left: 20px; color: rgb(255 255 255 / .75); line-height: 1.5; }
   #toast { position: fixed; left: 50%; bottom: calc(96px + var(--sab)); z-index: 9; transform: translate(-50%, 10px); width: max-content; max-width: 88vw;
            padding: 11px 18px; border-radius: 999px; background: rgb(44 44 52 / .96); font-weight: 650; font-size: .92rem;
            box-shadow: 0 10px 30px rgb(0 0 0 / .4); opacity: 0; transition: opacity .25s, transform .3s; pointer-events: none; text-align: center; }
@@ -166,18 +211,18 @@
 </div></section>
 
 <section class="view" id="vApp">
-  <header><div class="chip" id="meChip"></div><div class="room"><span data-t>Sala</span> <b id="roomCode"></b></div></header>
+  <header><div class="chip" id="meChip"></div><div class="room"><span data-t>Sala</span> <b id="roomCode"></b><span class="dif" id="difTxt"></span></div></header>
   <div class="conn" id="conn" data-t>Reconectando…</div>
   <div class="pages">
-    <div class="page" id="pNow"></div>
+    <div class="page" id="pNow"><div id="banner"></div><div id="prep"></div><div id="nowBox"></div></div>
     <div class="page" id="pSearch">
       <h2 data-t>Buscar</h2>
       <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
         <input class="field" id="q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Canción o artista"></div>
       <div id="res"></div>
     </div>
-    <div class="page" id="pQueue"><h2 data-t>Cola</h2><div id="qlist"></div></div>
-    <div class="page" id="pRank"><h2 data-t>Ranking</h2><div id="rank"></div></div>
+    <div class="page" id="pQueue"><h2 data-t>Cola</h2><div id="qnow"></div><div id="qlist"></div></div>
+    <div class="page" id="pRank"><h2 data-t>Ranking</h2><div id="rank"></div><div id="hist"></div></div>
   </div>
   <nav>
     <button data-tab="pNow" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span data-t>Ahora</span></button>
@@ -186,6 +231,20 @@
     <button data-tab="pRank"><svg class="i" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg><span data-t>Ranking</span></button>
   </nav>
 </section>
+<div class="sheet" id="secSheet"><div>
+  <h4 data-t>Usa tu móvil como micrófono</h4>
+  <p data-t>El navegador solo deja usar el micrófono en una conexión segura. Como es tu propia red, verás un aviso de seguridad una vez:</p>
+  <ol><li data-t>Toca «Configuración avanzada» (o «Mostrar detalles»).</li><li data-t>Elige «Continuar» (o «visitar este sitio web»).</li></ol>
+  <p data-t>Es seguro: la conexión va directa a la pantalla del karaoke.</p>
+  <button class="btn" id="secGo" data-t>Continuar</button>
+  <button class="btn ghost" id="secNo" data-t>Ahora no</button>
+</div></div>
+<div class="sheet" id="endSheet"><div>
+  <h4 data-t>¿Terminar tu canción?</h4>
+  <p data-t>Se acaba ahora y se cuenta la puntuación hasta aquí.</p>
+  <button class="btn" id="endGo" data-t>Terminar</button>
+  <button class="btn ghost" id="endNo" data-t>Seguir cantando</button>
+</div></div>
 <div id="toast"></div>
 
 <script>
@@ -199,12 +258,25 @@ const TR = { "Karaoke": "Karaoke", "Escribe el código que aparece en la pantall
   "canta": "sings", "Preparando la pista…": "Preparing the track…", "Cantando": "Singing", "En pausa": "Paused", "Resultado": "Score",
   "¡Te toca!": "Your turn!", "Coge el micrófono": "Grab the microphone", "Eres el siguiente": "You're up next", "Prepárate": "Get ready",
   "Añadida a la cola": "Added to the queue", "posición": "position", "La cola está vacía": "The queue is empty",
-  "Aquí aparecen las canciones elegidas.": "Songs you pick show up here.", "Sonando": "Now playing", "Lista": "Ready", "Preparando": "Preparing",
+  "Aquí aparecen las canciones elegidas.": "Picked songs show up here.", "Sonando": "Now playing", "Lista": "Ready", "Preparando": "Preparing",
   "No disponible": "Unavailable", "Aún no ha cantado nadie": "Nobody has sung yet", "Últimas canciones": "Recent songs",
   "Sin puntuación": "No score", "canción": "song", "canciones": "songs", "Sin cantar todavía": "Haven't sung yet",
   "La sala se cerró o el código no es válido.": "The room closed or the code is wrong.", "Escribe tu nombre": "Type your name",
   "No se pudo conectar": "Could not connect", "Quitada de la cola": "Removed from the queue", "Tú": "You", "Invitado": "Guest",
-  "Sin resultados": "No results", "No se pudo buscar": "Search failed", "mejor": "best", "Busca una canción para cantarla.": "Search a song to sing it." };
+  "Sin resultados": "No results", "No se pudo buscar": "Search failed", "mejor": "best", "Busca una canción para cantarla.": "Search a song to sing it.",
+  "promedio": "average", "Fácil": "Easy", "Normal": "Normal", "Difícil": "Hard", "Tu turno": "Your turn",
+  "Usa tu móvil como micrófono": "Use your phone as a microphone", "Activar micrófono": "Turn on microphone",
+  "Toca para cantar con tu móvil": "Tap to sing with your phone", "Micrófono activo": "Microphone on", "Te escuchamos": "We can hear you",
+  "Acércalo a la boca al cantar": "Hold it close when you sing", "Pausa": "Pause", "Seguir": "Resume", "Terminar": "Finish",
+  "Voz guía": "Guide vocals", "Prepara tu micrófono": "Get your microphone ready", "Micrófono listo": "Microphone ready",
+  "Lo usarás para que te puntúen cuando te toque.": "It will score you when it's your turn.",
+  "El navegador solo deja usar el micrófono en una conexión segura. Como es tu propia red, verás un aviso de seguridad una vez:": "Browsers only allow the microphone over a secure connection. Since this is your own network you'll see a security warning once:",
+  "Toca «Configuración avanzada» (o «Mostrar detalles»).": "Tap “Advanced” (or “Show details”).",
+  "Elige «Continuar» (o «visitar este sitio web»).": "Choose “Proceed” (or “visit this website”).",
+  "Es seguro: la conexión va directa a la pantalla del karaoke.": "It's safe: the connection goes straight to the karaoke screen.",
+  "Ahora no": "Not now", "¿Terminar tu canción?": "Finish your song?", "Se acaba ahora y se cuenta la puntuación hasta aquí.": "It ends now and the score so far counts.",
+  "Seguir cantando": "Keep singing", "No se pudo usar el micrófono": "Could not use the microphone", "Cuenta atrás": "Countdown",
+  "Este móvil no permite el micrófono aquí": "This phone doesn't allow the microphone here" };
 const t = s => EN ? (TR[s] || s) : s;
 document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.textContent));
 $("nameIn").placeholder = t("Tu nombre"); $("q").placeholder = t("Canción o artista");
@@ -216,19 +288,31 @@ const IC = {
   mic: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
   list: '<svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
   trophy: '<svg class="i" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>',
+  pause: '<svg class="i" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>',
+  play: '<svg class="i" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
+  stop: '<svg class="i" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
 };
 const EMO = ["👏", "🔥", "❤️", "😂", "🎉", "😮"];
+const DIF = { easy: "Fácil", normal: "Normal", hard: "Difícil" };
 const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
              set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
 let ROOM = (new URLSearchParams(location.search).get("r") || ls.get("kara.room") || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
 let ME = null, ST = null, V = -1, TAB = "pNow", gen = 0, turnSeen = 0, nextSeen = 0;
 const meKey = () => "kara.me." + ROOM;
 function loadMe() { try { ME = JSON.parse(ls.get(meKey()) || "null"); } catch (e) { ME = null; } }
+// viene de la version http para usar el micro: trae la identidad en el fragmento (no viaja al servidor)
+(() => {
+  const m = /[#&]k=([^&]+)/.exec(location.hash);
+  if (!m || !ROOM) return;
+  try { const me = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); if (me && me.key) ls.set("kara.me." + ROOM, JSON.stringify(me)); } catch (e) {}
+  history.replaceState(null, "", location.pathname + location.search);
+})();
 const nf = n => Math.round(n || 0).toLocaleString(EN ? "en-US" : "es-ES");
 const vib = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 let toastT = 0;
 function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 2200); }
 function show(id) { ["vCode", "vJoin", "vApp"].forEach(v => $(v).classList.toggle("on", v === id)); }
+function setHtml(el, h) { if (el._h !== h) { el._h = h; el.innerHTML = h; } }   // solo si cambia: nada parpadea
 
 async function api(path, body) {
   const u = path + (path.includes("?") ? "&" : "?") + "r=" + encodeURIComponent(ROOM);
@@ -238,7 +322,7 @@ async function api(path, body) {
   return r.json();
 }
 function roomGone() {
-  gen++; ST = null;
+  gen++; ST = null; micStop();
   $("codeErr").textContent = ROOM ? t("La sala se cerró o el código no es válido.") : "";
   $("codeIn").value = "";
   show("vCode");
@@ -259,10 +343,11 @@ async function start() {
 function enter() {
   show("vApp");
   document.documentElement.style.setProperty("--me", ME.color);
-  $("meChip").innerHTML = av(ME) + `<span>${esc(ME.name)}</span>`;
   $("roomCode").textContent = ROOM;
+  paintMe();
   poll(++gen);
 }
+function paintMe() { setHtml($("meChip"), av(ME) + `<span>${esc(ME.name)}</span>` + (MIC.on ? '<i class="micdot"></i>' : "")); }
 const av = (p, cls) => `<span class="av ${cls || ""}" style="--c:${esc(p.color)}">${esc(Array.from(p.name || "?")[0] || "?")}</span>`;
 const pl = id => (ST && ST.players.find(p => p.id === id)) || { name: t("Invitado"), color: "#8e8e93" };
 
@@ -301,88 +386,235 @@ async function poll(g) {
     }
   }
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden && ME && ROOM && $("vApp").classList.contains("on")) { V = -1; poll(++gen); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !ME || !ROOM || !$("vApp").classList.contains("on")) return;
+  V = -1; poll(++gen);
+  if (MIC.on) { wakeLock(); MIC.ctx && MIC.ctx.resume(); }
+});
 
-function ring(q) {
-  const c = 2 * Math.PI * 10, pr = q.status === "ready" ? 1 : q.status === "error" ? 1 : q.status === "sep" ? q.progress / 100 : q.status === "download" ? .06 : 0;
-  return `<svg class="ring ${q.status === "ready" ? "ok" : q.status === "error" ? "err" : ""}" viewBox="0 0 26 26"><circle class="b" cx="13" cy="13" r="10"/><circle class="f" cx="13" cy="13" r="10" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - pr)).toFixed(1)}"/></svg>`;
+/* ---------- el movil como microfono: altura de la voz medida aqui (YIN) y enviada con la hora del PC ---------- */
+const MIC = { on: false, ctx: null, an: null, stream: null, raw: null, x: null, d: null, sr2: 0, tmin: 0, tmax: 0, floor: .01,
+              off: 0, syncAt: 0, buf: [], sendAt: 0, timer: 0, lvl: 0, wl: null, sending: false };
+const SECURE = window.isSecureContext && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+function goSecure() {
+  if (!ST || !ST.mic_url) { toast(t("Este móvil no permite el micrófono aquí")); return; }
+  $("secSheet").classList.add("on");
+}
+$("secNo").onclick = () => $("secSheet").classList.remove("on");
+$("secGo").onclick = () => {
+  const k = btoa(unescape(encodeURIComponent(JSON.stringify(ME))));
+  location.href = ST.mic_url + "/?r=" + ROOM + "#k=" + encodeURIComponent(k);
+};
+async function syncClock() {   // reloj del PC: el de menor ida y vuelta de varios intentos
+  let best = null;
+  for (let i = 0; i < 6; i++) {
+    const t0 = performance.now();
+    try {
+      const d = await (await fetch("/k/time", { cache: "no-store" })).json();
+      const t1 = performance.now(), rtt = t1 - t0;
+      const off = d.t - (performance.timeOrigin + (t0 + t1) / 2) / 1000;
+      if (!best || rtt < best[0]) best = [rtt, off];
+    } catch (e) {}
+  }
+  if (best) { MIC.off = best[1]; MIC.syncAt = performance.now(); }
+}
+const pcNow = () => (performance.timeOrigin + performance.now()) / 1000 + MIC.off;
+async function wakeLock() { try { if (navigator.wakeLock && !document.hidden) MIC.wl = await navigator.wakeLock.request("screen"); } catch (e) {} }
+async function micStart() {   // siempre desde un toque (el audio del movil lo exige)
+  if (!SECURE) return goSecure();
+  if (MIC.on) return;
+  try {
+    MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) { toast(t("No se pudo usar el micrófono")); return; }
+  MIC.ctx = MIC.ctx || new (window.AudioContext || window.webkitAudioContext)();
+  await MIC.ctx.resume();
+  MIC.an = MIC.ctx.createAnalyser(); MIC.an.fftSize = 2048;
+  MIC.ctx.createMediaStreamSource(MIC.stream).connect(MIC.an);
+  MIC.raw = new Float32Array(2048); MIC.x = new Float32Array(1024);
+  MIC.sr2 = MIC.ctx.sampleRate / 2; MIC.tmin = Math.floor(MIC.sr2 / 1050); MIC.tmax = Math.min(420, Math.ceil(MIC.sr2 / 75));
+  MIC.d = new Float32Array(MIC.tmax + 2);
+  MIC.on = true; MIC.floor = .01;
+  ls.set("kara.mic", "1");
+  vib(20); wakeLock(); syncClock(); paintMe(); render();
+  clearInterval(MIC.timer);
+  MIC.timer = setInterval(micTick, 22);
+}
+function micStop() {
+  clearInterval(MIC.timer);
+  if (MIC.stream) MIC.stream.getTracks().forEach(tr => tr.stop());
+  MIC.stream = null; MIC.on = false;
+  try { MIC.wl && MIC.wl.release(); } catch (e) {}
+}
+function yin() {
+  MIC.an.getFloatTimeDomainData(MIC.raw);
+  const r = MIC.raw, x = MIC.x, n = x.length;
+  let e = 0;
+  for (let i = 0; i < n; i++) { const v = (r[2 * i] + r[2 * i + 1]) * .5; x[i] = v; e += v * v; }
+  const rms = Math.sqrt(e / n);
+  MIC.lvl = rms;
+  MIC.floor = Math.min(MIC.floor * 1.003 + 1e-5, Math.max(rms, .0015));
+  if (rms < Math.max(.005, MIC.floor * 2)) return 0;
+  const tmax = MIC.tmax, W = n - tmax, d = MIC.d;
+  for (let tau = 1; tau <= tmax; tau++) { let s = 0; for (let j = 0; j < W; j++) { const q = x[j] - x[j + tau]; s += q * q; } d[tau] = s; }
+  let run = 0;
+  for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
+  let tau = -1;
+  for (let k = MIC.tmin; k < tmax; k++) if (d[k] < .2) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  if (tau < 0) { let b = MIC.tmin; for (let k = MIC.tmin; k < tmax; k++) if (d[k] < d[b]) b = k; if (d[b] < .38) tau = b; else return 0; }
+  const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
+  const f = MIC.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
+  return f > 70 && f < 1100 ? 69 + 12 * Math.log2(f / 440) : 0;
+}
+function myTurn() { return ST && ST.now && ME && ST.now.by === ME.id && ["intro", "count", "sing", "paused"].includes(ST.now.phase); }
+function micTick() {
+  if (!MIC.on) return;
+  const m = yin(), now = performance.now();
+  const b = document.querySelector(".micbtn");
+  if (b) b.style.setProperty("--l", Math.min(1, MIC.lvl * 14).toFixed(2));
+  if (!myTurn()) { MIC.buf.length = 0; return; }
+  MIC.buf.push([+pcNow().toFixed(3), Math.round(m * 10)]);
+  if (now - MIC.syncAt > 30000) { MIC.syncAt = now; syncClock(); }
+  if (now - MIC.sendAt > 100 && !MIC.sending) {   // ~10 envios por segundo (conexion reutilizada)
+    MIC.sendAt = now;
+    const s = MIC.buf.splice(0);
+    MIC.sending = true;
+    api("/k/mic", { s }).catch(() => {}).finally(() => { MIC.sending = false; });
+  }
+}
+
+/* ---------- pintado (cada parte solo cambia lo que cambio) ---------- */
+function ringSvg(q) {
+  const c = 2 * Math.PI * 10, pr = q.status === "ready" || q.status === "error" ? 1 : q.status === "sep" ? q.progress / 100 : q.status === "download" ? .06 : 0;
+  return { cls: "ring" + (q.status === "ready" ? " ok" : q.status === "error" ? " err" : ""), off: (c * (1 - pr)).toFixed(1), c: c.toFixed(1) };
 }
 function render() {
   if (!ST) return;
   const now = ST.now, bg = $("bgimg"), cov = now ? String(now.cover || "").replace(/=w\d+-h\d+/, "=w544-h544") : "";
   if (cov && bg.dataset.src !== cov) { bg.dataset.src = cov; bg.classList.remove("on"); bg.onload = () => bg.classList.add("on"); bg.src = cov; }
   if (!cov) bg.classList.remove("on");
+  $("difTxt").textContent = t(DIF[ST.diff] || "Normal");
   renderNow(); renderQueue(); renderRank();
   const mine = ST.queue.filter(q => q.by === ME.id).length;
   $("qdot").textContent = mine; $("qdot").classList.toggle("on", mine > 0);
 }
 function renderNow() {
-  const now = ST.now, el = $("pNow");
+  const now = ST.now, mineNow = myTurn(), qMine = ST.queue.some(q => q.by === ME.id);
+  // aviso de turno
   let ban = "";
   if (now && now.by === ME.id && now.phase === "intro") {
     ban = `<div class="banner">${IC.mic}<div>${esc(t("¡Te toca!"))}<small>${esc(t("Coge el micrófono"))}</small></div></div>`;
     if (turnSeen !== now.qid) { turnSeen = now.qid; vib([60, 80, 60, 80, 120]); }
-  } else if (ST.queue[0] && ST.queue[0].by === ME.id) {
+  } else if (ST.queue[0] && ST.queue[0].by === ME.id && !mineNow) {
     ban = `<div class="banner">${IC.list}<div>${esc(t("Eres el siguiente"))}<small>${esc(t("Prepárate"))}</small></div></div>`;
     if (nextSeen !== ST.queue[0].qid) { nextSeen = ST.queue[0].qid; vib(40); }
   }
+  setHtml($("banner"), ban);
+  // preparar el micro antes del turno
+  let prep = "";
+  if (qMine && !mineNow) prep = MIC.on
+    ? `<div class="prep ok"><span class="ic">${IC.check}</span><div><b>${esc(t("Micrófono listo"))}</b><small>${esc(t("Lo usarás para que te puntúen cuando te toque."))}</small></div></div>`
+    : `<button class="prep" id="prepBtn"><span class="ic">${IC.mic}</span><div><b>${esc(t("Prepara tu micrófono"))}</b><small>${esc(t("Toca para cantar con tu móvil"))}</small></div></button>`;
+  setHtml($("prep"), prep);
+  const pb = $("prepBtn"); if (pb) pb.onclick = micStart;
+  const box = $("nowBox");
   if (!now) {
-    el.innerHTML = ban + `<div class="empty"><div class="big">${IC.mic}</div><b>${esc(t("Nadie está cantando"))}</b>${esc(t("Elige una canción y será la siguiente en sonar."))}<br><button class="btn" onclick="tab('pSearch')">${esc(t("Elegir canción"))}</button></div>`;
+    setHtml(box, `<div class="empty"><div class="big">${IC.mic}</div><b>${esc(t("Nadie está cantando"))}</b>${esc(t("Elige una canción y será la siguiente en sonar."))}<br><button class="btn" data-go="pSearch">${esc(t("Elegir canción"))}</button></div>`);
+    box.querySelector("[data-go]").onclick = () => tab("pSearch");
+    box.dataset.k = "";
     return;
   }
   const p = pl(now.by), live = ST.live && ST.live.qid === now.qid ? ST.live : null;
-  const ph = now.phase === "intro" ? t("Preparando la pista…") : now.phase === "paused" ? t("En pausa")
+  const key = now.qid + "|" + (mineNow ? "m" : "o") + "|" + (MIC.on ? 1 : 0);
+  if (box.dataset.k !== key) {   // estructura una vez por cancion/modo; luego solo textos
+    box.dataset.k = key;
+    const big = String(now.cover || "").replace(/=w\d+-h\d+/, "=w544-h544");
+    box.innerHTML = `<div class="now${mineNow ? " mine" : ""}">
+      <img class="cov" src="${esc(big)}" alt="">
+      <div class="nt">${esc(now.title)}</div><div class="na">${esc(now.artist)}</div>
+      ${mineNow ? "" : `<div class="chip by">${av(p)}<span>${esc(p.name)} <span style="color:var(--muted);font-weight:500">${esc(t("canta"))}</span></span></div>`}
+      <div class="phase"></div><div class="score"></div>
+      <span class="rate" style="--c:${esc(p.color)}" hidden></span>
+      ${mineNow ? `<div class="turn">
+        <button class="micbtn${MIC.on ? " live" : " off"}" id="micBtn"><span class="lvl"></span>${IC.mic}</button>
+        <div class="mictxt">${MIC.on ? esc(t("Micrófono activo")) + `<small>${esc(t("Acércalo a la boca al cantar"))}</small>` : esc(t("Activar micrófono")) + `<small>${esc(t("Toca para cantar con tu móvil"))}</small>`}</div>
+        <div class="ctrls"><button id="pauseBtn"></button><button id="endBtn">${IC.stop}${esc(t("Terminar"))}</button></div>
+        <div class="slider"><label>${esc(t("Voz guía"))}<span id="gVal"></span></label><input type="range" id="gIn" min="0" max="100" step="1"></div>
+      </div>` : `<div class="reacts">${EMO.map(e => `<button data-e="${e}">${e}</button>`).join("")}</div>`}</div>`;
+    box.querySelectorAll(".reacts button").forEach(b => b.onclick = () => { vib(10); api("/k/react", { e: b.dataset.e }).catch(() => {}); });
+    if (mineNow) {
+      $("micBtn").onclick = () => { if (!MIC.on) micStart(); };
+      $("pauseBtn").onclick = () => { vib(15); api("/k/cmd", { c: ST.now.phase === "paused" ? "resume" : "pause" }).catch(() => {}); };
+      $("endBtn").onclick = () => $("endSheet").classList.add("on");
+      let gt = 0;
+      $("gIn").oninput = e => { $("gVal").textContent = e.target.value + "%"; clearTimeout(gt); gt = setTimeout(() => api("/k/cmd", { c: "guide", v: +e.target.value }).catch(() => {}), 150); };
+    }
+  }
+  const ph = now.phase === "intro" ? t("Preparando la pista…") : now.phase === "count" ? t("Cuenta atrás") : now.phase === "paused" ? t("En pausa")
     : now.phase === "results" ? t("Resultado") : t("Cantando");
   const sc = now.phase === "results" ? (now.score == null ? "—" : nf(now.score)) : live ? nf(live.score) : "";
-  const key = now.qid + "|" + now.phase;
-  if (el.dataset.k === key) {   // misma cancion y fase: solo lo que cambia (sin repintar la portada)
-    const s = el.querySelector(".score"); if (s) s.textContent = sc;
-    const r = el.querySelector(".rate"); if (r) { r.textContent = live && live.rating || ""; r.hidden = !(live && live.rating); }
-    const b = el.querySelector(".bslot"); if (b && b.innerHTML !== ban) b.innerHTML = ban;
-    return;
+  const q = s => box.querySelector(s);
+  q(".phase").textContent = mineNow ? t("Tu turno") + " · " + ph : ph;
+  q(".score").textContent = sc;
+  const r = q(".rate"); r.textContent = live && live.rating || ""; r.hidden = !(live && live.rating);
+  q(".now").classList.toggle("paused", now.phase === "paused");
+  if (mineNow) {
+    $("pauseBtn").innerHTML = now.phase === "paused" ? IC.play + esc(t("Seguir")) : IC.pause + esc(t("Pausa"));
+    if (document.activeElement !== $("gIn")) { $("gIn").value = ST.guide || 0; $("gVal").textContent = (ST.guide || 0) + "%"; }
   }
-  el.dataset.k = key;
-  el.innerHTML = `<div class="bslot">${ban}</div><div class="now${now.phase === "paused" ? " paused" : ""}">
-    <img class="cov" src="${esc(String(now.cover || "").replace(/=w\d+-h\d+/, "=w544-h544"))}" alt="">
-    <div class="nt">${esc(now.title)}</div><div class="na">${esc(now.artist)}</div>
-    <div class="chip by">${av(p)}<span>${esc(p.name)} <span style="color:var(--muted);font-weight:500">${esc(t("canta"))}</span></span></div>
-    <div class="phase">${esc(ph)}</div>
-    <div class="score">${esc(sc)}</div>
-    <span class="rate" style="--c:${esc(p.color)}" ${live && live.rating ? "" : "hidden"}>${esc(live && live.rating || "")}</span>
-    <div class="reacts">${EMO.map(e => `<button data-e="${e}">${e}</button>`).join("")}</div></div>`;
-  el.querySelectorAll(".reacts button").forEach(b => b.onclick = () => { vib(10); api("/k/react", { e: b.dataset.e }).catch(() => {}); });
 }
+$("endNo").onclick = () => $("endSheet").classList.remove("on");
+$("endGo").onclick = () => { $("endSheet").classList.remove("on"); vib(20); api("/k/cmd", { c: "end" }).catch(() => {}); };
+
+// listas con clave: cada fila se crea una vez (portada incluida) y despues solo se actualizan sus datos
+function keyed(container, items, key, make, update) {
+  const old = new Map([...container.children].map(el => [el.dataset.k, el]));
+  let prev = null;
+  items.forEach((it, i) => {
+    const k = String(key(it));
+    let el = old.get(k);
+    if (!el) { el = make(it); el.dataset.k = k; if (container.childElementCount) el.classList.add("new"); }
+    old.delete(k);
+    update(el, it, i);
+    const want = prev ? prev.nextSibling : container.firstChild;
+    if (el !== want) container.insertBefore(el, want);
+    prev = el;
+  });
+  old.forEach(el => el.remove());
+}
+const html = h => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
 function renderQueue() {
-  const el = $("qlist"), q = ST.queue, now = ST.now;
-  let h = "";
-  if (now) {
-    const p = pl(now.by);
-    h += `<h3>${esc(t("Sonando"))}</h3><div class="row"><img src="${esc(now.cover)}" alt=""><div class="m"><div class="t">${esc(now.title)}</div><div class="a">${av(p)}${esc(p.name)}</div></div></div>`;
-  }
-  if (!q.length) h += `<div class="empty"><div class="big">${IC.list}</div><b>${esc(t("La cola está vacía"))}</b>${esc(t("Aquí aparecen las canciones elegidas."))}</div>`;
-  else {
-    h += `<h3>${esc(t("Cola"))}</h3>` + q.map((x, i) => {
-      const p = pl(x.by), mine = x.by === ME.id;
-      const st = x.status === "ready" ? t("Lista") : x.status === "error" ? t("No disponible") : t("Preparando");
-      return `<div class="row"><span class="pos">${i + 1}</span><img src="${esc(x.cover)}" alt=""><div class="m"><div class="t">${esc(x.title)}</div><div class="a">${av(p)}${esc(mine ? t("Tú") : p.name)} · ${esc(st)}</div></div>${ring(x)}${mine ? `<button class="rm" data-q="${x.qid}" aria-label="Quitar">${IC.x}</button>` : ""}</div>`;
-    }).join("");
-  }
-  el.innerHTML = h;
-  el.querySelectorAll(".rm").forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    try { const d = await api("/k/remove", { qid: +b.dataset.q }); toast(d.error || t("Quitada de la cola")); } catch (e) {}
+  const now = ST.now;
+  setHtml($("qnow"), now ? `<h3>${esc(t("Sonando"))}</h3><div class="row"><img src="${esc(now.cover)}" alt=""><div class="m"><div class="t">${esc(now.title)}</div><div class="a">${av(pl(now.by))}${esc(pl(now.by).name)}</div></div></div><h3>${esc(t("Cola"))}</h3>`
+    : ST.queue.length ? "" : `<div class="empty"><div class="big">${IC.list}</div><b>${esc(t("La cola está vacía"))}</b>${esc(t("Aquí aparecen las canciones elegidas."))}</div>`);
+  keyed($("qlist"), ST.queue, q => q.qid, q => {
+    const mine = q.by === ME.id;
+    const el = html(`<div class="row"><span class="pos"></span><img src="${esc(q.cover)}" alt=""><div class="m"><div class="t">${esc(q.title)}</div><div class="a"></div></div><svg class="ring" viewBox="0 0 26 26"><circle class="b" cx="13" cy="13" r="10"/><circle class="f" cx="13" cy="13" r="10"/></svg>${mine ? `<button class="rm" aria-label="Quitar">${IC.x}</button>` : ""}</div>`);
+    const rm = el.querySelector(".rm");
+    if (rm) rm.onclick = async () => { rm.disabled = true; try { const d = await api("/k/remove", { qid: q.qid }); toast(d.error || t("Quitada de la cola")); } catch (e) {} };
+    return el;
+  }, (el, q, i) => {
+    const p = pl(q.by), mine = q.by === ME.id, rg = ringSvg(q);
+    el.querySelector(".pos").textContent = i + 1;
+    setHtml(el.querySelector(".a"), `${av(p)}${esc(mine ? t("Tú") : p.name)} · ${esc(q.status === "ready" ? t("Lista") : q.status === "error" ? t("No disponible") : t("Preparando"))}`);
+    const ring = el.querySelector(".ring"), f = ring.querySelector(".f");
+    ring.setAttribute("class", rg.cls); f.setAttribute("stroke-dasharray", rg.c); f.setAttribute("stroke-dashoffset", rg.off);
   });
 }
 function renderRank() {
-  const el = $("rank"), sung = ST.players.filter(p => p.songs), rest = ST.players.filter(p => !p.songs);
-  let h = "";
-  if (!sung.length) h += `<div class="empty"><div class="big">${IC.trophy}</div><b>${esc(t("Aún no ha cantado nadie"))}</b></div>`;
-  h += sung.map((p, i) => `<div class="rk p${i + 1}${p.id === ME.id ? " me" : ""}"><span class="n">${i + 1}</span>${av(p, "lg")}<div class="nm">${esc(p.name)}<small>${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))} · ${esc(t("mejor"))} ${nf(p.best)}</small></div><span class="sc">${nf(p.total)}</span></div>`).join("");
-  if (rest.length) h += `<h3>${esc(t("Sin cantar todavía"))}</h3>` + rest.map(p => `<div class="rk${p.id === ME.id ? " me" : ""}"><span class="n">·</span>${av(p, "lg")}<div class="nm">${esc(p.name)}</div></div>`).join("");
+  const sung = ST.players.filter(p => p.songs), rest = ST.players.filter(p => !p.songs);
+  const rows = sung.map((p, i) => ({ p, i, k: p.id })).concat(rest.map(p => ({ p, i: -1, k: p.id })));
+  keyed($("rank"), rows, r => r.k, () => html(`<div class="rk"><span class="n"></span><span class="avs"></span><div class="nm"></div><span class="sc"></span></div>`), (el, r) => {
+    const p = r.p;
+    el.className = "rk" + (r.i >= 0 && r.i < 3 ? " p" + (r.i + 1) : "") + (p.id === ME.id ? " me" : "");
+    el.querySelector(".n").textContent = r.i >= 0 ? r.i + 1 : "·";
+    setHtml(el.querySelector(".avs"), av(p, "lg"));
+    setHtml(el.querySelector(".nm"), esc(p.name) + (p.songs ? `<small>${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))} · ${esc(t("mejor"))} ${nf(p.best)}</small>` : `<small>${esc(t("Sin cantar todavía"))}</small>`));
+    setHtml(el.querySelector(".sc"), p.songs ? `${nf(p.avg)}<small>${esc(t("promedio"))}</small>` : "");
+  });
   const hist = ST.history.slice().reverse().slice(0, 12);
-  if (hist.length) h += `<h3>${esc(t("Últimas canciones"))}</h3>` + hist.map(x => { const p = pl(x.by);
-    return `<div class="row"><img src="${esc(x.cover)}" alt=""><div class="m"><div class="t">${esc(x.title)}</div><div class="a">${av(p)}${esc(p.name)}</div></div><b>${x.score == null ? esc(t("Sin puntuación")) : nf(x.score)}</b></div>`; }).join("");
-  el.innerHTML = h;
+  setHtml($("hist"), (!sung.length ? `<div class="empty"><div class="big">${IC.trophy}</div><b>${esc(t("Aún no ha cantado nadie"))}</b></div>` : "")
+    + (hist.length ? `<h3>${esc(t("Últimas canciones"))}</h3>` + hist.map(x => { const p = pl(x.by);
+      return `<div class="row"><img src="${esc(x.cover)}" alt=""><div class="m"><div class="t">${esc(x.title)}</div><div class="a">${av(p)}${esc(p.name)} · ${esc(t(DIF[x.diff] || "Normal"))}</div></div><b>${x.score == null ? esc(t("Sin puntuación")) : nf(x.score)}</b></div>`; }).join("") : ""));
 }
 function tab(id) {
   TAB = id;
@@ -407,7 +639,7 @@ async function search() {
   if (g !== sGen) return;
   if (!Array.isArray(r)) { el.innerHTML = `<div class="empty">${esc(t("No se pudo buscar"))}</div>`; return; }
   if (!r.length) { el.innerHTML = `<div class="empty">${esc(t("Sin resultados"))}</div>`; return; }
-  el.innerHTML = r.map((s, i) => `<div class="row"><img src="${esc(s.cover)}" alt="" loading="lazy"><div class="m"><div class="t">${esc(s.title)}</div><div class="a">${s.explicit ? '<span class="e">E</span>' : ""}${esc(s.artist)}${s.duration ? " · " + esc(s.duration) : ""}</div></div><button class="add" data-i="${i}" aria-label="Añadir">${IC.plus}</button></div>`).join("");
+  el.innerHTML = r.map((s, i) => `<div class="row new"><img src="${esc(s.cover)}" alt="" loading="lazy"><div class="m"><div class="t">${esc(s.title)}</div><div class="a">${s.explicit ? '<span class="e">E</span>' : ""}${esc(s.artist)}${s.duration ? " · " + esc(s.duration) : ""}</div></div><button class="add" data-i="${i}" aria-label="Añadir">${IC.plus}</button></div>`).join("");
   el.querySelectorAll(".add").forEach(b => b.onclick = async () => {
     if (b.classList.contains("done")) return;
     b.classList.add("done"); b.innerHTML = IC.check; vib(15);

@@ -1174,7 +1174,39 @@
                     24%, 78% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.94); } }
   .kmic { font-size: .78rem; font-weight: 700; padding: 6px 11px; border-radius: 999px; background: rgb(255 69 58 / .9);
           border: 0; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-  .kmic[hidden] { display: none; }
+  .kmic.ok { background: rgb(255 255 255 / .12); }
+  /* dificultad: control segmentado */
+  .kdiffs { display: inline-flex; padding: 4px; border-radius: 14px; gap: 2px; }
+  .kdiffs button { border: 0; background: none; color: rgb(255 255 255 / .7); font: inherit; font-weight: 700; font-size: .95rem;
+                   padding: 9px 18px; border-radius: 10px; cursor: pointer; transition: background .25s, color .25s; }
+  .kdiffs button.on { background: #fff; color: #111; }
+  .kdiffs.sm { background: rgb(255 255 255 / .08); align-self: flex-start; }
+  .kdiffs.sm button { font-size: .82rem; padding: 7px 13px; }
+  #kMicRow[hidden] { display: none; }
+  #kMicRow { display: flex; flex-direction: column; gap: 10px; }
+  .kdiff { font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 4px 9px;
+           border-radius: 999px; background: rgb(255 255 255 / .12); color: rgb(255 255 255 / .75); }
+  /* clasificacion final: podio */
+  #kBoardS { background: radial-gradient(120% 90% at 50% 0%, #2b1a3f 0%, #0c0c14 60%), #0c0c14; }
+  .kboards { display: flex; flex-direction: column; align-items: center; text-align: center; width: min(900px, 92vw); }
+  .kpodium { display: flex; align-items: flex-end; justify-content: center; gap: 2.4vw; margin: 34px 0 10px; width: 100%; }
+  .kpod { flex: 1; max-width: 230px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+          animation: kup .8s cubic-bezier(.2, 1.2, .4, 1) both; }
+  .kpod.p1 { animation-delay: .35s; } .kpod.p2 { animation-delay: .15s; } .kpod.p3 { animation-delay: 0s; }
+  @keyframes kup { from { opacity: 0; transform: translateY(40px); } }
+  .kpod .kav.lg { margin-bottom: 8px; }
+  .kpod.p1 .kav.lg { width: 96px; height: 96px; font-size: 2.3rem; box-shadow: 0 0 0 4px #ffd60a, 0 16px 40px rgb(0 0 0 / .4); }
+  .kpn { font-weight: 800; font-size: 1.15rem; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kps { font-weight: 800; font-size: 2rem; letter-spacing: -.03em; }
+  .kpx { font-size: .8rem; color: rgb(255 255 255 / .55); font-weight: 600; }
+  .kpb { width: 100%; margin-top: 12px; border-radius: 18px 18px 6px 6px; display: grid; place-items: center;
+         background: linear-gradient(180deg, rgb(255 255 255 / .16), rgb(255 255 255 / .05)); font-size: 2.2rem; font-weight: 800; color: rgb(255 255 255 / .8); }
+  .kpod.p1 .kpb { height: 150px; background: linear-gradient(180deg, rgb(255 214 10 / .45), rgb(255 214 10 / .08)); color: #fff; }
+  .kpod.p2 .kpb { height: 105px; }
+  .kpod.p3 .kpb { height: 75px; }
+  .kpod.empty { visibility: hidden; }
+  .kbjoin { margin-top: 26px; text-align: left; }
+  .kbjoin span { display: block; }
   .kjoin { display: flex; align-items: center; gap: 12px; padding: 7px 14px 7px 7px; border-radius: 16px; }
   .kjoin .kqr { width: 56px; height: 56px; background: #fff; border-radius: 9px; padding: 5px; flex: none; }
   .kjoin b { display: block; font-size: .85rem; }
@@ -1200,7 +1232,7 @@
       radial-gradient(40% 40% at 25% 30%, rgb(255 55 95 / .35), transparent 70%),
       radial-gradient(35% 35% at 75% 65%, rgb(94 92 230 / .38), transparent 70%),
       radial-gradient(30% 30% at 60% 20%, rgb(10 132 255 / .25), transparent 70%);
-      filter: blur(40px); animation: klobg 22s ease-in-out infinite alternate; }
+      animation: klobg 22s ease-in-out infinite alternate; will-change: transform; }
   @keyframes klobg { to { transform: rotate(14deg) scale(1.12) translate3d(3%, -2%, 0); } }
   .klob { position: relative; display: flex; align-items: center; gap: 6vw; padding: 0 6vw; width: 100%; max-width: 1500px; }
   .kqrcard { flex: none; width: min(34vh, 380px); aspect-ratio: 1; background: #fff; border-radius: 28px; padding: 22px;
@@ -1253,6 +1285,7 @@
   /* resultados */
   .kres { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: min(560px, 90vw); }
   .kresby { display: flex; align-items: center; gap: 14px; font-size: 1.4rem; font-weight: 800; }
+  .kresby .kdiff { font-size: .7rem; }
   .kresn { font-size: clamp(5rem, 11vw, 9rem); font-weight: 800; letter-spacing: -.05em; line-height: 1; margin-top: 18px;
            background: linear-gradient(180deg, #fff, rgb(255 255 255 / .72)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .kstars { display: flex; gap: 10px; margin-top: 12px; font-size: 2.1rem; }
@@ -1265,8 +1298,8 @@
   .kbr.me { background: rgb(255 255 255 / .16); }
   .kbr .kbn { width: 1.6em; font-weight: 800; color: rgb(255 255 255 / .55); text-align: center; }
   .kbr .kbname { flex: 1; font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .kbr .kbs { font-weight: 800; }
-  .kbr .kbx { font-size: .78rem; color: rgb(255 255 255 / .5); margin-left: 6px; font-weight: 600; }
+  .kbr .kbs { font-weight: 800; min-width: 3.6em; text-align: right; }
+  .kbr .kbx { font-size: .78rem; color: rgb(255 255 255 / .5); margin-left: 6px; font-weight: 600; white-space: nowrap; }
   .kresnext { margin-top: 26px; font-size: .95rem; color: rgb(255 255 255 / .6); }
   .kbar { width: 200px; height: 4px; border-radius: 4px; background: rgb(255 255 255 / .14); margin-top: 12px; overflow: hidden; }
   .kbar i { display: block; height: 100%; width: 0; background: #fff; border-radius: 4px; }
@@ -1408,6 +1441,8 @@
         <div class="kh1" data-i18n>Karaoke</div>
         <div class="kh2" data-i18n>Escanea el código con el móvil para unirte y elegir canciones.</div>
         <div class="kaddr"><span data-i18n>O abre</span> <code id="kUrl"></code> <span data-i18n>con el código</span> <code class="kcode" id="kCode"></code></div>
+        <div class="ksec" data-i18n>Dificultad</div>
+        <div class="kdiffs kglass"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
         <div class="ksec" data-i18n>Jugadores</div><div id="kPlayers" class="kplayers"></div>
         <div class="ksec" data-i18n>En cola</div><div id="kLobQ" class="kq"></div>
         <div id="kEng" class="keng"></div>
@@ -1428,11 +1463,18 @@
     <div class="kboard" id="kBoard"></div>
     <div class="kresnext" id="kResNext"></div><div class="kbar"><i id="kResBar"></i></div>
   </div></div>
+  <div id="kBoardS" class="kscreen"><div class="kboards">
+    <div class="kh1" data-i18n>Clasificación</div>
+    <div class="kh2" data-i18n>Promedio por canción · mejor puntuación</div>
+    <div class="kpodium" id="kPodium"></div>
+    <div class="kboard" id="kRest"></div>
+    <div class="kjoin kglass kbjoin"><div class="kqr" id="kQrBoard"></div><div><b data-i18n>¿Otra ronda?</b><span data-i18n>Elige más canciones desde el móvil</span><span id="kUrlBoard"></span></div></div>
+  </div></div>
   <div class="ktop">
     <div class="ksinger" id="kSinger"></div>
     <div class="kscore">
       <span class="krate" id="kRate"></span>
-      <button class="kmic" id="kMicWarn" hidden><i class="ph ph-microphone-slash"></i><span></span></button>
+      <button class="kmic" id="kMicWarn"><i class="ph ph-microphone-slash"></i><span></span></button>
       <div><small data-i18n>Puntos</small><span id="kScore">0</span></div>
     </div>
     <div class="kjoin kglass"><div class="kqr" id="kQrMini"></div><div><b data-i18n>Únete</b><span id="kUrlMini"></span></div></div>
@@ -1450,9 +1492,15 @@
   </div>
   <div class="klobx" id="kLobX"><button class="kglass" id="kSetBtn2" title="Ajustes"><i class="ph ph-sliders-horizontal"></i></button><button class="kglass" id="kExit2" title="Salir del karaoke"><i class="ph ph-x"></i></button></div>
   <div class="kset kglass" id="kSet" hidden>
-    <label><span data-i18n>Micrófono</span><select id="kMicSel"></select></label>
-    <div class="kmeter"><i id="kMeter"></i></div>
+    <label><span data-i18n>Puntuar con</span><select id="kMicMode">
+      <option value="auto" data-i18n>Automático: el móvil de quien canta o, si no, el PC</option>
+      <option value="phone" data-i18n>Solo el móvil de quien canta</option>
+      <option value="pc" data-i18n>Solo el micrófono del PC</option></select></label>
+    <div id="kMicRow"><label><span data-i18n>Micrófono del PC</span><select id="kMicSel"></select></label>
+    <div class="kmeter"><i id="kMeter"></i></div></div>
     <div class="kms" id="kMicSt"></div>
+    <label><span data-i18n>Dificultad</span></label>
+    <div class="kdiffs sm"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
     <label><span data-i18n>Voz guía</span><input type="range" id="kGuide" min="0" max="100" step="1"></label>
     <div class="kms" data-i18n>Con la voz guía alta el micrófono también la oye: mejor bajita.</div>
   </div>
@@ -1761,6 +1809,16 @@ const EN = {
   "Motor de voz listo": "Vocal engine ready", "El motor de voz no está disponible": "The vocal engine is not available",
   "Preparando el motor de voz…": "Preparing the vocal engine…", "No se pudo abrir el karaoke": "Could not open the karaoke",
   "Pulsa otra vez para salir del karaoke": "Press again to leave the karaoke",
+  "Dificultad": "Difficulty", "Fácil": "Easy", "Difícil": "Hard", "Clasificación": "Leaderboard",
+  "Promedio por canción · mejor puntuación": "Average per song · best score", "¿Otra ronda?": "Another round?",
+  "Elige más canciones desde el móvil": "Pick more songs from your phone", "mejor": "best",
+  "Puntuar con": "Score with", "Automático: el móvil de quien canta o, si no, el PC": "Automatic: the singer's phone, or else the PC",
+  "Solo el móvil de quien canta": "Only the singer's phone", "Solo el micrófono del PC": "Only the PC microphone",
+  "Micrófono del PC": "PC microphone", "Micro del móvil": "Phone mic", "Micro del PC": "PC mic",
+  "Solo se puntúa con el móvil de quien canta.": "Only the singer's phone is scored.",
+  "Micrófono del PC listo: canta cerca de él.": "PC microphone ready: sing close to it.",
+  "Activa el micro en tu móvil": "Turn on the mic on your phone",
+  "No se encontró ningún micrófono en el PC.": "No microphone found on the PC.",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
@@ -6038,16 +6096,24 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
    motor de la letra, con el reloj de este reproductor), carril de melodia con la voz del cantante en directo
    y puntuacion. El audio llega en trozos PCM ya separados (sin voz) mientras el servidor los procesa: cada
    trozo se programa sin huecos en un AudioContext propio a 44.1 kHz (sin remuestreo por trozo = sin costuras).
-   Puntuacion: la melodia de la voz original (servidor, 50 por segundo) contra la del micro (YIN aqui), sin
-   importar la octava (cada cual canta en su registro), con tolerancia de tiempo para la latencia. */
+   Puntuacion: la melodia de la voz original (servidor, 50 por segundo) contra la del cantante (YIN aqui con el
+   micro del PC, o en su movil si lo usa de micro), sin importar la octava, con la tolerancia de la dificultad. */
 const KARA_OK = !IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const K_STEP = 251904, K_SR = 44100, K_FR = .02;
-const KS = { on: false, st: null, v: -1, phase: "off", now: null, info: null, pitchRaw: [], ref: null, notes: [],
-             lo: 55, hi: 75, voiced: 0, ev: 0, pts: 0, fp: null, lit: null, sing: [], lat: .06, outLat: .03,
-             shown: 0, reactSeen: -1, introAt: 0, countAt: 0, resAt: 0, liveAt: 0, rating: "", lineAi: -1,
-             pend: [], rate: [], escAt: 0, prevShow: false, qrDone: false, infoGen: 0 };
+// dificultad: margen de tiempo (s), tramos de afinacion [semitonos, puntos], puntos por cantar sin acertar,
+// y que fraccion de aciertos da la nota maxima
+const K_DIFF = {
+  easy:   { name: "Fácil",   w: .27, tol: [[1.5, 1], [3, .75], [4.5, .45]], any: .25, k: .6 },
+  normal: { name: "Normal",  w: .2,  tol: [[1, 1], [2, .7], [3.2, .35]],    any: .12, k: .72 },
+  hard:   { name: "Difícil", w: .13, tol: [[.6, 1], [1.2, .6], [2, .25]],   any: 0,   k: .85 },
+};
+const KS = { on: false, st: null, v: -1, phase: "off", now: null, info: null, lyr: null, lrev: -1, pitchRaw: [],
+             ref: null, notes: [], lo: 55, hi: 75, voiced: 0, ev: 0, pts: 0, fp: null, lit: null, sing: [],
+             lat: .06, outLat: .03, shown: 0, reactSeen: -1, cmdSeen: -1, introAt: 0, countAt: 0, resAt: 0,
+             liveAt: 0, rating: "", lineAi: -1, pend: [], rate: [], escAt: 0, prevShow: false, infoGen: 0,
+             src: null, phoneAt: 0, micGen: 0, heard: 0, raw3: [] };
 const kSet = (() => {
-  const d = { mic: "", guide: 0 };
+  const d = { mic: "", guide: 0, micMode: "auto", diff: "normal" };
   try { return Object.assign(d, JSON.parse(localStorage.getItem("lightning.kara") || "{}")); } catch (e) { return d; }
 })();
 function kSave() { try { localStorage.setItem("lightning.kara", JSON.stringify(kSet)); } catch (e) {} }
@@ -6056,6 +6122,7 @@ const kWait = ms => new Promise(r => setTimeout(r, ms));
 const kPl = id => (KS.st && KS.st.players.find(p => p.id === id)) || { name: t("Invitado"), color: "#8e8e93", id: "" };
 const kAv = (p, cls) => `<span class="kav ${cls || ""}" style="--c:${esc(p.color)}">${esc(Array.from(p.name || "?")[0] || "?")}</span>`;
 const kNum = n => Math.round(n).toLocaleString(lang === "en" ? "en-US" : "es-ES");
+const kDiff = () => K_DIFF[(KS.st && KS.st.diff) || kSet.diff] || K_DIFF.normal;
 
 /* ---------- reproductor por trozos ---------- */
 const KP = { ctx: null, inst: null, guide: null, vid: null, fetched: 0, sched: 0, t0: 0, bufs: new Map(), srcs: [],
@@ -6132,11 +6199,12 @@ function kpPause(p) {
   if (p) KP.ctx.suspend(); else if (!KP.stalled) KP.ctx.resume();
 }
 
-/* ---------- micro: altura en directo (YIN sobre la senal a la mitad de muestras) ---------- */
+/* ---------- micro del PC: altura en directo (YIN sobre la senal a la mitad de muestras) ---------- */
 const KM = { ctx: null, an: null, stream: null, raw: null, x: null, d: null, sr2: 0, tmin: 0, tmax: 0, floor: .01,
              on: false, err: "", last: 0, rms: 0 };
 async function kMic() {
   kMicStop();
+  if (kSet.micMode === "phone") { KM.err = "off"; kPaintMic(); return; }
   try {
     KM.stream = await navigator.mediaDevices.getUserMedia({ audio: {
       deviceId: kSet.mic ? { exact: kSet.mic } : undefined,
@@ -6166,7 +6234,7 @@ function kYin() {
   const rms = Math.sqrt(e / n);
   KM.rms = rms;
   KM.floor = Math.min(KM.floor * 1.003 + 1e-5, Math.max(rms, .0015));   // suelo de ruido: baja al instante, sube despacio
-  if (rms < Math.max(.006, KM.floor * 2.4)) return 0;
+  if (rms < Math.max(.005, KM.floor * 2)) return 0;
   const tmax = KM.tmax, W = n - tmax, d = KM.d;
   for (let tau = 1; tau <= tmax; tau++) {
     let sum = 0;
@@ -6176,11 +6244,11 @@ function kYin() {
   let run = 0;
   for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
   let tau = -1;
-  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .15) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .2) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
   if (tau < 0) {
     let b = KM.tmin;
     for (let k = KM.tmin; k < tmax; k++) if (d[k] < d[b]) b = k;
-    if (d[b] < .3) tau = b; else return 0;
+    if (d[b] < .38) tau = b; else return 0;
   }
   const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
   const f = KM.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
@@ -6195,12 +6263,48 @@ async function kMicList() {
     sel.value = kSet.mic;
   } catch (e) {}
 }
-function kPaintMic() {
-  const w = $("kMicWarn");
-  w.hidden = KM.on;
-  w.lastElementChild.textContent = t(KM.err === "denied" ? "Micrófono bloqueado" : "Sin micrófono");
-  $("kMicSt").textContent = KM.on ? t("Puntuación activada: canta cerca del micrófono.")
-    : t(KM.err === "denied" ? "Permite el micrófono para puntuar (se puede cantar igual)." : "No se encontró ningún micrófono: se canta sin puntuación.");
+function kPaintMic() {   // de donde sale la voz que se puntua (chip junto a los puntos)
+  const w = $("kMicWarn"), src = KS.src;
+  w.classList.toggle("ok", !!src);
+  w.innerHTML = src ? `<i class="ph-fill ph-microphone"></i><span>${esc(t(src === "phone" ? "Micro del móvil" : "Micro del PC"))}</span>`
+    : `<i class="ph ph-microphone-slash"></i><span>${esc(t(kSet.micMode === "phone" ? "Activa el micro en tu móvil" : KM.err === "denied" ? "Micrófono bloqueado" : "Sin micrófono"))}</span>`;
+  $("kMicSt").textContent = kSet.micMode === "phone" ? t("Solo se puntúa con el móvil de quien canta.")
+    : KM.on ? t("Micrófono del PC listo: canta cerca de él.")
+    : t(KM.err === "denied" ? "Permite el micrófono para puntuar (se puede cantar igual)." : "No se encontró ningún micrófono en el PC.");
+  $("kMicRow").hidden = kSet.micMode === "phone";
+}
+function kPickSrc() {   // automatico: el movil de quien canta si lo esta usando; si no, el micro del PC
+  const phone = performance.now() - KS.phoneAt < 1500;
+  const m = kSet.micMode;
+  const src = m === "pc" ? (KM.on ? "pc" : null) : m === "phone" ? (phone ? "phone" : null) : (phone ? "phone" : KM.on ? "pc" : null);
+  if (src !== KS.src) { KS.src = src; kPaintMic(); }
+}
+async function kPhoneMic(pid) {   // altura de la voz que manda el movil de quien canta (ya medida alli)
+  const g = ++KS.micGen;
+  let since = 1e18;
+  while (KS.on && KS.micGen === g) {
+    let r = null;
+    try { r = await jget(`/kara/mic?pid=${encodeURIComponent(pid)}&since=${since === 1e18 ? 0 : since}`); } catch (e) { await kWait(600); continue; }
+    if (KS.micGen !== g) return;
+    if (since === 1e18) { since = r.seq; continue; }   // primera vuelta: solo lo nuevo
+    since = r.seq;
+    if (!r.s.length) continue;
+    KS.phoneAt = performance.now();
+    if (KS.phase !== "sing" || KP.paused || KP.stalled || KS.src !== "phone") continue;
+    const nowW = Date.now() / 1000, pos = kpPos();
+    // la marca de tiempo es del reloj del PC: se lleva a la posicion de la cancion de ese instante, menos lo que
+    // tarda el sonido en salir por los altavoces y la ventana de analisis del movil
+    for (const [, ts, m] of r.s) kPush(pos - (nowW - ts) - KS.outLat - .06, m / 10);
+  }
+}
+function kPush(t, m) {   // muestra del cantante (mediana de 3 contra falsos saltos)
+  const q = KS.raw3; q.push(m); if (q.length > 3) q.shift();
+  const v = q.filter(Boolean).sort((a, b) => a - b);
+  const mm = m && v.length >= 2 ? v[v.length >> 1] : m;
+  if (mm) KS.heard++;
+  const s = KS.sing;
+  if (s.length && t < s[s.length - 1].t) t = s[s.length - 1].t;   // siempre en orden
+  s.push({ t, m: mm });
 }
 
 /* ---------- melodia de referencia: limpieza, notas para el carril, rango ---------- */
@@ -6251,84 +6355,101 @@ function kTotalVoiced() {   // frames con voz de toda la cancion (estimado mient
   if (i.status === "ready") return Math.max(1, KS.voiced);
   return Math.max(1, KS.voiced * (i.n / 882) / KS.pitchRaw.length);
 }
-const kCurve = raw => Math.round(10000 * Math.pow(Math.min(1, raw / .8), .8));
+const kCurve = raw => Math.round(10000 * Math.pow(Math.min(1, raw / kDiff().k), .8));
 const kScoreNow = () => kCurve(KS.pts / kTotalVoiced());
 function kEval(f) {
   const r = KS.ref[f];
   if (!r) return;
-  const ft = f * K_FR;
+  const D = kDiff(), ft = f * K_FR;
   let best = 99;
   for (let i = KS.sing.length - 1; i >= 0; i--) {
     const sm = KS.sing[i];
-    if (sm.t < ft - .14) break;
-    if (sm.t > ft + .14 || !sm.m) continue;
+    if (sm.t < ft - D.w) break;
+    if (sm.t > ft + D.w || !sm.m) continue;
     const dd = Math.abs(((sm.m - r) % 12 + 18) % 12 - 6);
     if (dd < best) best = dd;
   }
-  const p = best <= .8 ? 1 : best <= 1.6 ? .65 : best <= 2.6 ? .3 : best < 99 ? .1 : 0;
+  const hit = D.tol.find(([th]) => best <= th);
+  const p = hit ? hit[1] : best < 99 ? D.any : 0;
   KS.pts += p; KS.fp[f] = p;
-  if (p >= .65) KS.lit[f] = 1;
+  if (p >= .7) KS.lit[f] = 1;
 }
 
-/* ---------- carril de melodia ---------- */
-const KC = { cv: null, g: null, w: 0, h: 0, dpr: 1 };
+/* ---------- carril de melodia (sin sombras de canvas: el brillo es una capa ancha translucida) ---------- */
+const KC = { cv: null, g: null, w: 0, h: 0, dpr: 1, y: 0, hold: 0 };
 function kPitchSize() {
-  const cv = $("kPitch"), r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  const cv = $("kPitch"), r = cv.getBoundingClientRect(), dpr = Math.min(1.5, devicePixelRatio || 1);
   KC.cv = cv; KC.g = cv.getContext("2d"); KC.dpr = dpr; KC.w = r.width; KC.h = r.height;
   cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
 }
-function kDraw() {
+function kDraw(now) {
   const g = KC.g;
   if (!g || !KC.w) return;
-  const W = KC.w, H = KC.h, dpr = KC.dpr, now = kpPos() - KS.lat, pre = 2.2, post = 4.6;
-  const px = W * .26, sx = (W - px) / post, X = tt => px + (tt - now) * sx;
-  const lo = KS.lo, hi = KS.hi, Y = m => 10 + (1 - Math.max(0, Math.min(1, (m - lo) / (hi - lo)))) * (H - 20);
+  const W = KC.w, H = KC.h, dpr = KC.dpr, tnow = kpPos() - KS.lat, pre = 2.2, post = 4.6;
+  const px = W * .26, sx = (W - px) / post, X = tt => px + (tt - tnow) * sx;
+  const lo = KS.lo, hi = KS.hi, Y = m => 12 + (1 - Math.max(0, Math.min(1, (m - lo) / (hi - lo)))) * (H - 24);
   const col = kPl(KS.now && KS.now.by).color;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, W, H);
   const grd = g.createLinearGradient(px, 0, px, H);   // linea del "ahora"
-  grd.addColorStop(0, "rgba(255,255,255,0)"); grd.addColorStop(.5, "rgba(255,255,255,.5)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  grd.addColorStop(0, "rgba(255,255,255,0)"); grd.addColorStop(.5, "rgba(255,255,255,.45)"); grd.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = grd; g.fillRect(px - .75, 0, 1.5, H);
-  const f0 = Math.max(0, Math.floor((now - pre) / K_FR)), f1 = Math.ceil((now + post) / K_FR);
+  const f0 = Math.max(0, Math.floor((tnow - pre) / K_FR)), f1 = Math.ceil((tnow + post) / K_FR);
   const bh = 9;
+  let target = null, nextT = null;
   for (const nt of KS.notes) {
     if (nt.e < f0 || nt.s > f1) continue;
-    const x0 = Math.max(0, X(nt.s * K_FR)), x1 = Math.min(W, X(nt.e * K_FR)), y = Y(nt.m) - bh / 2;
+    const xs = X(nt.s * K_FR), xe = X(nt.e * K_FR), x0 = Math.max(0, xs), x1 = Math.min(W, xe), y = Y(nt.m) - bh / 2;
+    if (xs <= px && xe >= px) target = nt.m;
+    else if (xs > px && nextT === null) nextT = nt.m;
     if (x1 - x0 < 1) continue;
-    const past = X(nt.e * K_FR) < px;
-    g.fillStyle = past ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.24)";
+    g.fillStyle = xe < px ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.24)";
     g.beginPath(); g.roundRect(x0, y, x1 - x0, bh, bh / 2); g.fill();
-    let a = -1;   // tramos acertados: color del cantante con brillo
-    g.save(); g.shadowColor = col; g.shadowBlur = 14; g.fillStyle = col;
+    let a = -1;   // tramos acertados: color del cantante con halo
     for (let f = nt.s; f <= nt.e; f++) {
       const on = f < nt.e && KS.lit[f];
       if (on && a < 0) a = f;
       if (!on && a >= 0) {
         const xa = Math.max(0, X(a * K_FR)), xb = Math.min(W, X(f * K_FR));
-        if (xb > xa) { g.beginPath(); g.roundRect(xa, y, Math.max(bh, xb - xa), bh, bh / 2); g.fill(); }
+        if (xb > xa) {
+          g.globalAlpha = .28; g.fillStyle = col;
+          g.beginPath(); g.roundRect(xa - 3, y - 4, Math.max(bh, xb - xa) + 6, bh + 8, (bh + 8) / 2); g.fill();
+          g.globalAlpha = 1;
+          g.beginPath(); g.roundRect(xa, y, Math.max(bh, xb - xa), bh, bh / 2); g.fill();
+        }
         a = -1;
       }
     }
-    g.restore();
   }
-  // voz del cantante: estela a la altura relativa a la nota que toca (sin importar la octava)
-  let lastRef = (lo + hi) / 2, head = null;
+  // estela de la voz, a la altura relativa a la nota que toca (sin importar la octava)
+  let lastRef = target || nextT || (lo + hi) / 2, live = null;
   g.fillStyle = "#fff";
   for (const sm of KS.sing) {
-    if (sm.t < now - pre || !sm.m) continue;
-    const fi = Math.round(sm.t / K_FR), rf = KS.ref && KS.ref[fi];
+    if (sm.t < tnow - pre || !sm.m) continue;
+    const rf = KS.ref && KS.ref[Math.round(sm.t / K_FR)];
     if (rf) lastRef = rf;
     const dd = ((sm.m - lastRef) % 12 + 18) % 12 - 6, x = X(sm.t);
     if (x > px + 2) continue;
-    const age = (now - sm.t) / pre;
-    g.globalAlpha = Math.max(0, .75 - age * .7);
-    g.beginPath(); g.arc(x, Y(lastRef + dd), 2.6, 0, 6.2832); g.fill();
-    head = now - sm.t < .12 ? [x, Y(lastRef + dd)] : null;
+    g.globalAlpha = Math.max(0, .7 - (tnow - sm.t) / pre * .7);
+    g.beginPath(); g.arc(x, Y(lastRef + dd), 2.5, 0, 6.2832); g.fill();
+    if (tnow - sm.t < .3) live = Y(lastRef + dd);
   }
   g.globalAlpha = 1;
-  if (head) {
-    g.save(); g.shadowColor = "#fff"; g.shadowBlur = 16;
-    g.beginPath(); g.arc(px, head[1], 6, 0, 6.2832); g.fill(); g.restore();
+  // el punto SIEMPRE se ve: lleno a la altura de tu voz cuando cantas; si no, un aro sobre la nota que toca
+  // (o la siguiente) para saber donde entrar. Se desliza suave entre posiciones
+  if (live !== null) KC.hold = now;
+  const want = live !== null ? live : Y(target || nextT || lastRef);
+  const dest = live === null && now - KC.hold < 250 ? KC.y : want;
+  KC.y = KC.y ? KC.y + (dest - KC.y) * .28 : dest;
+  const singing = live !== null || now - KC.hold < 250;
+  const rg = g.createRadialGradient(px, KC.y, 0, px, KC.y, 18);
+  rg.addColorStop(0, singing ? "rgba(255,255,255,.55)" : "rgba(255,255,255,.18)"); rg.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = rg; g.beginPath(); g.arc(px, KC.y, 18, 0, 6.2832); g.fill();
+  if (singing) { g.fillStyle = "#fff"; g.beginPath(); g.arc(px, KC.y, 6.5, 0, 6.2832); g.fill(); }
+  else {
+    const pulse = 6 + Math.sin(now / 260) * 1.2;
+    g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(px, KC.y, pulse, 0, 6.2832); g.stroke();
   }
 }
 
@@ -6352,10 +6473,11 @@ function kLoop() {
   if (!KS.on) return;
   requestAnimationFrame(kLoop);
   const now = performance.now();
-  if (KM.on && now - KM.last > 22) {   // ~45 lecturas/s del micro
+  kPickSrc();
+  if (KM.on && now - KM.last > 22) {   // ~45 lecturas/s del micro del PC
     KM.last = now;
     const m = kYin();
-    if (KS.phase === "sing" && KP.started && !KP.paused && !KP.stalled) KS.sing.push({ t: kpPos() - KS.lat, m });
+    if (KS.src === "pc" && KS.phase === "sing" && KP.started && !KP.paused && !KP.stalled) kPush(kpPos() - KS.lat, m);
     if (!$("kSet").hidden) $("kMeter").style.width = Math.min(100, KM.rms * 900) + "%";
   }
   if (KS.phase === "intro") return kIntroTick(now);
@@ -6369,37 +6491,46 @@ function kLoop() {
   if (now - (KS._sch || 0) > 500) { KS._sch = now; kpSchedule(); }
   const refNow = pos - KS.lat;
   while (KS.sing.length && KS.sing[0].t < refNow - 3) KS.sing.shift();
-  if (KS.ref) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - .2) kEval(KS.ev++);
+  // cada frame de la melodia se evalua cuando ya llego todo lo cantado a su alrededor (el movil va con retraso)
+  const delay = kDiff().w + (KS.src === "phone" ? .35 : .08);
+  if (KS.ref && KS.src) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - delay) kEval(KS.ev++);
   if (LYR.ai !== KS.lineAi) {   // linea terminada: valoracion un poco despues (lo ultimo cantado ya evaluado)
     const prev = LYR.items[KS.lineAi];
-    if (prev && prev.kind === "line") KS.pend.push([now + 450, prev]);
+    if (prev && prev.kind === "line") KS.pend.push([now + 300 + delay * 1000, prev]);
     KS.lineAi = LYR.ai;
   }
   while (KS.pend.length && KS.pend[0][0] < now) kLineRate(KS.pend.shift()[1]);
-  if (KM.on) {
+  if (KS.src) {
     const target = kScoreNow();
     KS.shown += (target - KS.shown) * .12;
     $("kScore").textContent = kNum(KS.shown);
     if (now - KS.liveAt > 1000) { KS.liveAt = now; kpost("/kara/live", { score: target, rating: KS.rating }).catch(() => {}); }
   }
-  kDraw();
+  kDraw(now);
   if (info.dur && pos >= info.dur - .05) kEnd();
 }
 function kStall(on) { $("kStall").classList.toggle("on", on); }
 
-/* ---------- fases: sala -> presentacion -> cantar -> resultados -> siguiente ---------- */
+/* ---------- fases: sala -> presentacion -> cantar -> resultados -> siguiente / clasificacion ---------- */
 function kScreen(id) {
-  ["kLobby", "kIntro", "kRes"].forEach(x => $(x).classList.toggle("on", x === id));
+  ["kLobby", "kIntro", "kRes", "kBoardS"].forEach(x => $(x).classList.toggle("on", x === id));
   document.body.classList.toggle("kara-sing", KS.phase === "sing");
   document.body.classList.toggle("kara-int", KS.phase === "intro");
   $("kLobX").hidden = KS.phase === "sing" || KS.phase === "intro";
   $("kPause").classList.toggle("on", KS.phase === "sing" && KP.paused);
 }
 function kLobby() {
-  KS.phase = "lobby"; KS.now = null;
+  KS.phase = "lobby"; KS.now = null; KS.micGen++;
   kpReset(); kLyrClear(); kStall(false);
   kScreen("kLobby");
   if (KS.st && KS.st.queue.length) setTimeout(() => { if (KS.phase === "lobby" && KS.st.queue.length) kNext(); }, 1200);
+}
+function kBoard() {   // sin mas canciones: la clasificacion (y el QR para seguir)
+  KS.phase = "board"; KS.micGen++;
+  kpReset(); kLyrClear(); kStall(false);
+  kPaintPodium();
+  kScreen("kBoardS");
+  kpost("/kara/phase", { phase: "results" }).catch(() => {});
 }
 async function kNext() {
   if (KS._nexting) return;
@@ -6408,13 +6539,15 @@ async function kNext() {
     kpReset(); kLyrClear();
     const st = await kpost("/kara/next");
     kApply(st);
-    if (st.now) kIntro(st.now); else kLobby();
+    if (st.now) kIntro(st.now); else if (KS.st.history.length) kBoard(); else kLobby();
   } catch (e) { toast(t("No se pudo continuar")); } finally { KS._nexting = false; }
 }
 function kIntro(now) {
   KS.phase = "intro"; KS.now = now;
-  Object.assign(KS, { info: null, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0, pts: 0, fp: null, lit: null,
-                      sing: [], shown: 0, rating: "", lineAi: -1, pend: [], introAt: performance.now(), countAt: 0, rate: [] });
+  Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0, pts: 0,
+                      fp: null, lit: null, sing: [], shown: 0, rating: "", lineAi: -1, pend: [], heard: 0, raw3: [],
+                      introAt: performance.now(), countAt: 0, rate: [] });
+  KC.y = 0;
   $("kScore").textContent = "0";
   KP.vid = now.vid; kpCtx();
   const big = hiCover(now.cover);
@@ -6427,23 +6560,23 @@ function kIntro(now) {
   $("kInNum").textContent = ""; $("kInSt").textContent = t("Preparando la pista…");
   kScreen("kIntro");
   kInfoPoll(now.qid);
+  if (now.by) kPhoneMic(now.by);
   kpost("/kara/phase", { phase: "intro" }).catch(() => {});
 }
-async function kInfoPoll(qid) {   // estado del procesado + melodia (incremental) + letra, hasta tenerlo todo
+async function kInfoPoll(qid) {   // estado del procesado + melodia (incremental) + letra (cuando cambia), hasta tenerlo todo
   const g = ++KS.infoGen;
   while (KS.on && KS.infoGen === g && KS.now && KS.now.qid === qid) {
     let d = null;
-    try { d = await jget(`/kara/song?id=${KS.now.vid}&from=${KS.pitchRaw.length}`); } catch (e) {}
+    try { d = await jget(`/kara/song?id=${KS.now.vid}&from=${KS.pitchRaw.length}&lrev=${KS.lrev}`); } catch (e) {}
     if (KS.infoGen !== g || !KS.now || KS.now.qid !== qid) return;
     if (d && !d.error) {
       if (d.from === KS.pitchRaw.length && d.pitch.length) { KS.pitchRaw.push(...d.pitch); kRefPrep(); }
-      const had = KS.info && KS.info.lyrics;
       if (KS.info && d.chunks > KS.info.chunks) KS.rate.push([performance.now(), d.chunks]);
       KS.info = d;
-      if (d.lyrics && !had) kLyrBuild(d.lyrics);
+      if (d.lyrics) { const first = !KS.lyr; KS.lyr = d.lyrics; KS.lrev = d.lrev; first ? kLyrBuild(d.lyrics) : kLyrUpdate(d.lyrics); }
       kpFetch();
       if (d.status === "error") { kSongError(d.error); return; }
-      if (d.status === "ready" && d.lyrics) return;
+      if (d.status === "ready" && KS.lyr && d.align !== "pending") return;
     }
     await kWait(d && d.status === "ready" ? 1500 : 650);
   }
@@ -6453,36 +6586,42 @@ function kSongError(msg) {
   const qid = KS.now && KS.now.qid;
   setTimeout(() => { if (KS.on && KS.now && KS.now.qid === qid && (KS.phase === "intro" || KS.phase === "sing")) kNext(); }, 2500);
 }
-function kSpeed() {   // velocidad del procesado medida (x tiempo real) a partir de los trozos que van llegando
-  const r = KS.rate;
-  if (r.length < 2) return 0;
-  const a = r[Math.max(0, r.length - 6)], b = r[r.length - 1];
-  return (b[1] - a[1]) * K_STEP / K_SR / Math.max(.2, (b[0] - a[0]) / 1000);
+// mientras alguien canta el servidor solo procesa con la CPU sobrante (para no trabar la pantalla): se empieza
+// cuando lo que falta se termina a tiempo a esa velocidad; antes, la GPU va a tope
+function kNeed() {
+  const i = KS.info, L = K_STEP / K_SR;
+  const sc = Math.max(.08, i.cpu_speed || .4) * (i.align === "pending" ? .65 : 1);
+  return Math.min(i.nch, Math.max(Math.min(2, i.nch), Math.ceil(i.nch - sc * Math.max(0, i.dur - 12) / L)));
 }
 function kCanStart() {
   const i = KS.info;
   if (!i || i.status === "error" || !i.nch) return false;
   if (KP.fetched < Math.min(2, i.nch)) return false;
-  if (i.status === "ready") return true;
-  const sp = kSpeed();
-  if (!sp) return i.chunks >= 4;
-  if (sp >= 1.25) return true;
-  return (i.nch - i.chunks) * K_STEP / K_SR / sp < i.dur - 8;   // va mas lento que la musica: buffer suficiente
+  return i.status === "ready" || i.chunks >= kNeed();
 }
 function kIntroTick(now) {
   const i = KS.info, fg = $("kRingFg"), ring = $("kRing");
   if (!KS.countAt) {
     const ready = kCanStart();
-    if (ready && now - KS.introAt > 2500) { KS.countAt = now; return; }
+    if (ready && now - KS.introAt > 2500) {
+      KS.countAt = now;
+      kpost("/kara/phase", { phase: "count" }).catch(() => {});   // desde aqui la GPU queda libre para la pantalla
+      return;
+    }
     const eng = KS.st && KS.st.engine;
     let pr = 0, txt = t("Preparando la pista…");
     if (eng && eng.status === "download") { pr = eng.progress / 100; txt = t("Descargando el motor de voz (solo la primera vez)") + " · " + eng.progress + "%"; }
     else if (eng && eng.status === "loading") txt = t("Cargando el motor de voz…");
     else if (i && (i.status === "download" || i.status === "wait")) txt = t("Descargando la canción…");
-    else if (i && i.status === "sep") { pr = i.chunks / Math.max(1, i.nch); txt = t("Quitando la voz…") + " " + Math.round(pr * 100) + "%"; }
+    else if (i && i.status === "sep" && !ready) {
+      const need = kNeed(), sp = Math.max(.5, i.speed || 4);
+      pr = i.chunks / Math.max(1, need);
+      const eta = Math.max(1, Math.round((need - i.chunks) * K_STEP / K_SR / sp));
+      txt = t("Quitando la voz…") + " " + Math.round(Math.min(1, pr) * 100) + "% · ~" + eta + " s";
+    }
     else if (ready) { pr = 1; txt = t("¡Prepárate!"); }
     ring.classList.toggle("spin", !pr);
-    fg.style.strokeDashoffset = 176 * (1 - (pr || .25));
+    fg.style.strokeDashoffset = 176 * (1 - Math.min(1, pr || .25));
     $("kInNum").textContent = "";
     if ($("kInSt").textContent !== txt) $("kInSt").textContent = txt;
     return;
@@ -6501,7 +6640,7 @@ function kSing() {
   KS.phase = "sing";
   kScreen(null);
   kpStart();
-  if (KS.info && KS.info.lyrics && !LYR.items.length) kLyrBuild(KS.info.lyrics);
+  if (KS.lyr && !LYR.items.length) kLyrBuild(KS.lyr);
   requestAnimationFrame(() => { kPitchSize(); lyrMeasure(); });
   kpost("/kara/phase", { phase: "sing" }).catch(() => {});
 }
@@ -6512,8 +6651,23 @@ function kLyrBuild(d) {
     dur: () => (KS.info && KS.info.dur) || 0,
   };
   LYR.for = null; lyricsFor = null;
-  lyrBuild(d && d.lines ? d : { lines: [] });
+  lyrBuild(d && d.lines ? JSON.parse(JSON.stringify(d)) : { lines: [] });   // copia: lyrBuild anade sus estimaciones
   startLyricLoop();
+}
+// el alineado del servidor va completando la letra: si ya se esta cantando, solo se cambian los tiempos de las
+// palabras de las lineas que aun no han llegado (sin reconstruir = sin saltos); si no, se reconstruye
+function kLyrUpdate(d) {
+  const lines = (d.lines || []).filter(l => (l.text || "").replace(/[♪♫♬~\s]/g, ""));
+  const items = LYR.items.filter(it => it.kind === "line");
+  if (KS.phase !== "sing" || LYR.isStatic || items.length !== lines.length) return kLyrBuild(d);
+  const ahead = (kpPos() + 1.5) * 1000;
+  lines.forEach((l, i) => {
+    const it = items[i], syl = (l.syllabus || []).filter(sy => sy.text.replace(/\s+$/, ""));
+    if (!syl.length || syl.length !== it.words.length || it.start < ahead) return;
+    syl.forEach((sy, k) => { const w = it.words[k]; w.s = sy.time; w.e = sy.time + Math.max(60, sy.duration || 0); w.p = null; });
+    it.start = Math.min(...it.words.map(w => w.s));
+    it.end = Math.max(it.start + 400, ...it.words.map(w => w.e));
+  });
 }
 function kLyrClear() {
   if (!LYR.clock) return;
@@ -6522,15 +6676,15 @@ function kLyrClear() {
 }
 async function kEnd() {
   if (KS.phase !== "sing") return;
-  KS.phase = "results"; KS.resAt = performance.now();
+  KS.phase = "results"; KS.resAt = performance.now(); KS.micGen++;
   const g = KP.inst.gain, t0 = KP.ctx.currentTime;   // final suave
   g.setValueAtTime(g.value, t0); g.linearRampToValueAtTime(0, t0 + 1.2);
   const gen = KP.gen;
   setTimeout(() => { if (KP.gen === gen) kpReset(); }, 1300);
-  const score = KM.on ? kScoreNow() : null, by = KS.now.by;
+  const score = KS.heard > 20 ? kScoreNow() : null, by = KS.now.by;   // sin voz captada: sin nota (no un cero)
   $("kResN").textContent = "0";
   const p = kPl(by);
-  $("kResBy").innerHTML = `${kAv(p)}<span>${esc(p.name)}</span>`;
+  $("kResBy").innerHTML = `${kAv(p)}<span>${esc(p.name)}</span><span class="kdiff">${esc(t(kDiff().name))}</span>`;
   $("kStars").innerHTML = "";
   $("kResM").textContent = score == null ? t("¡Gracias por cantar!") : "";
   $("kBoard").innerHTML = ""; $("kResNext").textContent = ""; $("kResBar").style.width = "0";
@@ -6554,13 +6708,20 @@ function kResTick(now) {
   } else $("kResN").textContent = "—";
   const nx = KS.st && KS.st.queue[0];
   const wait = 10;
-  $("kResNext").textContent = nx ? t("A continuación") + ": " + nx.title + " · " + kPl(nx.by).name : t("Elige otra canción desde el móvil");
+  $("kResNext").textContent = nx ? t("A continuación") + ": " + nx.title + " · " + kPl(nx.by).name : t("Clasificación");
   $("kResBar").style.width = Math.min(100, el / wait * 100) + "%";
-  if (el >= wait) { if (nx) kNext(); else kLobby(); }
+  if (el >= wait) kNext();   // sin cola: deja de sonar para todos y pasa a la clasificacion
 }
+const kRow = (p, i, me) => `<div class="kbr${p.id === me ? " me" : ""}"><span class="kbn">${i + 1}</span>${kAv(p, "sm")}<span class="kbname">${esc(p.name)}</span><span class="kbx">${esc(t("mejor"))} ${kNum(p.best)} · ${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))}</span><span class="kbs">${kNum(p.avg)}</span></div>`;
 function kPaintBoard(meId) {
   const pl = (KS.st ? KS.st.players : []).filter(p => p.songs);
-  $("kBoard").innerHTML = pl.slice(0, 5).map((p, i) => `<div class="kbr${p.id === meId ? " me" : ""}"><span class="kbn">${i + 1}</span>${kAv(p, "sm")}<span class="kbname">${esc(p.name)}</span><span class="kbs">${kNum(p.total)}</span><span class="kbx">${p.songs} ${esc(t(p.songs === 1 ? "canción" : "canciones"))}</span></div>`).join("");
+  $("kBoard").innerHTML = pl.slice(0, 5).map((p, i) => kRow(p, i, meId)).join("");
+}
+function kPaintPodium() {
+  const pl = (KS.st ? KS.st.players : []).filter(p => p.songs);
+  const pod = [pl[1], pl[0], pl[2]];
+  $("kPodium").innerHTML = pod.map((p, i) => p ? `<div class="kpod p${[2, 1, 3][i]}">${kAv(p, "lg")}<div class="kpn">${esc(p.name)}</div><div class="kps">${kNum(p.avg)}</div><div class="kpx">${esc(t("mejor"))} ${kNum(p.best)}</div><div class="kpb"><span>${[2, 1, 3][i]}</span></div></div>` : `<div class="kpod empty"></div>`).join("");
+  $("kRest").innerHTML = pl.slice(3, 10).map((p, i) => kRow(p, i + 3, "")).join("");
 }
 
 /* ---------- estado compartido (long-poll) ---------- */
@@ -6569,25 +6730,50 @@ function kRing(q) {
   const c = 2 * Math.PI * 9;
   return `<svg class="kst ${q.status === "ready" ? "ok" : q.status === "error" ? "err" : ""}" viewBox="0 0 22 22"><circle class="bg" cx="11" cy="11" r="9"/><circle class="fg" cx="11" cy="11" r="9" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - (q.status === "error" ? 1 : pr))).toFixed(1)}"/></svg>`;
 }
+function kSetHtml(el, h) { if (el._h !== h) { el._h = h; el.innerHTML = h; } }   // solo si cambia (sin parpadeos)
 function kApply(st) {
   if (!st || st.error) return;
   KS.st = st;
   const pl = st.players;
-  $("kPlayers").innerHTML = pl.length ? pl.map(p => `<span class="kplayer" data-id="${esc(p.id)}">${kAv(p, "sm")}${esc(p.name)}</span>`).join("")
-    : `<span class="kempty">${esc(t("Aún no se ha unido nadie"))}</span>`;
-  $("kLobQ").innerHTML = st.queue.length ? st.queue.slice(0, 5).map(q => { const p = kPl(q.by);
+  kSetHtml($("kPlayers"), pl.length ? pl.map(p => `<span class="kplayer" data-id="${esc(p.id)}">${kAv(p, "sm")}${esc(p.name)}${p.mic ? ' <i class="ph-fill ph-microphone"></i>' : ""}</span>`).join("")
+    : `<span class="kempty">${esc(t("Aún no se ha unido nadie"))}</span>`);
+  kSetHtml($("kLobQ"), st.queue.length ? st.queue.slice(0, 5).map(q => { const p = kPl(q.by);
     return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kRing(q)}</div>`; }).join("")
-    : `<span class="kempty">${esc(t("La cola está vacía: elige canciones desde el móvil"))}</span>`;
+    : `<span class="kempty">${esc(t("La cola está vacía: elige canciones desde el móvil"))}</span>`);
   const e = st.engine || {};
-  $("kEng").innerHTML = e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}${e.gpu ? " · GPU" : " · CPU"}`
+  kSetHtml($("kEng"), e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}${e.gpu ? " · GPU" : " · CPU"}`
     : e.status === "download" ? `<i class="ph ph-download-simple"></i>${esc(t("Descargando el motor de voz (solo la primera vez)"))} · ${e.progress}%`
     : e.status === "error" ? `<i class="ph ph-warning"></i>${esc(t("El motor de voz no está disponible"))}: ${esc(e.error || "")}`
-    : `<i class="ph ph-circle-notch"></i>${esc(t("Preparando el motor de voz…"))}`;
-  $("kNext").innerHTML = st.queue.length ? `<span>${esc(t("A continuación"))}</span>` + st.queue.slice(0, 3).map(q =>
-    `<span class="ki"><img src="${esc(q.cover)}" alt=""><b>${esc(q.title)}</b> · ${esc(kPl(q.by).name)}</span>`).join("") : "";
+    : `<i class="ph ph-circle-notch"></i>${esc(t("Preparando el motor de voz…"))}`);
+  kSetHtml($("kNext"), st.queue.length ? `<span>${esc(t("A continuación"))}</span>` + st.queue.slice(0, 3).map(q =>
+    `<span class="ki"><img src="${esc(q.cover)}" alt=""><b>${esc(q.title)}</b> · ${esc(kPl(q.by).name)}</span>`).join("") : "");
+  document.querySelectorAll(".kdiffs button").forEach(b => b.classList.toggle("on", b.dataset.d === st.diff));
+  if (KS.phase === "board") kPaintPodium();
   if (KS.reactSeen < 0) KS.reactSeen = st.reacts.reduce((a, r) => Math.max(a, r.id), 0);   // al abrir: no repetir las viejas
   for (const r of st.reacts) if (r.id > KS.reactSeen) { KS.reactSeen = r.id; kReact(r); }
-  if (KS.phase === "lobby" && st.queue.length && !KS._nexting) setTimeout(() => { if (KS.phase === "lobby" && KS.st.queue.length) kNext(); }, 1200);
+  if (KS.cmdSeen < 0) KS.cmdSeen = st.cmds.reduce((a, c) => Math.max(a, c.id), 0);
+  for (const c of st.cmds) if (c.id > KS.cmdSeen) { KS.cmdSeen = c.id; kCmd(c); }
+  if (typeof st.guide === "number" && st.guide !== kSet.guide) kGuide(st.guide, false);
+  if ((KS.phase === "lobby" || KS.phase === "board") && st.queue.length && !KS._nexting)
+    setTimeout(() => { if ((KS.phase === "lobby" || KS.phase === "board") && KS.st.queue.length) kNext(); }, 1200);
+}
+function kCmd(c) {   // mando a distancia desde el movil de quien canta
+  if (c.c === "pause" && KS.phase === "sing" && !KP.paused) kTogglePause();
+  else if (c.c === "resume" && KS.phase === "sing" && KP.paused) kTogglePause();
+  else if (c.c === "end" && (KS.phase === "sing" || KS.phase === "intro")) { if (KS.phase === "sing") kEnd(); else kNext(); }
+  else if (c.c === "guide") kGuide(c.v, false);
+}
+function kGuide(v, send) {
+  kSet.guide = Math.max(0, Math.min(100, +v || 0)); kSave();
+  $("kGuide").value = kSet.guide;
+  if (KP.guide) KP.guide.gain.setTargetAtTime(kSet.guide / 100, KP.ctx.currentTime, .05);
+  if (send) kpost("/kara/set", { guide: kSet.guide }).catch(() => {});
+}
+function kSetDiff(d) {
+  if (!K_DIFF[d]) return;
+  kSet.diff = d; kSave();
+  document.querySelectorAll(".kdiffs button").forEach(b => b.classList.toggle("on", b.dataset.d === d));
+  kpost("/kara/set", { diff: d }).then(kApply).catch(() => {});
 }
 function kReact(r) {
   const el = document.createElement("div"); el.className = "kre";
@@ -6611,7 +6797,7 @@ async function karaOpen() {
   if (!KARA_OK || KS.on) return;
   if (!audio.paused) togglePlay();
   kpCtx();   // dentro del clic: el audio del karaoke queda desbloqueado
-  KS.on = true; KS.v = -1; KS.reactSeen = -1;
+  KS.on = true; KS.v = -1; KS.reactSeen = -1; KS.cmdSeen = -1; KS.src = null;
   const lp = $("lyricsPanel");
   KS.prevShow = lp.classList.contains("show");
   if (document.body.classList.contains("lyr-full")) lyrFull(false);
@@ -6623,11 +6809,12 @@ async function karaOpen() {
   LYR.clock = { time: () => 0, paused: () => true, dur: () => 0 };
   $("lbody").innerHTML = "";
   let st;
-  try { st = await kpost("/kara/open"); } catch (e) { st = { error: String(e) }; }
+  try { st = await kpost("/kara/open", { diff: kSet.diff, guide: kSet.guide }); } catch (e) { st = { error: String(e) }; }
   if (!st || st.error) { toast(t("No se pudo abrir el karaoke") + (st && st.error ? ": " + st.error : "")); karaClose(); return; }
-  $("kQr").innerHTML = st.qr || ""; $("kQrMini").innerHTML = st.qr || "";
+  ["kQr", "kQrMini", "kQrBoard"].forEach(id => $(id).innerHTML = st.qr || "");
   const u = new URL(st.url);
-  $("kUrl").textContent = u.host; $("kCode").textContent = st.code; $("kUrlMini").textContent = u.host + " · " + st.code;
+  $("kUrl").textContent = u.host; $("kCode").textContent = st.code;
+  $("kUrlMini").textContent = u.host + " · " + st.code; $("kUrlBoard").textContent = u.host + " · " + st.code;
   KS.v = st.v;
   kApply(st);
   kLobby();
@@ -6637,7 +6824,7 @@ async function karaOpen() {
 }
 function karaClose() {
   if (!KS.on) return;
-  KS.on = false; KS.phase = "off"; KS.infoGen++;
+  KS.on = false; KS.phase = "off"; KS.infoGen++; KS.micGen++;
   kpReset(); kMicStop();
   LYR.clock = null; LYR.for = null; lyricsFor = null;
   lyrBuild({ lines: [] }); $("lbody").innerHTML = "";
@@ -6658,7 +6845,7 @@ function kSkip() {
 }
 function kExitAsk() {
   const t0 = performance.now();
-  if (KS.phase === "lobby" || t0 - KS.escAt < 2500) return karaClose();
+  if (KS.phase === "lobby" || KS.phase === "board" || t0 - KS.escAt < 2500) return karaClose();
   KS.escAt = t0;
   toast(t("Pulsa otra vez para salir del karaoke"));
 }
@@ -6673,8 +6860,11 @@ if (KARA_OK) {
   $("kSetBtn").onclick = setT; $("kSetBtn2").onclick = setT;
   $("kMicWarn").onclick = () => { if (KM.err === "denied") kMic(); setT(); };
   $("kMicSel").onchange = e => { kSet.mic = e.target.value; kSave(); kMic(); };
+  $("kMicMode").value = kSet.micMode;
+  $("kMicMode").onchange = e => { kSet.micMode = e.target.value; kSave(); kMic(); kPaintMic(); };
   $("kGuide").value = kSet.guide;
-  $("kGuide").oninput = e => { kSet.guide = +e.target.value; kSave(); if (KP.guide) KP.guide.gain.setTargetAtTime(kSet.guide / 100, KP.ctx.currentTime, .05); };
+  $("kGuide").oninput = e => kGuide(e.target.value, true);
+  document.querySelectorAll(".kdiffs button").forEach(b => b.onclick = () => kSetDiff(b.dataset.d));
   let ctlT = 0;
   $("kara").addEventListener("mousemove", () => {   // los controles aparecen al mover el raton
     $("kara").classList.add("ctl"); clearTimeout(ctlT);

@@ -183,6 +183,10 @@ def _frozen_setup():
 
 
 if __name__ == "__main__":
+    # karaoke: el separador en CPU corre en un proceso aparte (multiprocessing); en el .exe ese proceso
+    # arranca este mismo programa y aqui se desvia a su tarea (antes del mutex de instancia unica)
+    import multiprocessing
+    multiprocessing.freeze_support()
     upd = _frozen_setup() if app.FROZEN else None
     # Dispositivos: al transferir la musica a esta PC desde el movil, tiene que poder sonar sin un clic
     os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required")

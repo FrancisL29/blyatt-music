@@ -24,6 +24,7 @@ Los moviles usan un servidor aparte en la red local que SOLO tiene las rutas del
 la biblioteca ni el resto de la app). Hay dos puertas: http (entrar sin avisos) y https con un certificado
 propio (el navegador del movil solo deja usar el micro en https: avisa una vez por ser un certificado local).
 """
+import bisect
 import hashlib
 import ipaddress
 import json
@@ -314,6 +315,7 @@ def _engine():
 
 _DL = {}   # fichero -> hilo de descarga
 _DL_ERR = {}
+_DL_AT = {}   # fichero -> cuando se intento por ultima vez (sin red: se reintenta cada minuto, no en bucle)
 
 
 def _have(spec):
@@ -322,7 +324,9 @@ def _have(spec):
     if os.path.isfile(fp) and os.path.getsize(fp) == spec["size"]:
         return True
     th = _DL.get(spec["file"])
-    if not th or not th.is_alive():
+    if (not th or not th.is_alive()) and time.time() - _DL_AT.get(spec["file"], 0) > 60:
+        _DL_AT[spec["file"]] = time.time()
+
         def run():
             try:
                 _download(spec, None)
@@ -984,8 +988,13 @@ def _worker():
             if r != "wait":
                 stepped = True
                 break
-        if not stepped and _quiet():   # todo listo y nadie canta: mejorar la calidad de lo que viene
-            for vid in _order():
+        if not stepped and _quiet():   # todo listo y nadie canta: mejorar lo que viene y lo ya cantado (la proxima vez)
+            ups, seen = _order(), set(_order())
+            for h in reversed(S["history"]):
+                if h.get("vid") and h["vid"] not in seen:
+                    seen.add(h["vid"])
+                    ups.append(h["vid"])
+            for vid in ups:
                 s = SONGS.get(vid)
                 if not s or s["status"] != "ready" or s.get("model") != _SPL_TAG:
                     continue
@@ -1005,6 +1014,7 @@ def _worker():
 
 # ---------------------------------------------------------------- verificacion de lo que se canta
 _AUD = {}   # quien -> deque de (t0 del PC, muestras int16 a 16 kHz) de su micro (los ultimos ~90 s)
+_AUD_LAG = {}   # quien -> lo que tarda en llegar su audio (sube al instante, baja despacio)
 
 
 def audio_in(who, t0, raw):
@@ -1012,7 +1022,16 @@ def audio_in(who, t0, raw):
     if not S["now"] or len(raw) > 200000:
         return {"ok": False}
     q = _AUD.setdefault(who, deque())
-    q.append((float(t0), np.frombuffer(raw[: len(raw) // 2 * 2], "<i2").copy()))
+    x = np.frombuffer(raw[: len(raw) // 2 * 2], "<i2").copy()
+    t0 = float(t0)
+    if q:   # el micro graba sin cortes: si encaja con el lote anterior (salvo unos ms de reloj), va pegado a el
+        end = q[-1][0] + len(q[-1][1]) / 16000
+        if abs(t0 - end) < .04:
+            t0 = end
+    q.append((t0, x))
+    lag = min(5.0, max(0.0, time.time() - float(t0) - len(x) / 16000))
+    old = _AUD_LAG.get(who, .1)
+    _AUD_LAG[who] = lag if lag > old else old + (lag - old) * .05
     while q and q[0][0] < time.time() - 90:
         q.popleft()
     return {"ok": True}
@@ -1033,6 +1052,94 @@ def _audio_span(who, w0, w1):
     return out, got / max(1, len(out))
 
 
+_V16 = {}   # (vid, modelo, trozo) -> voz separada a 16 kHz (los ultimos trozos usados)
+
+
+def _voc16(np, s, t0, t1):
+    """Voz separada (la que suena como voz guia) a 16 kHz entre dos instantes de la cancion."""
+    out = np.zeros(max(0, int((t1 - t0) * 16000)), np.float32)
+    i0 = int(t0 * 16000)
+    for k in range(max(0, int(t0 * SR // STEP)), min(s["nch"], int(t1 * SR // STEP) + 1)):
+        key = (s["vid"], s.get("model"), k)
+        if key not in _V16:
+            with open(os.path.join(_song_dir(s["vid"]), "%03d.pcm" % k), "rb") as f:
+                b = np.frombuffer(f.read(), "<i2")
+            n = len(b) // 3
+            _V16[key] = _to16(np, b[2 * n:].astype(np.float32) / 32767, k * STEP)
+            while len(_V16) > 6:
+                _V16.pop(next(iter(_V16)))
+        j0, y = _V16[key]
+        lo, hi = max(i0, j0), min(i0 + len(out), j0 + len(y))
+        if hi > lo:
+            out[lo - i0: hi - i0] = y[lo - j0: hi - j0]
+    return out
+
+
+def _band(np, z):
+    """150 Hz - 3.5 kHz: la voz, sin el retumbe de los graves ni lo que el remuestreo dobla de los agudos."""
+    L = 1 << int(np.ceil(np.log2(max(2, len(z)))))
+    Z = np.fft.rfft(z.astype(np.float64), L)
+    f = np.fft.rfftfreq(L, 1 / 16000)
+    Z[(f < 150) | (f > 3500)] = 0
+    return np.fft.irfft(Z, L)[: len(z)]
+
+
+def _guide_share(np, x, y, slack, seg=4096, hop=1024):
+    """Que parte de lo captado `x` es la voz guia que sale por los altavoces (0..1). `y` es la voz original desde
+    `slack` muestras antes hasta otras tantas despues. Se alinea por correlacion (toda la linea y luego segundo a
+    segundo: da igual que los relojes se desvien un poco) y se mide la coherencia espectral, ponderada por la
+    energia captada en la banda de la voz. Aguanta el eco de la sala (guia sola: 0.74-0.99; guia y musica sin
+    cantar: 0.6+), mientras que una persona, aunque cante lo mismo, da < 0.1 (su onda no se parece a la original)
+    y cantando con la guia 12 dB por debajo, ~0.27."""
+    W, n = 16000, len(x)
+    if n < W:
+        return 0.0
+    if len(y) < n + 2 * slack:   # lo captado dura unas muestras mas (relojes): se completa con silencio
+        y = np.pad(y, (0, n + 2 * slack - len(y)))
+    xb, yb = _band(np, x), _band(np, y)
+    L = 1 << int(np.ceil(np.log2(len(yb) + n)))   # desplazamiento de toda la linea...
+    kp = int(np.argmax(np.abs(np.fft.irfft(np.fft.rfft(yb, L) * np.conj(np.fft.rfft(xb, L)), L)[: 2 * slack + 1])))
+    win = np.hanning(seg)
+    f = np.fft.rfftfreq(seg, 1 / 16000)
+    m = (f >= 150) & (f <= 3500)
+    sxy, sxx, syy = 0, 0, 0
+    ex = float((xb * xb).mean())
+    R = 1280   # ...y cada segundo se sigue su deriva (+-80 ms)
+    for o in range(0, n - W + 1, W):
+        a = xb[o: o + W]
+        if float((a * a).mean()) < .1 * ex:   # casi en silencio: no dice nada
+            continue
+        k0, k1 = max(0, kp - R), min(2 * slack, kp + R)
+        bb = yb[o + k0: o + k1 + W]
+        L = 1 << int(np.ceil(np.log2(len(bb) + W)))
+        c = np.fft.irfft(np.fft.rfft(bb, L) * np.conj(np.fft.rfft(a, L)), L)[: len(bb) - W + 1]
+        kp = k0 + int(np.argmax(np.abs(c)))
+        xa, ya = x[o: o + W].astype(np.float64), y[o + kp: o + kp + W].astype(np.float64)
+        idx = range(0, W - seg + 1, hop)
+        X = np.fft.rfft(np.stack([xa[i: i + seg] * win for i in idx]), axis=1)[:, m]
+        Y = np.fft.rfft(np.stack([ya[i: i + seg] * win for i in idx]), axis=1)[:, m]
+        sxy = sxy + np.abs((X * np.conj(Y)).sum(0))   # en modulo: cada ventana trae su propio desfase
+        sxx = sxx + (np.abs(X) ** 2).sum(0)
+        syy = syy + (np.abs(Y) ** 2).sum(0)
+    if isinstance(sxx, int):
+        return 0.0
+    C = np.abs(sxy) ** 2 / np.maximum(sxx * syy, 1e-20)
+    return float((C * sxx).sum() / max(1e-20, float(sxx.sum())))
+
+
+def _wall_of(an, p):
+    """Instante del PC en que sonaba el momento `p` de la cancion. Con el historial de anclas (una por segundo y
+    otra en cada pausa o paron por falta de pista): aguanta los parones y los relojes que se desvian."""
+    h = an.get("hist") or [(an["pos"], an["wall"])]
+    j = bisect.bisect_left([q[0] for q in h], p)
+    if j == 0:
+        return h[0][1] + (p - h[0][0])
+    if j == len(h):
+        return h[-1][1] + (p - h[-1][0])
+    (p0, w0), (p1, w1) = h[j - 1], h[j]
+    return w1 if p1 - p0 < 1e-3 else w0 + (p - p0) * (w1 - w0) / (p1 - p0)
+
+
 def _verify_step():
     """Si una linea ya se canto, su audio contra la letra (una por llamada). True si trabajo."""
     import numpy as np
@@ -1043,20 +1150,22 @@ def _verify_step():
     s = SONGS.get(now["vid"])
     if not s or not s["lyrics"] or not _w2v_ok():
         return False
-    pos = an["pos"] + (time.time() - an["wall"])
+    pos = an["pos"] + (time.time() - an["wall"] if an.get("run", True) else 0)   # parada: la cancion no avanza
     ver = S["verify"].setdefault(now["qid"], {})
+    who = now["by"] if an["src"] == "phone" else "pc"
+    # lo ultimo cantado aun viaja (lotes de 250 ms + la wifi): se espera a que llegue
+    tail = min(3.0, max(.7, _AUD_LAG.get(who, .3) + .55))
     for i, (a, b, text) in enumerate(_line_spans(s)):
-        if b + .6 > pos:   # en orden: lo que sigue aun no se ha cantado
+        if b + tail > pos:   # en orden: lo que sigue aun no se ha cantado
             break
         if i in ver:
             continue
         if a < an.get("from", 0) - .5:   # empezo antes de que llegara su micro
             ver[i] = None
             continue
-        who = now["by"] if an["src"] == "phone" else "pc"
         # instante del PC en que el cantante oia ese momento de la cancion (+ lo que tarda el sonido en salir)
-        w0 = an["wall"] + (a - .25 - an["pos"]) + an.get("lat", .06)
-        w1 = an["wall"] + (b + .35 - an["pos"]) + an.get("lat", .06)
+        w0 = _wall_of(an, a - .25) + an.get("lat", .06)
+        w1 = _wall_of(an, b + .35) + an.get("lat", .06)
         x, cover = _audio_span(who, w0, w1)
         toks = _toks(text)
         if not toks or cover < .5:   # sin letra verificable u otro alfabeto: no se penaliza
@@ -1066,7 +1175,11 @@ def _verify_step():
             ver[i] = 0.0
             continue
         conf = _lyric_conf(np, _cpu("emis", x), toks)
-        ver[i] = 1.0 if conf is None else round(min(1.0, max(0.0, (conf - VERIFY_LO) / (VERIFY_HI - VERIFY_LO))), 2)
+        c = 1.0 if conf is None else min(1.0, max(0.0, (conf - VERIFY_LO) / (VERIFY_HI - VERIFY_LO)))
+        if S["guide"] > 0:   # con voz guia: si lo que entra al micro es la guia de los altavoces, no es quien canta
+            pb = min(1.0, max(0.0, (_guide_share(np, x, _voc16(np, s, a - .85, b + .95), 9600) - .3) / .3))
+            c = -1.0 if pb >= 1 else c * (1 - pb)   # -1: solo se oia la guia (la linea no puntua)
+        ver[i] = round(c, 2)
         return True
     return False
 
@@ -1426,14 +1539,18 @@ def live(d):
     try:
         src = d.get("src") if d.get("src") in ("pc", "phone") else None
         old = S.get("anchor") or {}
-        S["anchor"] = {"qid": now["qid"], "pos": float(d["pos"]), "wall": float(d["wall"]), "lat": float(d.get("lat") or .06),
-                       "src": src, "from": old.get("from") if old.get("qid") == now["qid"] and old.get("src") == src
-                       else float(d["pos"])}
+        same = old.get("qid") == now["qid"] and old.get("src") == src
+        pos, wall = float(d["pos"]), float(d["wall"])
+        hist = old["hist"] if same and old.get("hist") is not None else deque(maxlen=1200)
+        if not hist or (pos >= hist[-1][0] and wall > hist[-1][1]):
+            hist.append((pos, wall))
+        S["anchor"] = {"qid": now["qid"], "pos": pos, "wall": wall, "lat": float(d.get("lat") or .06), "src": src,
+                       "from": old.get("from") if same else pos, "hist": hist, "run": d.get("run") is not False}
     except (KeyError, TypeError, ValueError):
         pass
     _WAKE.set()
     _bump()
-    return {"ok": True, "verify": {str(k): v for k, v in (S["verify"].get(now["qid"]) or {}).items()}}
+    return {"ok": True, "vok": _w2v_ok(), "verify": {str(k): v for k, v in (S["verify"].get(now["qid"]) or {}).items()}}
 
 
 def result(score):
@@ -1448,8 +1565,8 @@ def result(score):
         p["total"] += sc
         p["best"] = max(p["best"], sc)
         p["songs"] += 1
-    S["history"].append({"qid": now["qid"], "title": now["title"], "artist": now["artist"], "cover": now["cover"],
-                         "by": now["by"], "score": sc, "diff": S["diff"], "t": int(time.time())})
+    S["history"].append({"qid": now["qid"], "vid": now["vid"], "title": now["title"], "artist": now["artist"],
+                         "cover": now["cover"], "by": now["by"], "score": sc, "diff": S["diff"], "t": int(time.time())})
     S["live"] = None
     S["anchor"] = None
     _WAKE.set()

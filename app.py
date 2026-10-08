@@ -3837,10 +3837,14 @@ class H(BaseHTTPRequestHandler):
                 except ValueError:
                     d = {}
         try:
-            return self._json(K.host_api(method, u.path, qs, d if isinstance(d, dict) else {}, raw,
-                                         {"X-T": self.headers.get("X-T")}))
+            res, code = K.host_api(method, u.path, qs, d if isinstance(d, dict) else {}, raw,
+                                   {"X-T": self.headers.get("X-T")}), 200
         except Exception as e:
-            return self._json({"error": str(e)[:200]}, 500)
+            res, code = {"error": str(e)[:200]}, 500
+        try:
+            return self._json(res, code)
+        except OSError:   # la pagina ya no espera (recargada, cerrada): nada que contestar
+            return
 
     def _json(self, obj, status=200):
         payload = json.dumps(obj).encode()

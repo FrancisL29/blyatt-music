@@ -1331,6 +1331,7 @@
   .kset select option { background: #222; }
   .kset input[type=range] { accent-color: #fff; }
   .kset .kms { font-size: .78rem; color: rgb(255 255 255 / .55); font-weight: 500; }
+  .klobr .kdtip { font-size: .9rem; color: rgb(255 255 255 / .55); font-weight: 500; margin-top: 10px; min-height: 1.3em; }
   .kset .kmeter { height: 6px; border-radius: 6px; background: rgb(255 255 255 / .12); overflow: hidden; }
   .kset .kmeter i { display: block; height: 100%; width: 0; background: #30d158; transition: width .08s; }
   #kReacts { position: absolute; inset: 0; overflow: hidden; }
@@ -1443,6 +1444,7 @@
         <div class="kaddr"><span data-i18n>O abre</span> <code id="kUrl"></code> <span data-i18n>con el código</span> <code class="kcode" id="kCode"></code></div>
         <div class="ksec" data-i18n>Dificultad</div>
         <div class="kdiffs kglass"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
+        <div class="kdtip"></div>
         <div class="ksec" data-i18n>Jugadores</div><div id="kPlayers" class="kplayers"></div>
         <div class="ksec" data-i18n>En cola</div><div id="kLobQ" class="kq"></div>
         <div id="kEng" class="keng"></div>
@@ -1501,6 +1503,7 @@
     <div class="kms" id="kMicSt"></div>
     <label><span data-i18n>Dificultad</span></label>
     <div class="kdiffs sm"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
+    <div class="kms kdtip"></div>
     <label><span data-i18n>Voz guía</span><input type="range" id="kGuide" min="0" max="100" step="1"></label>
     <div class="kms" data-i18n>La voz guía ayuda, pero resta algo de puntuación (y el micrófono también la oye).</div>
   </div>
@@ -1819,6 +1822,9 @@ const EN = {
   "Micrófono del PC listo: canta cerca de él.": "PC microphone ready: sing close to it.",
   "Activa el micro en tu móvil": "Turn on the mic on your phone",
   "Calculando…": "Calculating…", "Sincronizando la letra…": "Syncing the lyrics…",
+  "Perdona notas y huecos: cantando bien el 85 % llegas al máximo.": "Forgives notes and gaps: sing 85% well to reach the top score.",
+  "Cuentan la afinación y la letra: el máximo, solo cantándola entera.": "Pitch and lyrics count: the top score takes the whole song.",
+  "Afinación al medio tono y justo a tiempo.": "Pitch within a semitone, right on time.",
   "No se encontró ningún micrófono en el PC.": "No microphone found on the PC.",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
@@ -6104,17 +6110,19 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
 const KARA_OK = !IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const K_STEP = 251904, K_SR = 44100, K_FR = .02;
 // dificultad: margen de tiempo (s), tramos de afinacion [semitonos, puntos], puntos por cantar desafinado
-// (solo en facil) y lo que vale una linea tarareada en vez de cantada (la letra bien cantada vale 1)
+// (solo en facil), lo que vale una linea tarareada en vez de cantada (la letra bien cantada vale 1) y que parte
+// de la cancion hay que cantar bien para el maximo (solo en facil se perdonan huecos)
 const K_DIFF = {
-  easy:   { name: "Fácil",   w: .3,  tol: [[2, 1], [3.5, .8], [5, .5]],    any: .3, lyr: .7 },
-  normal: { name: "Normal",  w: .2,  tol: [[1, 1], [2, .6], [3, .25]],     any: 0,  lyr: .45 },
-  hard:   { name: "Difícil", w: .12, tol: [[.5, 1], [1, .55], [1.6, .2]],  any: 0,  lyr: .3 },
+  easy:   { name: "Fácil",   w: .3,  tol: [[2, 1], [3.5, .8], [5, .5]],    any: .3, lyr: .7,  full: .85 },
+  normal: { name: "Normal",  w: .2,  tol: [[1, 1], [2, .6], [3, .25]],     any: 0,  lyr: .45, full: 1 },
+  hard:   { name: "Difícil", w: .12, tol: [[.5, 1], [1, .55], [1.6, .2]],  any: 0,  lyr: .3,  full: 1 },
 };
 const KS = { on: false, st: null, v: -1, phase: "off", now: null, info: null, lyr: null, lrev: -1, pitchRaw: [],
              ref: null, notes: [], lo: 55, hi: 75, voiced: 0, ev: 0, fp: null, lit: null, sing: [],
              lat: .06, outLat: .03, shown: 0, reactSeen: -1, cmdSeen: -1, introAt: 0, countAt: 0, resAt: 0,
              liveAt: 0, rating: "", lineAi: -1, pend: [], escAt: 0, prevShow: false, infoGen: 0,
-             src: null, phoneAt: 0, micGen: 0, heard: 0, raw3: [], lines: [], li: 0, lp: [], lfac: [], p0: 0 };
+             src: null, phoneAt: 0, micGen: 0, heard: 0, raw3: [], lines: [], li: 0, lp: [], lfac: [], p0: 0,
+             vok: true, plag: .2, vel: 0, endPos: 0 };
 const kSet = (() => {
   const d = { mic: "", guide: 0, micMode: "auto", diff: "normal" };
   try { return Object.assign(d, JSON.parse(localStorage.getItem("lightning.kara") || "{}")); } catch (e) { return d; }
@@ -6183,7 +6191,7 @@ function kpSchedule() {   // programa lo descargado hasta ~25 s por delante
     });
     KP.sched++;
   }
-  if (KP.stalled && (kpAhead() > 1.5 || KP.sched >= KS.info.nch)) { KP.stalled = false; if (!KP.paused) ctx.resume(); kStall(false); }
+  if (KP.stalled && (kpAhead() > 1.5 || KP.sched >= KS.info.nch)) { KP.stalled = false; if (!KP.paused) ctx.resume().then(kAnchor); kStall(false); }
   kpFetch();
 }
 const kpPos = () => KP.started ? Math.max(0, KP.ctx.currentTime - KP.t0) : 0;
@@ -6196,10 +6204,12 @@ function kpStart() {
   KS.lat = KS.outLat + .045;   // + media ventana del analisis del micro y su latencia de entrada
   kpSchedule();
 }
+// el servidor busca en el audio del micro lo cantado en cada linea: cada parada y reanudacion le manda un ancla
+const kAnchor = () => { if (KS.phase === "sing") kLive().catch(() => {}); };
 function kpPause(p) {
   if (!KP.started) return;
   KP.paused = p;
-  if (p) KP.ctx.suspend(); else if (!KP.stalled) KP.ctx.resume();
+  if (p) KP.ctx.suspend().then(kAnchor); else if (!KP.stalled) KP.ctx.resume().then(kAnchor);
 }
 
 /* ---------- captura de audio para verificar la letra (16 kHz, int16, cada 250 ms) ---------- */
@@ -6335,6 +6345,9 @@ async function kPhoneMic(pid) {   // altura de la voz que manda el movil de quie
     since = r.seq;
     if (!r.s.length) continue;
     KS.phoneAt = performance.now();
+    // lo que tarda en llegar por la wifi (sube al instante, baja despacio): los frames se puntuan cuando ya ha llegado
+    const lag = Date.now() / 1000 - r.s[0][1];
+    KS.plag = lag > KS.plag ? lag : KS.plag + (lag - KS.plag) * .02;
     if (KS.phase !== "sing" || KP.paused || KP.stalled || KS.src !== "phone") continue;
     const nowW = Date.now() / 1000, pos = kpPos();
     // la marca de tiempo es del reloj del PC: se lleva a la posicion de la cancion de ese instante, menos lo que
@@ -6402,22 +6415,26 @@ function kTotalVoiced() {   // frames con voz de toda la cancion (estimado mient
   if (i.status === "ready") return Math.max(1, KS.voiced);
   return Math.max(1, KS.voiced * (i.n / 882) / KS.pitchRaw.length);
 }
-// lo que vale cada linea segun lo bien que se canto su letra (lo comprueba el servidor al acabar cada linea)
-const kLyrF = c => { const D = kDiff(); return D.lyr + (1 - D.lyr) * c; };
-function kAvgF() {
-  let s = 0, n = 0;
-  KS.lfac.forEach(c => { if (c != null) { s += kLyrF(c); n++; } });
-  return n ? s / n : kLyrF(.8);
+// lo que vale cada linea segun lo bien que se canto su letra (lo comprueba el servidor al acabar cada linea);
+// null = no se pudo comprobar (otro alfabeto, sin audio del micro): no se penaliza; -1 = el micro solo oia la
+// voz guia de los altavoces: la linea no puntua
+const kLyrF = c => { if (c == null) return 1; if (c < 0) return 0; const D = kDiff(); return D.lyr + (1 - D.lyr) * c; };
+function kAvgF() {   // para las lineas aun sin veredicto: como las ya comprobadas
+  let s = 0, n = 0, u = 0;
+  KS.lfac.forEach(c => { if (c != null) { s += kLyrF(c); n++; } else u++; });
+  return n ? s / n : u || !KS.vok ? 1 : kLyrF(.8);
 }
 function kScoreNow() {   // proporcional a la cancion ENTERA: solo llega a 10.000 al final y cantandolo todo
-  const avg = KS.lines.length ? kAvgF() : 1;
+  const avg = KS.lines.length ? kAvgF() : 1, V = kTotalVoiced();
   let P = KS.p0 * avg;
-  for (let i = 0; i < KS.lp.length; i++) if (KS.lp[i]) P += KS.lp[i] * (KS.lfac[i] != null ? kLyrF(KS.lfac[i]) : avg);
-  return Math.min(10000, Math.round(10000 * P / kTotalVoiced()));
+  for (let i = 0; i < KS.lp.length; i++) if (KS.lp[i]) P += KS.lp[i] * (i in KS.lfac ? kLyrF(KS.lfac[i]) : avg);
+  // en facil basta con cantar bien el 85 %, pero tampoco se llega antes del final (tope: lo que va de cancion)
+  return Math.round(Math.min(10000 * Math.min(1, KS.vel / V), 10000 * P / (V * kDiff().full)));
 }
 function kEval(f) {
   const r = KS.ref[f];
   if (!r) return;
+  KS.vel++;
   const D = kDiff(), ft = f * K_FR;
   let best = 99;
   for (let i = KS.sing.length - 1; i >= 0; i--) {
@@ -6488,6 +6505,7 @@ function kDraw(now) {
   // la voz: tramos continuos (se corta en las pausas), suavizados y dibujados como curva que se desvanece hacia
   // el pasado; a la altura relativa a la nota que toca (sin importar la octava)
   let lastRef = target || nextT || (lo + hi) / 2, live = null;
+  const lagV = KS.src === "phone" ? Math.min(1.5, KS.plag) : 0;   // la voz del movil llega con el retraso de la wifi
   const segs = []; let seg = null, prevT = -9, ys = 0;
   for (const sm of KS.sing) {
     if (sm.t < tnow - pre) continue;
@@ -6500,8 +6518,10 @@ function kDraw(now) {
     if (!seg) { seg = []; segs.push(seg); ys = y; } else ys += (y - ys) * .45;
     seg.push([x, ys]);
     prevT = sm.t;
-    if (tnow - sm.t < .2) live = ys;
+    if (tnow - sm.t < .2 + lagV) live = ys;
   }
+  // lo ultimo que llego del movil se une al punto (sin hueco entre la linea y el ahora)
+  if (live !== null && lagV && seg && seg.length) seg.push([px, live]);
   const fade = g.createLinearGradient(X(tnow - pre), 0, px, 0);
   fade.addColorStop(0, "rgba(255,255,255,0)"); fade.addColorStop(.55, "rgba(255,255,255,.55)"); fade.addColorStop(1, "rgba(255,255,255,.95)");
   const curve = s => {
@@ -6550,9 +6570,12 @@ function kLineRate(it) {
 
 /* ---------- bucle principal ---------- */
 function kLive() {   // puntos para los moviles + ancla del reloj de la cancion; vuelve con las lineas verificadas
-  return kpost("/kara/live", { score: kScoreNow(), rating: KS.rating, pos: kpPos(), wall: Date.now() / 1000,
-                               lat: KS.outLat + .03, src: KS.src }).then(r => {
+  // al acabar, la pista ya se paro: se manda donde acabo (y que el tiempo siga, para comprobar lo que quede)
+  const sing = KS.phase === "sing";
+  return kpost("/kara/live", { score: kScoreNow(), rating: KS.rating, pos: sing ? kpPos() : KS.endPos, wall: Date.now() / 1000,
+                               lat: KS.outLat + .03, src: KS.src, run: !sing || (KP.started && !KP.paused && !KP.stalled) }).then(r => {
     if (r && r.verify) for (const [i, c] of Object.entries(r.verify)) KS.lfac[+i] = c;
+    if (r && "vok" in r) KS.vok = r.vok;
     return r;
   });
 }
@@ -6573,13 +6596,13 @@ function kLoop() {
   const pos = kpPos(), info = KS.info;
   if (!info) return;
   if (KP.started && !KP.paused && !KP.stalled && KP.sched < info.nch && kpAhead() < .3) {   // aun no ha llegado: espera
-    KP.stalled = true; KP.ctx.suspend(); kStall(true);
+    KP.stalled = true; KP.ctx.suspend().then(kAnchor); kStall(true);
   }
   if (now - (KS._sch || 0) > 500) { KS._sch = now; kpSchedule(); }
   const refNow = pos - KS.lat;
-  while (KS.sing.length && KS.sing[0].t < refNow - 3) KS.sing.shift();
+  while (KS.sing.length && KS.sing[0].t < refNow - 4) KS.sing.shift();
   // cada frame de la melodia se evalua cuando ya llego todo lo cantado a su alrededor (el movil va con retraso)
-  const delay = kDiff().w + (KS.src === "phone" ? .35 : .08);
+  const delay = kDiff().w + (KS.src === "phone" ? Math.min(2, Math.max(.35, KS.plag + .15)) : .08);
   if (KS.ref) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - delay) kEval(KS.ev++);
   if (LYR.ai !== KS.lineAi) {   // linea terminada: valoracion un poco despues (lo ultimo cantado ya evaluado)
     const prev = LYR.items[KS.lineAi];
@@ -6630,7 +6653,7 @@ function kIntro(now) {
   KS.phase = "intro"; KS.now = now;
   Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0,
                       fp: null, lit: null, sing: [], shown: 0, rating: "", lineAi: -1, pend: [], heard: 0, raw3: [],
-                      introAt: performance.now(), countAt: 0, lines: [], li: 0, lp: [], lfac: [], p0: 0 });
+                      introAt: performance.now(), countAt: 0, lines: [], li: 0, lp: [], lfac: [], p0: 0, vel: 0 });
   KC.y = 0;
   $("kScore").textContent = "0";
   KP.vid = now.vid; kpCtx();
@@ -6757,6 +6780,7 @@ function kLyrClear() {
 }
 async function kEnd() {
   if (KS.phase !== "sing") return;
+  KS.endPos = kpPos();
   KS.phase = "results"; KS.resAt = 0; KS.micGen++;
   const g = KP.inst.gain, t0 = KP.ctx.currentTime;   // final suave
   g.setValueAtTime(g.value, t0); g.linearRampToValueAtTime(0, t0 + 1.2);
@@ -6771,7 +6795,7 @@ async function kEnd() {
   kScreen("kRes");
   // las ultimas lineas aun se estan comprobando: se espera su veredicto (max ~4 s) antes de dar la nota
   while (KS.ev < (KS.ref ? KS.ref.length : 0)) kEval(KS.ev++);
-  if (KS.src) {
+  if (KS.src && KS.vok) {
     const want = KS.lines.length, t1 = performance.now();
     while (performance.now() - t1 < 4000) {
       try { await kLive(); } catch (e) { break; }
@@ -6840,7 +6864,7 @@ function kApply(st) {
     : `<i class="ph ph-circle-notch"></i>${esc(t("Preparando el motor de voz…"))}`);
   kSetHtml($("kNext"), st.queue.length ? `<span>${esc(t("A continuación"))}</span>` + st.queue.slice(0, 3).map(q =>
     `<span class="ki"><img src="${esc(q.cover)}" alt=""><b>${esc(q.title)}</b> · ${esc(kPl(q.by).name)}</span>`).join("") : "");
-  document.querySelectorAll(".kdiffs button").forEach(b => b.classList.toggle("on", b.dataset.d === st.diff));
+  kPaintDiff(st.diff);
   if (KS.phase === "board") kPaintPodium();
   if (KS.reactSeen < 0) KS.reactSeen = st.reacts.reduce((a, r) => Math.max(a, r.id), 0);   // al abrir: no repetir las viejas
   for (const r of st.reacts) if (r.id > KS.reactSeen) { KS.reactSeen = r.id; kReact(r); }
@@ -6862,10 +6886,19 @@ function kGuide(v, send) {
   if (KP.guide) KP.guide.gain.setTargetAtTime(kSet.guide / 100, KP.ctx.currentTime, .05);
   if (send) kpost("/kara/set", { guide: kSet.guide }).catch(() => {});
 }
+const K_DTIP = {
+  easy: "Perdona notas y huecos: cantando bien el 85 % llegas al máximo.",
+  normal: "Cuentan la afinación y la letra: el máximo, solo cantándola entera.",
+  hard: "Afinación al medio tono y justo a tiempo.",
+};
+function kPaintDiff(d) {
+  document.querySelectorAll(".kdiffs button").forEach(b => b.classList.toggle("on", b.dataset.d === d));
+  document.querySelectorAll(".kdtip").forEach(el => { const x = t(K_DTIP[d] || ""); if (el.textContent !== x) el.textContent = x; });
+}
 function kSetDiff(d) {
   if (!K_DIFF[d]) return;
   kSet.diff = d; kSave();
-  document.querySelectorAll(".kdiffs button").forEach(b => b.classList.toggle("on", b.dataset.d === d));
+  kPaintDiff(d);
   kpost("/kara/set", { diff: d }).then(kApply).catch(() => {});
 }
 function kReact(r) {

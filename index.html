@@ -1502,7 +1502,7 @@
     <label><span data-i18n>Dificultad</span></label>
     <div class="kdiffs sm"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
     <label><span data-i18n>Voz guía</span><input type="range" id="kGuide" min="0" max="100" step="1"></label>
-    <div class="kms" data-i18n>Con la voz guía alta el micrófono también la oye: mejor bajita.</div>
+    <div class="kms" data-i18n>La voz guía ayuda, pero resta algo de puntuación (y el micrófono también la oye).</div>
   </div>
 </div>
 <div id="toast"></div>
@@ -1792,7 +1792,7 @@ const EN = {
   "Karaoke": "Karaoke", "Escanea el código con el móvil para unirte y elegir canciones.": "Scan the code with your phone to join and pick songs.",
   "O abre": "Or open", "con el código": "with the code", "Jugadores": "Players", "Puntos": "Points", "Únete": "Join",
   "Pulsa Espacio para continuar": "Press Space to continue", "Voz guía": "Guide vocals",
-  "Con la voz guía alta el micrófono también la oye: mejor bajita.": "With loud guide vocals the mic hears them too: keep it low.",
+  "La voz guía ayuda, pero resta algo de puntuación (y el micrófono también la oye).": "Guide vocals help, but lower the score a bit (and the mic hears them too).",
   "Predeterminado del sistema": "System default", "Micrófono": "Microphone", "Micrófono bloqueado": "Microphone blocked",
   "Sin micrófono": "No microphone", "Puntuación activada: canta cerca del micrófono.": "Scoring on: sing close to the microphone.",
   "Permite el micrófono para puntuar (se puede cantar igual).": "Allow the microphone to get scored (you can sing anyway).",
@@ -1818,6 +1818,7 @@ const EN = {
   "Solo se puntúa con el móvil de quien canta.": "Only the singer's phone is scored.",
   "Micrófono del PC listo: canta cerca de él.": "PC microphone ready: sing close to it.",
   "Activa el micro en tu móvil": "Turn on the mic on your phone",
+  "Calculando…": "Calculating…", "Sincronizando la letra…": "Syncing the lyrics…",
   "No se encontró ningún micrófono en el PC.": "No microphone found on the PC.",
   "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
     "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
@@ -6097,21 +6098,23 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.MediaControls) {
    y puntuacion. El audio llega en trozos PCM ya separados (sin voz) mientras el servidor los procesa: cada
    trozo se programa sin huecos en un AudioContext propio a 44.1 kHz (sin remuestreo por trozo = sin costuras).
    Puntuacion: la melodia de la voz original (servidor, 50 por segundo) contra la del cantante (YIN aqui con el
-   micro del PC, o en su movil si lo usa de micro), sin importar la octava, con la tolerancia de la dificultad. */
+   micro del PC, o en su movil si lo usa de micro), sin importar la octava, con la tolerancia de la dificultad;
+   y cada linea se multiplica por lo bien que se canto su LETRA (el servidor escucha el micro: tararear da menos).
+   La nota es proporcional a la cancion entera: 10.000 solo si se canta todo, afinado y con la letra. */
 const KARA_OK = !IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const K_STEP = 251904, K_SR = 44100, K_FR = .02;
-// dificultad: margen de tiempo (s), tramos de afinacion [semitonos, puntos], puntos por cantar sin acertar,
-// y que fraccion de aciertos da la nota maxima
+// dificultad: margen de tiempo (s), tramos de afinacion [semitonos, puntos], puntos por cantar desafinado
+// (solo en facil) y lo que vale una linea tarareada en vez de cantada (la letra bien cantada vale 1)
 const K_DIFF = {
-  easy:   { name: "Fácil",   w: .27, tol: [[1.5, 1], [3, .75], [4.5, .45]], any: .25, k: .6 },
-  normal: { name: "Normal",  w: .2,  tol: [[1, 1], [2, .7], [3.2, .35]],    any: .12, k: .72 },
-  hard:   { name: "Difícil", w: .13, tol: [[.6, 1], [1.2, .6], [2, .25]],   any: 0,   k: .85 },
+  easy:   { name: "Fácil",   w: .3,  tol: [[2, 1], [3.5, .8], [5, .5]],    any: .3, lyr: .7 },
+  normal: { name: "Normal",  w: .2,  tol: [[1, 1], [2, .6], [3, .25]],     any: 0,  lyr: .45 },
+  hard:   { name: "Difícil", w: .12, tol: [[.5, 1], [1, .55], [1.6, .2]],  any: 0,  lyr: .3 },
 };
 const KS = { on: false, st: null, v: -1, phase: "off", now: null, info: null, lyr: null, lrev: -1, pitchRaw: [],
-             ref: null, notes: [], lo: 55, hi: 75, voiced: 0, ev: 0, pts: 0, fp: null, lit: null, sing: [],
+             ref: null, notes: [], lo: 55, hi: 75, voiced: 0, ev: 0, fp: null, lit: null, sing: [],
              lat: .06, outLat: .03, shown: 0, reactSeen: -1, cmdSeen: -1, introAt: 0, countAt: 0, resAt: 0,
-             liveAt: 0, rating: "", lineAi: -1, pend: [], rate: [], escAt: 0, prevShow: false, infoGen: 0,
-             src: null, phoneAt: 0, micGen: 0, heard: 0, raw3: [] };
+             liveAt: 0, rating: "", lineAi: -1, pend: [], escAt: 0, prevShow: false, infoGen: 0,
+             src: null, phoneAt: 0, micGen: 0, heard: 0, raw3: [], lines: [], li: 0, lp: [], lfac: [], p0: 0 };
 const kSet = (() => {
   const d = { mic: "", guide: 0, micMode: "auto", diff: "normal" };
   try { return Object.assign(d, JSON.parse(localStorage.getItem("lightning.kara") || "{}")); } catch (e) { return d; }
@@ -6199,9 +6202,39 @@ function kpPause(p) {
   if (p) KP.ctx.suspend(); else if (!KP.stalled) KP.ctx.resume();
 }
 
+/* ---------- captura de audio para verificar la letra (16 kHz, int16, cada 250 ms) ---------- */
+const K_WORKLET = `class C extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}
+process(i){const x=i[0]&&i[0][0];if(x){for(let k=0;k<x.length;k++){this.b[this.n++]=x[k];if(this.n===2048){this.port.postMessage(this.b);this.b=new Float32Array(2048);this.n=0}}}return true}}
+registerProcessor("kcap",C);`;
+function kCapture(ctx, src, send) {   // devuelve el nodo; `send(int16, t0)` recibe lotes con la hora del primero
+  let acc = [], accN = 0, t0 = 0;
+  const sr = ctx.sampleRate;
+  return ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([K_WORKLET], { type: "text/javascript" }))).then(() => {
+    const node = new AudioWorkletNode(ctx, "kcap");
+    const sink = ctx.createGain(); sink.gain.value = 0;
+    src.connect(node); node.connect(sink); sink.connect(ctx.destination);
+    node.port.onmessage = e => {
+      const b = e.data, now = Date.now() / 1000;
+      if (!accN) t0 = now - b.length / sr - (ctx.baseLatency || 0);
+      acc.push(b); accN += b.length;
+      if (accN < sr / 4) return;
+      const x = new Float32Array(accN); let o = 0;
+      for (const a of acc) { x.set(a, o); o += a.length; }
+      acc = []; accN = 0;
+      const n = Math.floor(x.length * 16000 / sr), y = new Int16Array(n), r = sr / 16000;
+      for (let i = 0; i < n; i++) {
+        const p = i * r, j = p | 0, f = p - j, v = x[j] * (1 - f) + (x[j + 1] || 0) * f;
+        y[i] = Math.max(-32767, Math.min(32767, v * 32767));
+      }
+      send(y, t0);
+    };
+    return node;
+  });
+}
+
 /* ---------- micro del PC: altura en directo (YIN sobre la senal a la mitad de muestras) ---------- */
 const KM = { ctx: null, an: null, stream: null, raw: null, x: null, d: null, sr2: 0, tmin: 0, tmax: 0, floor: .01,
-             on: false, err: "", last: 0, rms: 0 };
+             on: false, err: "", last: 0, rms: 0, cap: null };
 async function kMic() {
   kMicStop();
   if (kSet.micMode === "phone") { KM.err = "off"; kPaintMic(); return; }
@@ -6216,16 +6249,27 @@ async function kMic() {
   }
   if (!KM.ctx) KM.ctx = new AudioContext();
   KM.ctx.resume();
+  const src = KM.ctx.createMediaStreamSource(KM.stream);
   KM.an = KM.ctx.createAnalyser(); KM.an.fftSize = 2048;
-  KM.ctx.createMediaStreamSource(KM.stream).connect(KM.an);
+  src.connect(KM.an);
   KM.raw = new Float32Array(2048); KM.x = new Float32Array(1024);
   KM.sr2 = KM.ctx.sampleRate / 2;
   KM.tmin = Math.floor(KM.sr2 / 1050); KM.tmax = Math.min(420, Math.ceil(KM.sr2 / 75));
   KM.d = new Float32Array(KM.tmax + 2);
   KM.on = true; KM.err = ""; KM.floor = .01;
+  try {   // audio del micro hacia el servidor (solo mientras canta alguien con este micro)
+    KM.cap = await kCapture(KM.ctx, src, (y, t0) => {
+      if (KS.phase !== "sing" || KS.src !== "pc" || KP.paused) return;
+      fetch("/kara/audio", { method: "POST", headers: { "X-T": t0.toFixed(3) }, body: y.buffer }).catch(() => {});
+    });
+  } catch (e) {}
   kPaintMic(); kMicList();
 }
-function kMicStop() { if (KM.stream) KM.stream.getTracks().forEach(tr => tr.stop()); KM.stream = null; KM.on = false; }
+function kMicStop() {
+  if (KM.stream) KM.stream.getTracks().forEach(tr => tr.stop());
+  if (KM.cap) { try { KM.cap.disconnect(); } catch (e) {} KM.cap = null; }
+  KM.stream = null; KM.on = false;
+}
 function kYin() {
   KM.an.getFloatTimeDomainData(KM.raw);
   const r = KM.raw, x = KM.x, n = x.length;
@@ -6234,7 +6278,7 @@ function kYin() {
   const rms = Math.sqrt(e / n);
   KM.rms = rms;
   KM.floor = Math.min(KM.floor * 1.003 + 1e-5, Math.max(rms, .0015));   // suelo de ruido: baja al instante, sube despacio
-  if (rms < Math.max(.005, KM.floor * 2)) return 0;
+  if (rms < Math.max(.006, KM.floor * 2.6)) return 0;   // lo que llega de los altavoces queda por debajo
   const tmax = KM.tmax, W = n - tmax, d = KM.d;
   for (let tau = 1; tau <= tmax; tau++) {
     let sum = 0;
@@ -6243,12 +6287,13 @@ function kYin() {
   }
   let run = 0;
   for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
+  // solo voz clara (periodica): los acordes de la musica que se cuelan por el micro no cuentan
   let tau = -1;
-  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .2) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .15) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
   if (tau < 0) {
     let b = KM.tmin;
     for (let k = KM.tmin; k < tmax; k++) if (d[k] < d[b]) b = k;
-    if (d[b] < .38) tau = b; else return 0;
+    if (d[b] < .25) tau = b; else return 0;
   }
   const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
   const f = KM.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
@@ -6281,12 +6326,12 @@ function kPickSrc() {   // automatico: el movil de quien canta si lo esta usando
 }
 async function kPhoneMic(pid) {   // altura de la voz que manda el movil de quien canta (ya medida alli)
   const g = ++KS.micGen;
-  let since = 1e18;
+  let since = -1;
   while (KS.on && KS.micGen === g) {
     let r = null;
-    try { r = await jget(`/kara/mic?pid=${encodeURIComponent(pid)}&since=${since === 1e18 ? 0 : since}`); } catch (e) { await kWait(600); continue; }
+    try { r = await jget(`/kara/mic?pid=${encodeURIComponent(pid)}&since=${Math.max(0, since)}`); } catch (e) { await kWait(600); continue; }
     if (KS.micGen !== g) return;
-    if (since === 1e18) { since = r.seq; continue; }   // primera vuelta: solo lo nuevo
+    if (since < 0) { since = r.seq; continue; }   // primera vuelta: solo lo nuevo
     since = r.seq;
     if (!r.s.length) continue;
     KS.phoneAt = performance.now();
@@ -6308,18 +6353,19 @@ function kPush(t, m) {   // muestra del cantante (mediana de 3 contra falsos sal
 }
 
 /* ---------- melodia de referencia: limpieza, notas para el carril, rango ---------- */
+function kMed(a, b, c, d, e) {   // mediana de hasta 5 valores no nulos (sin ordenar arrays)
+  const w = [a, b, c, d, e].filter(Boolean);
+  for (let i = 1; i < w.length; i++) for (let j = i; j > 0 && w[j - 1] > w[j]; j--) { const x = w[j]; w[j] = w[j - 1]; w[j - 1] = x; }
+  return w[w.length >> 1];
+}
 function kRefPrep() {
-  const raw = KS.pitchRaw, n = raw.length, ref = new Float32Array(n), w = [];
-  for (let i = 0; i < n; i++) {   // mediana de 5: quita saltos sueltos (consonantes, octavas erroneas)
-    if (!raw[i]) continue;
-    w.length = 0;
-    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) if (raw[j]) w.push(raw[j]);
-    w.sort((a, b) => a - b);
-    ref[i] = w[w.length >> 1] / 10;
-  }
+  const raw = KS.pitchRaw, n = raw.length, ref = new Float32Array(n);
+  for (let i = 0; i < n; i++) if (raw[i]) ref[i] = kMed(raw[i - 2], raw[i - 1], raw[i], raw[i + 1], raw[i + 2]) / 10;
   // octavas: el detector a veces salta una octava (o pilla el bajo); todo se pliega a +-9 semitonos de la
   // mediana de la cancion (una melodia cantada rara vez se sale de ahi) -> carril limpio y legible
-  const med = (() => { const v = []; for (let i = 0; i < n; i += 3) if (ref[i]) v.push(ref[i]); v.sort((a, b) => a - b); return v[v.length >> 1] || 0; })();
+  const sm = []; for (let i = 0; i < n; i += 3) if (ref[i]) sm.push(ref[i]);
+  sm.sort((a, b) => a - b);
+  const med = sm[sm.length >> 1] || 0;
   if (med) for (let i = 0; i < n; i++) if (ref[i]) { while (ref[i] - med > 9) ref[i] -= 12; while (med - ref[i] > 9) ref[i] += 12; }
   for (let i = 0; i < n;) {   // tramos de voz de menos de 100 ms: ruido
     if (!ref[i]) { i++; continue; }
@@ -6329,17 +6375,18 @@ function kRefPrep() {
   }
   KS.ref = ref;
   const notes = []; let cur = null;   // notas: tramos de altura estable (se parten en saltos de > 0.8 semitonos)
+  let voiced = 0;
   for (let i = 0; i <= n; i++) {
     const m = i < n ? ref[i] : 0;
+    if (m) voiced++;
     if (cur && m && Math.abs(m - cur.sum / cur.c) <= .8) { cur.sum += m; cur.c++; continue; }
     if (cur) { cur.e = i; cur.m = cur.sum / cur.c; if (cur.c >= 4) notes.push(cur); cur = null; }
     if (m) cur = { s: i, sum: m, c: 1 };
   }
   KS.notes = notes;
-  const vs = Array.from(ref.filter(Boolean)).sort((a, b) => a - b);
-  KS.voiced = vs.length;
-  if (vs.length > 50) {
-    let lo = vs[Math.floor(vs.length * .04)] - 1.5, hi = vs[Math.floor(vs.length * .96)] + 1.5;
+  KS.voiced = voiced;
+  if (sm.length > 20) {
+    let lo = sm[Math.floor(sm.length * .04)] - 1.5, hi = sm[Math.floor(sm.length * .96)] + 1.5;
     if (hi - lo < 11) { const c = (hi + lo) / 2; lo = c - 5.5; hi = c + 5.5; }
     KS.lo = lo; KS.hi = hi;
   }
@@ -6355,8 +6402,19 @@ function kTotalVoiced() {   // frames con voz de toda la cancion (estimado mient
   if (i.status === "ready") return Math.max(1, KS.voiced);
   return Math.max(1, KS.voiced * (i.n / 882) / KS.pitchRaw.length);
 }
-const kCurve = raw => Math.round(10000 * Math.pow(Math.min(1, raw / kDiff().k), .8));
-const kScoreNow = () => kCurve(KS.pts / kTotalVoiced());
+// lo que vale cada linea segun lo bien que se canto su letra (lo comprueba el servidor al acabar cada linea)
+const kLyrF = c => { const D = kDiff(); return D.lyr + (1 - D.lyr) * c; };
+function kAvgF() {
+  let s = 0, n = 0;
+  KS.lfac.forEach(c => { if (c != null) { s += kLyrF(c); n++; } });
+  return n ? s / n : kLyrF(.8);
+}
+function kScoreNow() {   // proporcional a la cancion ENTERA: solo llega a 10.000 al final y cantandolo todo
+  const avg = KS.lines.length ? kAvgF() : 1;
+  let P = KS.p0 * avg;
+  for (let i = 0; i < KS.lp.length; i++) if (KS.lp[i]) P += KS.lp[i] * (KS.lfac[i] != null ? kLyrF(KS.lfac[i]) : avg);
+  return Math.min(10000, Math.round(10000 * P / kTotalVoiced()));
+}
 function kEval(f) {
   const r = KS.ref[f];
   if (!r) return;
@@ -6371,11 +6429,17 @@ function kEval(f) {
   }
   const hit = D.tol.find(([th]) => best <= th);
   const p = hit ? hit[1] : best < 99 ? D.any : 0;
-  KS.pts += p; KS.fp[f] = p;
+  KS.fp[f] = p;
   if (p >= .7) KS.lit[f] = 1;
+  // a que linea pertenece (las lineas van en orden; la voz cuenta +-0.3 s alrededor de cada una)
+  const ms = ft * 1000, L = KS.lines;
+  while (KS.li < L.length && L[KS.li].end + 300 < ms) KS.li++;
+  const gp = p * (1 - .4 * kSet.guide / 100);   // con la voz guia sonando (ayuda) se puntua algo menos
+  if (KS.li < L.length && L[KS.li].start - 300 <= ms) KS.lp[KS.li] = (KS.lp[KS.li] || 0) + gp;
+  else KS.p0 += gp;
 }
 
-/* ---------- carril de melodia (sin sombras de canvas: el brillo es una capa ancha translucida) ---------- */
+/* ---------- carril de melodia: notas y la voz del cantante como una linea fluida ---------- */
 const KC = { cv: null, g: null, w: 0, h: 0, dpr: 1, y: 0, hold: 0 };
 function kPitchSize() {
   const cv = $("kPitch"), r = cv.getBoundingClientRect(), dpr = Math.min(1.5, devicePixelRatio || 1);
@@ -6421,20 +6485,36 @@ function kDraw(now) {
       }
     }
   }
-  // estela de la voz, a la altura relativa a la nota que toca (sin importar la octava)
+  // la voz: tramos continuos (se corta en las pausas), suavizados y dibujados como curva que se desvanece hacia
+  // el pasado; a la altura relativa a la nota que toca (sin importar la octava)
   let lastRef = target || nextT || (lo + hi) / 2, live = null;
-  g.fillStyle = "#fff";
+  const segs = []; let seg = null, prevT = -9, ys = 0;
   for (const sm of KS.sing) {
-    if (sm.t < tnow - pre || !sm.m) continue;
+    if (sm.t < tnow - pre) continue;
+    const x = X(sm.t);
+    if (x > px + 2) continue;
+    if (!sm.m || sm.t - prevT > .12) { seg = null; if (!sm.m) { prevT = -9; continue; } }
     const rf = KS.ref && KS.ref[Math.round(sm.t / K_FR)];
     if (rf) lastRef = rf;
-    const dd = ((sm.m - lastRef) % 12 + 18) % 12 - 6, x = X(sm.t);
-    if (x > px + 2) continue;
-    g.globalAlpha = Math.max(0, .7 - (tnow - sm.t) / pre * .7);
-    g.beginPath(); g.arc(x, Y(lastRef + dd), 2.5, 0, 6.2832); g.fill();
-    if (tnow - sm.t < .3) live = Y(lastRef + dd);
+    const y = Y(lastRef + (((sm.m - lastRef) % 12 + 18) % 12 - 6));
+    if (!seg) { seg = []; segs.push(seg); ys = y; } else ys += (y - ys) * .45;
+    seg.push([x, ys]);
+    prevT = sm.t;
+    if (tnow - sm.t < .2) live = ys;
   }
-  g.globalAlpha = 1;
+  const fade = g.createLinearGradient(X(tnow - pre), 0, px, 0);
+  fade.addColorStop(0, "rgba(255,255,255,0)"); fade.addColorStop(.55, "rgba(255,255,255,.55)"); fade.addColorStop(1, "rgba(255,255,255,.95)");
+  const curve = s => {
+    g.beginPath(); g.moveTo(s[0][0], s[0][1]);
+    for (let i = 1; i < s.length - 1; i++) g.quadraticCurveTo(s[i][0], s[i][1], (s[i][0] + s[i + 1][0]) / 2, (s[i][1] + s[i + 1][1]) / 2);
+    const l = s[s.length - 1]; g.lineTo(l[0], l[1]);
+  };
+  g.lineCap = "round"; g.lineJoin = "round";
+  for (const s of segs) {
+    if (s.length < 2) continue;
+    g.globalAlpha = .22; g.strokeStyle = col; g.lineWidth = 11; curve(s); g.stroke();   // halo del color del cantante
+    g.globalAlpha = 1; g.strokeStyle = fade; g.lineWidth = 3.2; curve(s); g.stroke();
+  }
   // el punto SIEMPRE se ve: lleno a la altura de tu voz cuando cantas; si no, un aro sobre la nota que toca
   // (o la siguiente) para saber donde entrar. Se desliza suave entre posiciones
   if (live !== null) KC.hold = now;
@@ -6469,6 +6549,13 @@ function kLineRate(it) {
 }
 
 /* ---------- bucle principal ---------- */
+function kLive() {   // puntos para los moviles + ancla del reloj de la cancion; vuelve con las lineas verificadas
+  return kpost("/kara/live", { score: kScoreNow(), rating: KS.rating, pos: kpPos(), wall: Date.now() / 1000,
+                               lat: KS.outLat + .03, src: KS.src }).then(r => {
+    if (r && r.verify) for (const [i, c] of Object.entries(r.verify)) KS.lfac[+i] = c;
+    return r;
+  });
+}
 function kLoop() {
   if (!KS.on) return;
   requestAnimationFrame(kLoop);
@@ -6493,19 +6580,17 @@ function kLoop() {
   while (KS.sing.length && KS.sing[0].t < refNow - 3) KS.sing.shift();
   // cada frame de la melodia se evalua cuando ya llego todo lo cantado a su alrededor (el movil va con retraso)
   const delay = kDiff().w + (KS.src === "phone" ? .35 : .08);
-  if (KS.ref && KS.src) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - delay) kEval(KS.ev++);
+  if (KS.ref) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - delay) kEval(KS.ev++);
   if (LYR.ai !== KS.lineAi) {   // linea terminada: valoracion un poco despues (lo ultimo cantado ya evaluado)
     const prev = LYR.items[KS.lineAi];
     if (prev && prev.kind === "line") KS.pend.push([now + 300 + delay * 1000, prev]);
     KS.lineAi = LYR.ai;
   }
   while (KS.pend.length && KS.pend[0][0] < now) kLineRate(KS.pend.shift()[1]);
-  if (KS.src) {
-    const target = kScoreNow();
-    KS.shown += (target - KS.shown) * .12;
-    $("kScore").textContent = kNum(KS.shown);
-    if (now - KS.liveAt > 1000) { KS.liveAt = now; kpost("/kara/live", { score: target, rating: KS.rating }).catch(() => {}); }
-  }
+  const target = kScoreNow();
+  KS.shown += (target - KS.shown) * .12;
+  $("kScore").textContent = kNum(KS.shown);
+  if (now - KS.liveAt > 1000 && !KP.paused) { KS.liveAt = now; kLive().catch(() => {}); }
   kDraw(now);
   if (info.dur && pos >= info.dur - .05) kEnd();
 }
@@ -6530,7 +6615,6 @@ function kBoard() {   // sin mas canciones: la clasificacion (y el QR para segui
   kpReset(); kLyrClear(); kStall(false);
   kPaintPodium();
   kScreen("kBoardS");
-  kpost("/kara/phase", { phase: "results" }).catch(() => {});
 }
 async function kNext() {
   if (KS._nexting) return;
@@ -6544,9 +6628,9 @@ async function kNext() {
 }
 function kIntro(now) {
   KS.phase = "intro"; KS.now = now;
-  Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0, pts: 0,
+  Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0,
                       fp: null, lit: null, sing: [], shown: 0, rating: "", lineAi: -1, pend: [], heard: 0, raw3: [],
-                      introAt: performance.now(), countAt: 0, rate: [] });
+                      introAt: performance.now(), countAt: 0, lines: [], li: 0, lp: [], lfac: [], p0: 0 });
   KC.y = 0;
   $("kScore").textContent = "0";
   KP.vid = now.vid; kpCtx();
@@ -6571,14 +6655,13 @@ async function kInfoPoll(qid) {   // estado del procesado + melodia (incremental
     if (KS.infoGen !== g || !KS.now || KS.now.qid !== qid) return;
     if (d && !d.error) {
       if (d.from === KS.pitchRaw.length && d.pitch.length) { KS.pitchRaw.push(...d.pitch); kRefPrep(); }
-      if (KS.info && d.chunks > KS.info.chunks) KS.rate.push([performance.now(), d.chunks]);
       KS.info = d;
       if (d.lyrics) { const first = !KS.lyr; KS.lyr = d.lyrics; KS.lrev = d.lrev; first ? kLyrBuild(d.lyrics) : kLyrUpdate(d.lyrics); }
       kpFetch();
       if (d.status === "error") { kSongError(d.error); return; }
       if (d.status === "ready" && KS.lyr && d.align !== "pending") return;
     }
-    await kWait(d && d.status === "ready" ? 1500 : 650);
+    await kWait(d && d.status === "ready" ? 1500 : 600);
   }
 }
 function kSongError(msg) {
@@ -6586,17 +6669,18 @@ function kSongError(msg) {
   const qid = KS.now && KS.now.qid;
   setTimeout(() => { if (KS.on && KS.now && KS.now.qid === qid && (KS.phase === "intro" || KS.phase === "sing")) kNext(); }, 2500);
 }
-// mientras alguien canta el servidor solo procesa con la CPU sobrante (para no trabar la pantalla): se empieza
-// cuando lo que falta se termina a tiempo a esa velocidad; antes, la GPU va a tope
+// se empieza en cuanto lo que falta por separar se termina antes de que suene (a la velocidad con alguien
+// cantando: la CPU que sobra) y la letra esta lista para los primeros ~20 s
 function kNeed() {
   const i = KS.info, L = K_STEP / K_SR;
-  const sc = Math.max(.08, i.cpu_speed || .4) * (i.align === "pending" ? .65 : 1);
-  return Math.min(i.nch, Math.max(Math.min(2, i.nch), Math.ceil(i.nch - sc * Math.max(0, i.dur - 12) / L)));
+  const sc = Math.max(.1, (i.speed || 4) * .45) * (i.align === "pending" ? .6 : 1);
+  return Math.min(i.nch, Math.max(Math.min(2, i.nch), Math.ceil(i.nch - sc * Math.max(0, i.dur - 10) / L)));
 }
 function kCanStart() {
   const i = KS.info;
   if (!i || i.status === "error" || !i.nch) return false;
   if (KP.fetched < Math.min(2, i.nch)) return false;
+  if (i.align === "pending" && i.aligned_upto < Math.min(i.dur, 20)) return false;
   return i.status === "ready" || i.chunks >= kNeed();
 }
 function kIntroTick(now) {
@@ -6605,7 +6689,7 @@ function kIntroTick(now) {
     const ready = kCanStart();
     if (ready && now - KS.introAt > 2500) {
       KS.countAt = now;
-      kpost("/kara/phase", { phase: "count" }).catch(() => {});   // desde aqui la GPU queda libre para la pantalla
+      kpost("/kara/phase", { phase: "count" }).catch(() => {});
       return;
     }
     const eng = KS.st && KS.st.engine;
@@ -6613,12 +6697,8 @@ function kIntroTick(now) {
     if (eng && eng.status === "download") { pr = eng.progress / 100; txt = t("Descargando el motor de voz (solo la primera vez)") + " · " + eng.progress + "%"; }
     else if (eng && eng.status === "loading") txt = t("Cargando el motor de voz…");
     else if (i && (i.status === "download" || i.status === "wait")) txt = t("Descargando la canción…");
-    else if (i && i.status === "sep" && !ready) {
-      const need = kNeed(), sp = Math.max(.5, i.speed || 4);
-      pr = i.chunks / Math.max(1, need);
-      const eta = Math.max(1, Math.round((need - i.chunks) * K_STEP / K_SR / sp));
-      txt = t("Quitando la voz…") + " " + Math.round(Math.min(1, pr) * 100) + "% · ~" + eta + " s";
-    }
+    else if (i && i.status === "sep" && i.chunks < kNeed()) { pr = i.chunks / Math.max(1, kNeed()); txt = t("Quitando la voz…") + " " + Math.round(Math.min(1, pr) * 100) + "%"; }
+    else if (i && i.align === "pending" && i.aligned_upto < Math.min(i.dur, 20)) { pr = Math.min(1, i.aligned_upto / 20); txt = t("Sincronizando la letra…"); }
     else if (ready) { pr = 1; txt = t("¡Prepárate!"); }
     ring.classList.toggle("spin", !pr);
     fg.style.strokeDashoffset = 176 * (1 - Math.min(1, pr || .25));
@@ -6642,7 +6722,7 @@ function kSing() {
   kpStart();
   if (KS.lyr && !LYR.items.length) kLyrBuild(KS.lyr);
   requestAnimationFrame(() => { kPitchSize(); lyrMeasure(); });
-  kpost("/kara/phase", { phase: "sing" }).catch(() => {});
+  kpost("/kara/phase", { phase: "sing" }).then(() => kLive()).catch(() => {});
 }
 function kLyrBuild(d) {
   LYR.clock = {
@@ -6652,6 +6732,7 @@ function kLyrBuild(d) {
   };
   LYR.for = null; lyricsFor = null;
   lyrBuild(d && d.lines ? JSON.parse(JSON.stringify(d)) : { lines: [] });   // copia: lyrBuild anade sus estimaciones
+  KS.lines = LYR.items.filter(it => it.kind === "line");
   startLyricLoop();
 }
 // el alineado del servidor va completando la letra: si ya se esta cantando, solo se cambian los tiempos de las
@@ -6676,25 +6757,37 @@ function kLyrClear() {
 }
 async function kEnd() {
   if (KS.phase !== "sing") return;
-  KS.phase = "results"; KS.resAt = performance.now(); KS.micGen++;
+  KS.phase = "results"; KS.resAt = 0; KS.micGen++;
   const g = KP.inst.gain, t0 = KP.ctx.currentTime;   // final suave
   g.setValueAtTime(g.value, t0); g.linearRampToValueAtTime(0, t0 + 1.2);
   const gen = KP.gen;
   setTimeout(() => { if (KP.gen === gen) kpReset(); }, 1300);
-  const score = KS.heard > 20 ? kScoreNow() : null, by = KS.now.by;   // sin voz captada: sin nota (no un cero)
-  $("kResN").textContent = "0";
-  const p = kPl(by);
+  const by = KS.now.by, p = kPl(by);
+  $("kResN").textContent = "";
   $("kResBy").innerHTML = `${kAv(p)}<span>${esc(p.name)}</span><span class="kdiff">${esc(t(kDiff().name))}</span>`;
   $("kStars").innerHTML = "";
-  $("kResM").textContent = score == null ? t("¡Gracias por cantar!") : "";
+  $("kResM").textContent = t("Calculando…");
   $("kBoard").innerHTML = ""; $("kResNext").textContent = ""; $("kResBar").style.width = "0";
-  KS.resScore = score;
   kScreen("kRes");
+  // las ultimas lineas aun se estan comprobando: se espera su veredicto (max ~4 s) antes de dar la nota
+  while (KS.ev < (KS.ref ? KS.ref.length : 0)) kEval(KS.ev++);
+  if (KS.src) {
+    const want = KS.lines.length, t1 = performance.now();
+    while (performance.now() - t1 < 4000) {
+      try { await kLive(); } catch (e) { break; }
+      if (KS.lfac.filter((c, i) => i < want).length >= want || Object.keys(KS.lfac).length >= want) break;
+      await kWait(450);
+    }
+  }
+  const score = KS.heard > 20 ? kScoreNow() : null;   // sin voz captada: sin nota (no un cero)
+  KS.resScore = score; KS.resAt = performance.now();
+  $("kResM").textContent = score == null ? t("¡Gracias por cantar!") : "";
   try { kApply(await kpost("/kara/result", { score })); } catch (e) {}
   kPaintBoard(by);
 }
 const K_MSG = [[9000, "¡Leyenda!"], [7500, "¡Increíble!"], [6000, "¡Muy bien!"], [4000, "¡Bien hecho!"], [0, "¡Buen intento!"]];
 function kResTick(now) {
+  if (!KS.resAt) return;   // calculando la nota
   const el = (now - KS.resAt) / 1000, sc = KS.resScore;
   if (sc != null) {
     const k = Math.min(1, Math.max(0, (el - .4) / 1.8)), v = sc * (1 - Math.pow(1 - k, 3));
@@ -6720,8 +6813,8 @@ function kPaintBoard(meId) {
 function kPaintPodium() {
   const pl = (KS.st ? KS.st.players : []).filter(p => p.songs);
   const pod = [pl[1], pl[0], pl[2]];
-  $("kPodium").innerHTML = pod.map((p, i) => p ? `<div class="kpod p${[2, 1, 3][i]}">${kAv(p, "lg")}<div class="kpn">${esc(p.name)}</div><div class="kps">${kNum(p.avg)}</div><div class="kpx">${esc(t("mejor"))} ${kNum(p.best)}</div><div class="kpb"><span>${[2, 1, 3][i]}</span></div></div>` : `<div class="kpod empty"></div>`).join("");
-  $("kRest").innerHTML = pl.slice(3, 10).map((p, i) => kRow(p, i + 3, "")).join("");
+  kSetHtml($("kPodium"), pod.map((p, i) => p ? `<div class="kpod p${[2, 1, 3][i]}">${kAv(p, "lg")}<div class="kpn">${esc(p.name)}</div><div class="kps">${kNum(p.avg)}</div><div class="kpx">${esc(t("mejor"))} ${kNum(p.best)}</div><div class="kpb"><span>${[2, 1, 3][i]}</span></div></div>` : `<div class="kpod empty"></div>`).join(""));
+  kSetHtml($("kRest"), pl.slice(3, 10).map((p, i) => kRow(p, i + 3, "")).join(""));
 }
 
 /* ---------- estado compartido (long-poll) ---------- */
@@ -6741,7 +6834,7 @@ function kApply(st) {
     return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kRing(q)}</div>`; }).join("")
     : `<span class="kempty">${esc(t("La cola está vacía: elige canciones desde el móvil"))}</span>`);
   const e = st.engine || {};
-  kSetHtml($("kEng"), e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}${e.gpu ? " · GPU" : " · CPU"}`
+  kSetHtml($("kEng"), e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}`
     : e.status === "download" ? `<i class="ph ph-download-simple"></i>${esc(t("Descargando el motor de voz (solo la primera vez)"))} · ${e.progress}%`
     : e.status === "error" ? `<i class="ph ph-warning"></i>${esc(t("El motor de voz no está disponible"))}: ${esc(e.error || "")}`
     : `<i class="ph ph-circle-notch"></i>${esc(t("Preparando el motor de voz…"))}`);
@@ -6838,7 +6931,7 @@ function kTogglePause() {
   kpPause(!KP.paused);
   $("kPlay").innerHTML = `<i class="ph-fill ${KP.paused ? "ph-play" : "ph-pause"}"></i>`;
   $("kPause").classList.toggle("on", KP.paused);
-  kpost("/kara/phase", { phase: KP.paused ? "paused" : "sing" }).catch(() => {});
+  kpost("/kara/phase", { phase: KP.paused ? "paused" : "sing" }).then(() => { if (!KP.paused) return kLive(); }).catch(() => {});
 }
 function kSkip() {
   if (KS.phase === "sing" || KS.phase === "intro" || KS.phase === "results") kNext();

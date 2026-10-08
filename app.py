@@ -3825,17 +3825,20 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b)
             return
-        d = {}
+        d, raw = {}, b""
         if method == "POST":
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 65536:
+            if n > 262144:
                 return self._json({"error": "demasiado grande"}, 413)
-            try:
-                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
-            except ValueError:
-                d = {}
+            raw = self.rfile.read(n)
+            if u.path != "/kara/audio":   # el audio del micro llega en binario
+                try:
+                    d = json.loads(raw.decode("utf-8", "replace") or "{}")
+                except ValueError:
+                    d = {}
         try:
-            return self._json(K.host_api(method, u.path, qs, d if isinstance(d, dict) else {}))
+            return self._json(K.host_api(method, u.path, qs, d if isinstance(d, dict) else {}, raw,
+                                         {"X-T": self.headers.get("X-T")}))
         except Exception as e:
             return self._json({"error": str(e)[:200]}, 500)
 

@@ -4,17 +4,21 @@ El PC es el escenario: procesa cada cancion (voz fuera con IA) y la reproduce co
 los moviles de la misma red se unen escaneando un QR, eligen canciones, ven la cola y el ranking, mandan
 reacciones y (si quieren) hacen de micro inalambrico y mando a distancia mientras cantan.
 
-Flujo de cada cancion (pensado para que nadie espere y nada se trabe):
+Todo se calcula en la CPU, en un proceso aparte de prioridad baja: la GPU es de la pantalla. Medido en una
+RX 550: cualquier trabajo de IA en la GPU (DirectML) congela la pantalla mientras dura (fondo a 1-10 fps), sin
+importar la prioridad; en la CPU con prioridad IDLE la pantalla sigue a 60 fps porque Windows siempre atiende
+antes a lo que dibuja.
+
+Flujo de cada cancion (para que empiece en segundos):
   1. al anadirla a la cola se baja el audio y la letra en segundo plano (cache de Blyatt)
-  2. separacion voz/instrumental con MDX-Net (UVR-MDX-NET-Inst_HQ_5, ONNX) en trozos de ~5.7 s que se pueden
-     reproducir en cuanto salen. La GPU (DirectML) va a ~5x tiempo real pero bloquea la pantalla mientras
-     trabaja (medido: la letra y el fondo caen a ~10 fps), asi que SOLO se usa cuando nadie canta; mientras
-     alguien canta se sigue en la CPU en un proceso aparte con prioridad IDLE (medido: 60 fps intactos)
+  2. separacion voz/instrumental rapida con Spleeter (ONNX, ~15x tiempo real en CPU): bloques de ~12 s que se
+     pueden reproducir en cuanto salen
   3. de la voz separada sale la melodia de referencia (YIN, 50 fps) con la que se puntua al cantante
-  4. si la letra no viene palabra a palabra, se alinea aqui con la voz separada (wav2vec2 CTC, forzado):
-     por linea si la letra trae tiempos por linea, o la cancion entera si es solo texto
-Un solo hilo trabaja por prioridad (la que suena > la siguiente > ...): cada cancion es un generador que
-avanza paso a paso, asi un cambio en la cola aparca lo que se estaba haciendo y se retoma luego.
+  4. si la letra no viene palabra a palabra, se alinea con la voz separada (wav2vec2 CTC forzado, q4)
+  5. con la CPU libre (nadie cantando), las canciones se mejoran a MDX-Net HQ5 (mas limpia) para la proxima vez
+Mientras alguien canta, se comprueba cada linea que canta (su micro) contra la letra con el mismo wav2vec2:
+quien canta la letra puntua entero; quien tararea o calla, menos.
+Un solo hilo reparte el trabajo por prioridad: cada cancion es un generador que avanza paso a paso.
 
 Los moviles usan un servidor aparte en la red local que SOLO tiene las rutas del karaoke (nada de la cuenta,
 la biblioteca ni el resto de la app). Hay dos puertas: http (entrar sin avisos) y https con un certificado
@@ -31,6 +35,7 @@ import socket
 import socketserver
 import ssl
 import subprocess
+import tarfile
 import threading
 import time
 import unicodedata
@@ -42,26 +47,34 @@ from urllib.parse import parse_qs, urlparse
 APP = None   # app.py se inyecta aqui (busqueda, letra, descarga de audio, rutas de datos)
 
 SR = 44100
-MODEL = {   # UVR-MDX-NET-Inst_HQ_5 (parametros de model_data.json de UVR para este hash)
+MODEL = {   # mejora en segundo plano: UVR-MDX-NET-Inst_HQ_5 (parametros de model_data.json de UVR)
     "file": "UVR-MDX-NET-Inst_HQ_5.onnx",
     "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_5.onnx",
     "size": 59074342,
     "sha256": "811cb24095d865763752310848b7ec86aeede0626cb05749ab35350e46897000",
     "n_fft": 5120, "dim_f": 2560, "dim_t": 256, "hop": 1024, "comp": 1.01,
 }
-_HF = "https://huggingface.co/Xenova/wav2vec2-base-960h/resolve/a19f851b3d42865797e410752b4c570c871e4825/onnx/"
-W2V = {   # facebook/wav2vec2-base-960h (Apache-2.0) en ONNX: fp16 para la GPU, int8 para la CPU
-    "gpu": {"file": "wav2vec2-base-960h_fp16.onnx", "url": _HF + "model_fp16.onnx", "size": 189192204,
-            "sha256": "378348ee38b739cc77e77e3fb8502f0f40ed53da0dbf7401b24c25c8fafe03de"},
-    "cpu": {"file": "wav2vec2-base-960h_int8.onnx", "url": _HF + "model_int8.onnx", "size": 95286006,
-            "sha256": "a4249bb7b7bcbe391be19980922b0523c0907e976a9e5d5aabfadb40fcea5058"},
+SPLEETER = {   # deezer/spleeter 2stems (MIT) convertido a ONNX por k2-fsa/sherpa-onnx (Apache-2.0)
+    "file": "spleeter-2stems.tar.bz2", "dir": "spleeter-2stems",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems.tar.bz2",
+    "size": 74682545, "sha256": "e26401d9c1801f43c0229731d78d32c2e80085e3aceedeb25f29d2de5fa68ca2",
+}
+W2V = {   # facebook/wav2vec2-base-960h (Apache-2.0) en ONNX con pesos de 4 bits: el mas rapido en CPU (0.15 s/s)
+    "file": "wav2vec2-base-960h_q4.onnx",
+    "url": "https://huggingface.co/Xenova/wav2vec2-base-960h/resolve/a19f851b3d42865797e410752b4c570c871e4825/onnx/model_q4.onnx",
+    "size": 89834049, "sha256": "337db946188e4b3d0b4a2641dc30727a4792f70aeb1750f65a20fae471f9f217",
 }
 W2V_CHARS = "|ETAONIHSRDLUMWCFGYPBVK'XJQZ"   # indices 4.. del vocabulario (0 = blanco CTC, 4 = espacio)
-ALIGN_BIAS = .08   # medido contra letras palabra a palabra reales: el CTC marca el inicio ~80 ms tarde
-_CHUNK = MODEL["hop"] * (MODEL["dim_t"] - 1)   # 261120 muestras por pasada del modelo
+ALIGN_BIAS = .08   # medido contra letras palabra a palabra reales: el CTC marca el inicio ~80 ms tarde...
+ALIGN_BIAS_SPL = .13   # ...y con la voz de Spleeter (ventana de 93 ms, ataques mas suaves) algo mas
+# verificacion de la letra: confianza media de cada letra esperada en su tramo (medido con voces reales: letra
+# correcta ~0.36-0.40, tarareo ~0.06-0.08, solo instrumental ~0.04)
+VERIFY_LO, VERIFY_HI = .08, .22
+_CHUNK = MODEL["hop"] * (MODEL["dim_t"] - 1)   # 261120 muestras por pasada del modelo HQ5
 _TRIM = MODEL["n_fft"] // 2                    # bordes de cada pasada que se descartan
 _XF = 4096                                     # fundido entre pasadas (sin costuras audibles)
 STEP = _CHUNK - 2 * _TRIM - _XF                # 251904 muestras (~5.7 s) = un trozo reproducible
+SP_N, SP_H, SP_F, SP_T = 4096, 1024, 1024, 512  # STFT y bloque de Spleeter (512 frames = ~11.9 s)
 PITCH_HOP = 882                                # 20 ms a 44.1 kHz: un valor de melodia por trozo de 20 ms
 MAX_SECS = 12 * 60
 CACHE_MB = 2048
@@ -76,27 +89,22 @@ def _dir(*p):
     return d
 
 
-# ---------------------------------------------------------------- motores (separacion + alineado) en ONNX
-ENG = {"status": "idle", "progress": 0, "gpu": False, "error": "", "speed": 0, "cpu_speed": .5, "align": ""}
-_GPU = None   # separador en la GPU de este proceso (None: no hay DirectML usable)
-_CPU = None   # (proceso, conexion): separador/alineador en CPU con prioridad IDLE
-_ALG = None   # alineador en la GPU
+# ---------------------------------------------------------------- motores ONNX (todos en CPU)
+ENG = {"status": "idle", "progress": 0, "error": "", "speed": 8, "align": ""}
+_CPU = None   # (proceso, conexion)
 
 
-def _session(path, gpu):
+def _session(path):
     import onnxruntime as ort
     so = ort.SessionOptions()
     so.log_severity_level = 3
-    if gpu:
-        so.enable_mem_pattern = False   # requisito de DirectML
-        so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        return ort.InferenceSession(path, so, providers=["DmlExecutionProvider"])
     so.intra_op_num_threads = os.cpu_count() or 4
     so.add_session_config_entry("session.intra_op.allow_spinning", "0")   # sin espera activa: no roba CPU
     return ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
 
 
 class _Sep:
+    """MDX-Net HQ5: STFT/ISTFT identicas a torch alrededor del modelo."""
     def __init__(self, sess):
         import numpy as np
         self.np, self.s = np, sess
@@ -104,7 +112,7 @@ class _Sep:
         n = MODEL["n_fft"]
         self.win = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(n) / n)).astype(np.float32)   # hann periodica (torch)
         T, hop = MODEL["dim_t"], MODEL["hop"]
-        k = n // hop   # 5 bloques de salto por ventana: el solapamiento-suma se hace con 5 sumas desplazadas
+        k = n // hop
         w2 = (self.win ** 2).reshape(k, hop)
         env = np.zeros(n + hop * (T - 1), np.float32)
         for j in range(k):
@@ -113,7 +121,7 @@ class _Sep:
         self.idx = np.arange(n)[None, :] + hop * np.arange(T)[:, None]
 
     def run(self, seg):
-        """seg: [2, 261120] float32 (mezcla) -> instrumental [2, 261120] (STFT/ISTFT identicas a torch)."""
+        """seg: [2, 261120] float32 (mezcla) -> instrumental [2, 261120]."""
         np = self.np
         n, hop, F, T = MODEL["n_fft"], MODEL["hop"], MODEL["dim_f"], MODEL["dim_t"]
         p = n // 2
@@ -134,6 +142,37 @@ class _Sep:
         return out[:, p: p + _CHUNK] / self.env * MODEL["comp"]
 
 
+class _Spl:
+    """Spleeter 2stems: mascara de acompanamiento (Wiener, exponente 2) sobre la STFT; por encima de 11 kHz
+    (donde el modelo no llega) se usa la media de las bandas mas altas. Devuelve el solapamiento-suma del
+    bloque sin normalizar (la normalizacion global la hace quien junta los bloques: sin costuras)."""
+    def __init__(self, d):
+        import numpy as np
+        self.np = np
+        self.v = _session(os.path.join(d, "vocals.onnx"))
+        self.a = _session(os.path.join(d, "accompaniment.onnx"))
+        self.win = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(SP_N) / SP_N)).astype(np.float32)
+
+    def run(self, seg, nfr):
+        np = self.np
+        N, H, F, T = SP_N, SP_H, SP_F, SP_T
+        idx = np.arange(N)[None, :] + H * np.arange(nfr)[:, None]
+        S = np.fft.rfft(seg[:, idx] * self.win, axis=-1).astype(np.complex64)   # [2, nfr, 2049]
+        x = np.zeros((2, 1, T, F), np.float32)
+        x[:, 0, :nfr] = np.abs(S[:, :, :F])
+        v = self.v.run(None, {"x": x})[0][:, 0, :nfr]
+        a = self.a.run(None, {"x": x})[0][:, 0, :nfr]
+        m = (a * a + 5e-11) / (v * v + a * a + 1e-10)
+        M = np.empty(S.shape, np.float32)
+        M[:, :, :F] = m
+        M[:, :, F:] = m[:, :, -64:].mean(axis=2, keepdims=True)
+        fr = np.fft.irfft(S * M, n=N, axis=-1).astype(np.float32) * self.win
+        out = np.zeros((2, (nfr - 1) * H + N), np.float32)
+        for q in range(N // H):
+            out[:, q * H: q * H + nfr * H] += fr[:, :, q * H:(q + 1) * H].reshape(2, nfr * H)
+        return out
+
+
 def _emis(sess, x):
     """Voz a 16 kHz -> log-probabilidades CTC [frames de 20 ms, 32]."""
     import numpy as np
@@ -143,13 +182,13 @@ def _emis(sess, x):
     return lo - np.log(np.exp(lo).sum(axis=1, keepdims=True))
 
 
-def _child(conn, sep_path):
-    """Proceso aparte para la CPU: con prioridad IDLE (mientras alguien canta) Windows siempre atiende antes
-    a la pantalla, asi que procesa solo con lo que sobra y la letra y el fondo no se traban."""
+def _child(conn, paths):
+    """Proceso aparte para la IA: con prioridad IDLE (mientras alguien canta) Windows siempre atiende antes a la
+    pantalla, asi que procesa solo con lo que sobra y la letra y el fondo no se traban."""
     import ctypes
     k32 = ctypes.windll.kernel32
     k32.SetPriorityClass(k32.GetCurrentProcess(), 0x40)
-    sep, alg = None, {}
+    m = {}
     while True:
         try:
             msg = conn.recv()
@@ -162,14 +201,18 @@ def _child(conn, sep_path):
             if kind == "prio":
                 k32.SetPriorityClass(k32.GetCurrentProcess(), 0x40 if arg else 0x4000)   # IDLE / BELOW_NORMAL
                 conn.send(True)
+            elif kind == "spl":
+                if "spl" not in m:
+                    m["spl"] = _Spl(paths["spl"])
+                conn.send(m["spl"].run(*arg))
             elif kind == "sep":
-                sep = sep or _Sep(_session(sep_path, False))
-                conn.send(sep.run(arg))
+                if "sep" not in m:
+                    m["sep"] = _Sep(_session(paths["sep"]))
+                conn.send(m["sep"].run(arg))
             elif kind == "emis":
-                path, x = arg
-                if path not in alg:
-                    alg[path] = _session(path, False)
-                conn.send(_emis(alg[path], x))
+                if "w2v" not in m:
+                    m["w2v"] = _session(paths["w2v"])
+                conn.send(_emis(m["w2v"], arg))
         except Exception as e:
             conn.send(RuntimeError(str(e)[:300]))
 
@@ -178,14 +221,18 @@ _CPU_LOCK = threading.Lock()
 _CPU_IDLE = [None]
 
 
-def _cpu(kind, arg, idle=True):
+def _cpu(kind, arg):
+    """Tarea en el proceso de IA. Prioridad IDLE si alguien canta; BELOW_NORMAL si no (sigue cediendo a la pantalla)."""
     global _CPU
+    idle = not _quiet()
     with _CPU_LOCK:
         if _CPU is None or not _CPU[0].is_alive():
             import multiprocessing as mp
             ctx = mp.get_context("spawn")
             a, b = ctx.Pipe()
-            p = ctx.Process(target=_child, args=(b, _model_path()), daemon=True)
+            paths = {"spl": os.path.join(_dir("models"), SPLEETER["dir"]), "sep": _model_path(MODEL),
+                     "w2v": _model_path(W2V)}
+            p = ctx.Process(target=_child, args=(b, paths), daemon=True)
             p.start()
             _CPU = (p, a)
             _CPU_IDLE[0] = True
@@ -201,13 +248,13 @@ def _cpu(kind, arg, idle=True):
     return r
 
 
-def _model_path():
-    return os.path.join(_dir("models"), MODEL["file"])
+def _model_path(spec):
+    return os.path.join(_dir("models"), spec["file"])
 
 
-def _download(spec, key):
-    """Descarga verificada (sha256) a DATA/models; el progreso se ve en el PC (ENG[key])."""
-    fp = os.path.join(_dir("models"), spec["file"])
+def _download(spec, key="progress"):
+    """Descarga verificada (sha256) a DATA/models; el progreso se ve en el PC."""
+    fp = _model_path(spec)
     if os.path.isfile(fp) and os.path.getsize(fp) == spec["size"]:
         return fp
     part = fp + ".part"
@@ -222,12 +269,9 @@ def _download(spec, key):
             f.write(b)
             h.update(b)
             got += len(b)
-            pr = min(99, got * 100 // spec["size"])
-            if key == "align":
-                ENG["align"] = "download:%d" % pr
-            else:
-                ENG["progress"] = pr
-            _bump(soft=True)
+            if key:
+                ENG[key] = min(99, got * 100 // spec["size"])
+                _bump(soft=True)
     if h.hexdigest() != spec["sha256"]:
         os.remove(part)
         raise IOError("el modelo descargado no coincide (sha256)")
@@ -236,35 +280,31 @@ def _download(spec, key):
 
 
 def _engine():
-    """Descarga (una vez, ~59 MB) y carga el separador; una pasada de calentamiento compila los kernels de la
-    GPU para que la primera cancion no lo pague. Sin GPU usable, todo va por el proceso de CPU."""
-    global _GPU
+    """Primera vez: Spleeter (~71 MB) y el alineador (~86 MB). Una pasada de calentamiento carga los modelos en
+    el proceso de IA para que la primera cancion no lo pague."""
     if ENG["status"] == "ready":
         return
     import numpy as np
     try:
-        ENG.update(status="download", progress=0)
-        _bump()
-        _download(MODEL, "progress")
+        d = os.path.join(_dir("models"), SPLEETER["dir"])
+        if not os.path.isfile(os.path.join(d, "accompaniment.onnx")):
+            ENG.update(status="download", progress=0)
+            _bump()
+            tb = _download(SPLEETER)
+            with tarfile.open(tb, "r:bz2") as t:
+                for mem in t.getmembers():
+                    name = os.path.basename(mem.name)
+                    if mem.isfile() and name in ("vocals.onnx", "accompaniment.onnx"):
+                        os.makedirs(d, exist_ok=True)
+                        with t.extractfile(mem) as src, open(os.path.join(d, name), "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+            os.remove(tb)
         ENG.update(status="loading", progress=100)
         _bump()
-        try:
-            import onnxruntime as ort
-            if "DmlExecutionProvider" in ort.get_available_providers():
-                g = _Sep(_session(_model_path(), True))
-                t = time.time()
-                g.run(np.zeros((2, _CHUNK), np.float32))
-                g.run(np.zeros((2, _CHUNK), np.float32))
-                ENG["speed"] = round(STEP / SR / max(.05, (time.time() - t) / 2), 1)
-                _GPU = g
-        except Exception:
-            _GPU = None   # GPU sin DirectX 12 / driver roto
-        if not _GPU:
-            t = time.time()
-            _cpu("sep", np.zeros((2, _CHUNK), np.float32), idle=False)
-            ENG["speed"] = ENG["cpu_speed"] = round(STEP / SR / max(.05, time.time() - t), 2)
-        _speeds()
-        ENG.update(status="ready", gpu=bool(_GPU), error="")
+        threading.Thread(target=_w2v_fetch, daemon=True).start()
+        t = time.time()
+        _cpu("spl", (np.zeros((2, (SP_T - 1) * SP_H + SP_N), np.float32), SP_T))
+        ENG.update(status="ready", error="", speed=round(SP_T * SP_H / SR / max(.05, time.time() - t), 1))
     except Exception as e:
         ENG.update(status="error", error=str(e)[:200])
         _bump()
@@ -272,88 +312,44 @@ def _engine():
     _bump()
 
 
-def _speeds(save=False):
-    fp = os.path.join(_dir("models"), "speeds.json")
-    try:
-        if save:
-            with open(fp, "w") as f:
-                json.dump({"speed": ENG["speed"], "cpu_speed": ENG["cpu_speed"]}, f)
-        else:
-            with open(fp) as f:
-                d = json.load(f)
-            ENG["cpu_speed"] = float(d.get("cpu_speed") or ENG["cpu_speed"])
-    except (OSError, ValueError, TypeError):
-        pass
+_DL = {}   # fichero -> hilo de descarga
+_DL_ERR = {}
+
+
+def _have(spec):
+    """El modelo ya esta en disco; si no, se descarga en otro hilo (una vez) y se reintenta luego."""
+    fp = _model_path(spec)
+    if os.path.isfile(fp) and os.path.getsize(fp) == spec["size"]:
+        return True
+    th = _DL.get(spec["file"])
+    if not th or not th.is_alive():
+        def run():
+            try:
+                _download(spec, None)
+                _DL_ERR.pop(spec["file"], None)
+            except Exception as e:
+                _DL_ERR[spec["file"]] = str(e)[:120]
+            _WAKE.set()
+        th = _DL[spec["file"]] = threading.Thread(target=run, daemon=True)
+        th.start()
+    return False
+
+
+def _w2v_fetch():
+    _have(W2V)
+
+
+def _w2v_ok():
+    return _have(W2V)
 
 
 def _quiet():
-    """Nadie cantando: sala, presentacion antes de la cuenta atras o resultados ya asentados. Solo entonces
-    se usa la GPU (cada pasada la ocupa ~0.9 s sin que el sistema pueda intercalar la pantalla)."""
+    """Nadie cantando: sala, presentacion antes de la cuenta atras o resultados ya asentados."""
     n = S["now"]
     if not n:
         return True
     ph = n.get("phase")
     return ph == "intro" or (ph == "results" and time.time() - n.get("pt", 0) > 2.5)
-
-
-def _separate(seg):
-    if _quiet() and _GPU:
-        t = time.time()
-        r = _GPU.run(seg)
-        ENG["speed"] = round(.7 * ENG["speed"] + .3 * STEP / SR / max(.05, time.time() - t), 2)
-        return r
-    idle = not _quiet()
-    t = time.time()
-    r = _cpu("sep", seg, idle=idle)
-    if idle:   # lo que importa para decidir cuando empezar: la velocidad con alguien cantando
-        ENG["cpu_speed"] = round(.6 * ENG["cpu_speed"] + .4 * STEP / SR / max(.05, time.time() - t), 2)
-        _speeds(save=True)
-    return r
-
-
-_W2V_DL = {}
-
-
-def _w2v(kind):
-    """Ruta del alineador (`gpu`: fp16, `cpu`: int8) o None mientras se descarga (en otro hilo, una sola vez)."""
-    spec = W2V[kind]
-    fp = os.path.join(_dir("models"), spec["file"])
-    if os.path.isfile(fp) and os.path.getsize(fp) == spec["size"]:
-        return fp
-    th = _W2V_DL.get(kind)
-    if not th or not th.is_alive():
-        def run():
-            try:
-                _download(spec, "align")
-                ENG["align"] = "ready"
-            except Exception as e:
-                ENG["align"] = "error:" + str(e)[:80]
-            _WAKE.set()
-            _bump()
-        th = _W2V_DL[kind] = threading.Thread(target=run, daemon=True)
-        th.start()
-    return None
-
-
-def _emissions(x16):
-    """Log-probs del alineador: GPU si nadie canta (y hay), si no el proceso de CPU. None = modelo aun bajando."""
-    global _ALG
-    if _quiet() and _GPU and _ALG is not False:
-        if _ALG is None:
-            fp = _w2v("gpu")
-            if not fp:
-                return None
-            try:
-                _ALG = _session(fp, True)
-            except Exception:
-                _ALG = False   # sin memoria de video para los dos modelos: el alineado va por la CPU
-        if _ALG:
-            try:
-                return _emis(_ALG, x16)
-            except Exception:
-                _ALG = False
-    fp = _w2v("cpu")
-    return _cpu("emis", (fp, x16), idle=not _quiet()) if fp else None
 
 
 # ---------------------------------------------------------------- melodia de referencia (YIN vectorizado)
@@ -399,7 +395,20 @@ def _yin(np, vd, md, f0, f1):
     return [int(round(m * 10)) if v else 0 for m, v in zip(midi.tolist(), ok.tolist())]
 
 
-# ---------------------------------------------------------------- alineado de la letra (CTC forzado)
+def _melody(np, voc, mix):
+    """Melodia de la cancion entera (para la mejora HQ5)."""
+    def dec(x):
+        x = x[: len(x) // _PD * _PD]
+        return x.reshape(-1, _PD).mean(axis=1)
+    vd, md = dec(voc), dec(mix)
+    out = []
+    nfr = -(-len(voc) // PITCH_HOP)
+    for a in range(0, nfr, 2000):
+        out += _yin(np, vd, md, a, min(nfr, a + 2000))
+    return out
+
+
+# ---------------------------------------------------------------- alineado / verificacion de la letra (CTC)
 def _toks(word):
     """Palabra -> indices del vocabulario (sin tildes: canciones en espanol tambien alinean bien)."""
     w = "".join(c for c in unicodedata.normalize("NFKD", word.upper()) if not unicodedata.combining(c))
@@ -439,11 +448,33 @@ def _viterbi(np, E, toks):
     return path
 
 
+def _lyric_conf(np, E, toks):
+    """Cuanto se parece lo cantado a la letra: media, por cada letra esperada, de su mejor probabilidad en el
+    tramo donde el alineado la coloca. Tarareo o silencio dan ~0.05; cantar la letra ~0.35."""
+    if not toks or len(E) < 2 * len(toks) + 2:
+        return None
+    path = _viterbi(np, E, toks)
+    P = np.exp(E)
+    conf = []
+    for k in range(len(toks)):
+        fr = np.where(path == 2 * k + 1)[0]
+        if not len(fr):
+            conf.append(0.0)
+            continue
+        conf.append(float(P[max(0, fr[0] - 2): min(len(E), fr[-1] + 3), toks[k]].max()))
+    return float(np.mean(conf))
+
+
 def _words_of(text):
     return re.findall(r"\S+", text or "")
 
 
-def _place(np, E, t0, words, pitch):
+def _sung_lines(lyr):
+    """Lineas con letra (mismo filtro que la pantalla: sin las vacias ni las de solo ♪)."""
+    return [l for l in (lyr or {}).get("lines") or [] if re.sub(r"[♪♫♬~\s]", "", l.get("text") or "")]
+
+
+def _place(np, E, t0, words, pitch, bias=ALIGN_BIAS):
     """Alinea las palabras de un tramo cuyas emisiones (desde t0 s) son E -> [(inicio, fin)] en segundos.
     Las palabras sin letras alineables (numeros, otros alfabetos) se reparten entre sus vecinas."""
     toks, owner = [], []
@@ -461,8 +492,8 @@ def _place(np, E, t0, words, pitch):
             first.setdefault(w, f)
             last[w] = f
     n = len(words)
-    st = [t0 + first[i] * .02 - ALIGN_BIAS if i in first else None for i in range(n)]
-    en = [t0 + (last[i] + 1) * .02 - ALIGN_BIAS if i in last else None for i in range(n)]
+    st = [t0 + first[i] * .02 - bias if i in first else None for i in range(n)]
+    en = [t0 + (last[i] + 1) * .02 - bias if i in last else None for i in range(n)]
     known = [i for i in range(n) if st[i] is not None]
     if not known:
         return None
@@ -500,10 +531,31 @@ def _need_align(lyr):
     return bool(lines) and ok >= .6 * len(lines)
 
 
+def _line_spans(s):
+    """(inicio, fin) en segundos de cada linea con letra, para verificar lo que canta cada cual."""
+    if (s["lyrics"] or {}).get("type") == "Static":
+        return []
+    lines = _sung_lines(s["lyrics"])
+    out = []
+    for i, l in enumerate(lines):
+        syl = [x for x in l.get("syllabus") or [] if (x.get("text") or "").strip()]
+        if syl:
+            a = min(x["time"] for x in syl) / 1000
+            b = max(x["time"] + max(60, x.get("duration") or 0) for x in syl) / 1000
+        else:
+            a = (l.get("time") or 0) / 1000
+            nt = lines[i + 1]["time"] / 1000 if i + 1 < len(lines) else a + 6
+            b = min(nt, a + 8)
+        out.append((a, b, l.get("text") or "".join(x["text"] for x in syl)))
+    return out
+
+
 # ---------------------------------------------------------------- canciones (cache en disco + procesado)
 SONGS = {}   # vid -> estado publico de su procesado
 _GENS = {}   # vid -> generador en curso
+_UPS = {}    # vid -> generador de la mejora a HQ5
 _PREF = {}   # vid -> hilo de precarga de audio/letra
+_SPL_TAG = "spleeter-2stems"
 
 
 def _song_dir(vid):
@@ -513,15 +565,18 @@ def _song_dir(vid):
 def _song(vid, info=None):
     s = SONGS.get(vid)
     if s is None:
-        s = {"vid": vid, "status": "wait", "progress": 0, "chunks": 0, "nch": 0, "n": 0, "dur": 0,
-             "pitch": [], "lyrics": None, "lrev": 0, "align": "", "error": "", "title": "", "artist": "", "catdur": 0}
+        s = {"vid": vid, "status": "wait", "progress": 0, "chunks": 0, "nch": 0, "n": 0, "dur": 0, "pitch": [],
+             "lyrics": None, "lrev": 0, "align": "", "aligned_upto": 0, "error": "", "title": "", "artist": "",
+             "catdur": 0, "model": ""}
         meta = os.path.join(_song_dir(vid), "meta.json")
         try:
             with open(meta, encoding="utf-8") as f:
                 m = json.load(f)
-            if m.get("step") == STEP and m.get("model") == MODEL["file"] and all(
+            if m.get("step") == STEP and m.get("model") in (MODEL["file"], _SPL_TAG) and all(
                     os.path.isfile(os.path.join(_song_dir(vid), "%03d.pcm" % i)) for i in range(m["nch"])):
                 s.update(m, status="ready", progress=100, chunks=m["nch"])
+                if s["align"] != "pending":
+                    s["aligned_upto"] = s["dur"]
                 os.utime(meta)
         except (OSError, ValueError, KeyError):
             pass
@@ -563,8 +618,10 @@ def _get_lyrics(s):
         s["lyrics"] = json.loads(json.dumps(d))   # copia propia: el alineado la modifica
         s["lrev"] += 1
         if _need_align(s["lyrics"]):
-            s["align"] = "pending"
+            s.update(align="pending", aligned_upto=1e9 if s["lyrics"].get("type") == "Static" else 0)
             _WAKE.set()
+        else:
+            s["aligned_upto"] = 1e9
         _bump(soft=True)
     return s["lyrics"]
 
@@ -606,10 +663,14 @@ def _to16(np, x, a):
 
 
 def _save_meta(s):
-    meta = {k2: s[k2] for k2 in ("n", "dur", "nch", "pitch", "title", "artist", "catdur", "lyrics", "lrev", "align")}
-    meta.update(step=STEP, sr=SR, model=MODEL["file"])
+    meta = {k2: s[k2] for k2 in ("n", "dur", "nch", "pitch", "title", "artist", "catdur", "lyrics", "lrev", "align", "model")}
+    meta.update(step=STEP, sr=SR)
     with open(os.path.join(_song_dir(s["vid"]), "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f)
+
+
+def _bias(s):
+    return ALIGN_BIAS_SPL if s.get("model") == _SPL_TAG else ALIGN_BIAS
 
 
 def _align_steps(np, s, v16, upto):
@@ -617,48 +678,46 @@ def _align_steps(np, s, v16, upto):
     lyr = s["lyrics"]
     if s["align"] != "pending" or not lyr:
         return
-    if str(ENG["align"]).startswith("error") and not any(t.is_alive() for t in _W2V_DL.values()):
-        s["align"] = "error"
+    if not _w2v_ok():
+        if W2V["file"] in _DL_ERR and not _DL[W2V["file"]].is_alive():
+            s["align"] = "error"
+            s["aligned_upto"] = 1e9
+            return
+        yield "wait"
         return
     lines = [l for l in lyr["lines"] if _words_of(l.get("text"))]
     done = s.setdefault("_aligned", set())
     if lyr.get("type") == "Line":
         for i, l in enumerate(lines):
-            if i in done:
-                continue
             a = max(0, l["time"] / 1000 - .35)
             nt = lines[i + 1]["time"] / 1000 if i + 1 < len(lines) else min(s["dur"], a + 12)
             b = min(nt + .25, a + 15, s["dur"])
+            if i in done:
+                continue
             if b > upto:
                 return
             words = _words_of(l["text"])
             if b - a > .5 and _toks(l["text"]):
-                E = _emissions(v16[int(a * 16000): int(b * 16000)])
-                if E is None:
-                    yield "wait"
-                    return
-                times = _place(np, E, a, words, s["pitch"])
+                E = _cpu("emis", v16[int(a * 16000): int(b * 16000)])
+                times = _place(np, E, a, words, s["pitch"], _bias(s))
                 if times:
                     l["syllabus"] = _syllabus(words, times)
                     l["time"] = l["syllabus"][0]["time"]
                     s["lrev"] += 1
-                    _bump(soft=True)
             done.add(i)
+            s["aligned_upto"] = nt   # todo lo anterior a la siguiente linea ya esta alineado
+            _bump(soft=True)
             yield
     elif lyr.get("type") == "Static" and upto >= s["dur"] - .1:
         # solo texto: la cancion entera de una vez (ventanas de 30 s para las emisiones)
         Es = s.setdefault("_E", [])
         for a in range(len(Es) * 30, int(s["dur"]) + 1, 30):
-            e = _emissions(v16[a * 16000: min(len(v16), (a + 30) * 16000)])
-            if e is None:
-                yield "wait"
-                return
-            Es.append(e)
+            Es.append(_cpu("emis", v16[a * 16000: min(len(v16), (a + 30) * 16000)]))
             yield
         E = np.concatenate([e for e in Es if len(e)])
         s.pop("_E", None)
         words = [w for l in lines for w in _words_of(l["text"])]
-        times = _place(np, E, 0, words, s["pitch"])
+        times = _place(np, E, 0, words, s["pitch"], _bias(s))
         if times:
             k = 0
             for l in lines:
@@ -670,28 +729,21 @@ def _align_steps(np, s, v16, upto):
     else:
         return
     lyr["aligned_all"] = True
-    s["align"] = "done"
+    s.update(align="done", aligned_upto=1e9)
     s["lrev"] += 1
     _bump()
 
 
 def _job(vid):
-    """Procesa una cancion por pasos; cada `yield` es un punto donde el hilo puede cambiar de trabajo."""
+    """Separa una cancion (Spleeter) por pasos; cada `yield` es un punto donde el hilo puede cambiar de trabajo."""
     import numpy as np
     s = SONGS[vid]
     d = _song_dir(vid)
     os.makedirs(d, exist_ok=True)
     if s["status"] == "ready":   # ya separada (cache): solo falta alinear la letra con la voz guardada
         _get_lyrics(s)
-        v16 = []
-        for k in range(s["nch"]):
-            with open(os.path.join(d, "%03d.pcm" % k), "rb") as f:
-                b = np.frombuffer(f.read(), "<i2")
-            n = len(b) // 3
-            v16.append(_to16(np, b[2 * n:].astype(np.float32) / 32767, k * STEP)[1])
-            if k % 8 == 7:
-                yield
-        v16 = np.concatenate(v16)
+        v16 = _load_v16(np, s)
+        yield
         while s["align"] == "pending":
             yield from _align_steps(np, s, v16, s["dur"])
             if s["align"] == "pending":
@@ -707,53 +759,65 @@ def _job(vid):
     if N < SR * 5 or N > SR * MAX_SECS:
         raise IOError("duración no válida para karaoke")
     nch = -(-N // STEP)
-    s.update(n=N, dur=round(N / SR, 3), nch=nch, chunks=0, pitch=[], status="sep")
+    s.update(n=N, dur=round(N / SR, 3), nch=nch, chunks=0, pitch=[], status="sep", model=_SPL_TAG)
     threading.Thread(target=_get_lyrics, args=(s,), daemon=True).start()
     _bump()
     yield
-    pad = np.zeros((2, _TRIM + N + _CHUNK), np.float32)
-    pad[:, _TRIM:_TRIM + N] = mix
+    # STFT global con hop 1024 (center=True): los bloques de 512 frames se suman en un solo buffer y se
+    # normalizan con la envolvente global -> exactamente el mismo resultado que de una pieza, sin costuras
+    N2, H, T = SP_N // 2, SP_H, SP_T
+    xpad = np.pad(mix, ((0, 0), (N2, N2 + T * H)), mode="constant")
+    xpad[:, :N2] = mix[:, N2:0:-1]   # reflejo al principio (como center=True)
+    nfr = 1 + N // H
+    win2 = ((0.5 - 0.5 * np.cos(2 * np.pi * np.arange(SP_N) / SP_N)) ** 2).astype(np.float32)
+    env = np.zeros(xpad.shape[1], np.float32)
+    for q in range(SP_N // H):
+        env[q * H: q * H + nfr * H] += np.tile(win2[q * H:(q + 1) * H], nfr)
+    out = np.zeros_like(xpad)
     vd = np.zeros(nch * STEP // _PD + 1, np.float32)   # voz y mezcla mono a 14.7 kHz para la melodia
     md = np.zeros_like(vd)
     v16 = np.zeros(int(N * 16000 / SR) + 2, np.float32)   # voz a 16 kHz para el alineado de la letra
-    ramp = np.linspace(0, 1, _XF, dtype=np.float32)
-    tail = None
-    pf = 0   # frames de melodia ya calculados
-    nfr = -(-N // PITCH_HOP)
-    for k in range(nch):
-        a = k * STEP
-        seg = pad[:, a: a + _CHUNK]
-        if float(np.abs(seg).max()) < 1e-4:   # silencio: no hace falta el modelo
-            inst = np.zeros((2, _CHUNK - 2 * _TRIM), np.float32)
-        else:
-            inst = _separate(seg)[:, _TRIM: _CHUNK - _TRIM]
-        if tail is not None:   # fundido con el final de la pasada anterior
-            inst[:, :_XF] = tail * (1 - ramp) + inst[:, :_XF] * ramp
-        tail = inst[:, STEP: STEP + _XF].copy()
-        n = min(STEP, N - a)
-        m = mix[:, a: a + n]
-        ins = inst[:, :n]
-        voc = (m - ins).mean(axis=0)
-        planes = np.concatenate([ins[0], ins[1], voc])
-        with open(os.path.join(d, "%03d.pcm" % k), "wb") as f:
-            f.write((np.clip(planes, -1, 1) * 32767).astype("<i2").tobytes())
+    pf, k, nfr_done = 0, 0, 0
+    nfrm = -(-N // PITCH_HOP)
+    t_sep = time.time()
+    while k < nch:
+        if nfr_done < nfr:
+            f0, f1 = nfr_done, min(nfr, nfr_done + T)
+            seg = xpad[:, f0 * H: (f1 - 1) * H + SP_N]
+            t = time.time()
+            ola = _cpu("spl", (seg, f1 - f0))
+            ENG["speed"] = round(.6 * ENG["speed"] + .4 * (f1 - f0) * H / SR / max(.05, time.time() - t), 1)
+            out[:, f0 * H: f0 * H + ola.shape[1]] += ola
+            nfr_done = f1
+        final = N if nfr_done >= nfr else nfr_done * H - N2   # muestras ya definitivas (coordenadas originales)
+        while k < nch and min(N, (k + 1) * STEP) <= final:
+            a = k * STEP
+            n = min(STEP, N - a)
+            ins = out[:, N2 + a: N2 + a + n] / np.maximum(env[N2 + a: N2 + a + n], 1e-6)
+            m = mix[:, a: a + n]
+            voc = (m - ins).mean(axis=0)
+            planes = np.concatenate([ins[0], ins[1], voc])
+            with open(os.path.join(d, "%03d.pcm" % k), "wb") as f:
+                f.write((np.clip(planes, -1, 1) * 32767).astype("<i2").tobytes())
 
-        def dec(x):
-            x = x[: len(x) // _PD * _PD]
-            return x.reshape(-1, _PD).mean(axis=1)
-        vd[a // _PD: a // _PD + n // _PD] = dec(voc)
-        md[a // _PD: a // _PD + n // _PD] = dec(m.mean(axis=0))
-        i0, y = _to16(np, voc, a)
-        v16[i0: i0 + len(y)] = y[: max(0, len(v16) - i0)]
-        upto = nfr if k == nch - 1 else max(pf, ((a + n) // _PD - _YW - _TMAX) // _PH)
-        s["pitch"].extend(_yin(np, vd, md, pf, min(upto, nfr)))
-        pf = min(upto, nfr)
-        s.update(chunks=k + 1, progress=int((k + 1) * 100 / nch))
+            def dec(x):
+                x = x[: len(x) // _PD * _PD]
+                return x.reshape(-1, _PD).mean(axis=1)
+            vd[a // _PD: a // _PD + n // _PD] = dec(voc)
+            md[a // _PD: a // _PD + n // _PD] = dec(m.mean(axis=0))
+            i0, y = _to16(np, voc, a)
+            v16[i0: i0 + len(y)] = y[: max(0, len(v16) - i0)]
+            upto = nfrm if k == nch - 1 else max(pf, ((a + n) // _PD - _YW - _TMAX) // _PH)
+            s["pitch"].extend(_yin(np, vd, md, pf, min(upto, nfrm)))
+            pf = min(upto, nfrm)
+            k += 1
+            s.update(chunks=k, progress=int(k * 100 / nch))
         _bump(soft=True)
         yield
         if s["lyrics"] is not None:
-            yield from _align_steps(np, s, v16, (a + n) / SR - .2)
-    s.update(status="ready", progress=100)
+            yield from _align_steps(np, s, v16, min(N, k * STEP) / SR - .2)
+    del out, xpad
+    s.update(status="ready", progress=100, sep_secs=round(time.time() - t_sep, 1))
     _bump()
     _get_lyrics(s)
     _save_meta(s)
@@ -763,6 +827,65 @@ def _job(vid):
             yield "wait"
     _save_meta(s)
     _evict()
+
+
+def _load_v16(np, s):
+    d = _song_dir(s["vid"])
+    v16 = []
+    for k in range(s["nch"]):
+        with open(os.path.join(d, "%03d.pcm" % k), "rb") as f:
+            b = np.frombuffer(f.read(), "<i2")
+        n = len(b) // 3
+        v16.append(_to16(np, b[2 * n:].astype(np.float32) / 32767, k * STEP)[1])
+    return np.concatenate(v16)
+
+
+def _upgrade(vid):
+    """Mejora a MDX-Net HQ5 con la CPU libre (nadie cantando): mas limpia que Spleeter. Se escribe aparte y se
+    cambia de golpe cuando la cancion no esta sonando; la proxima vez que se cante ya suena mejor."""
+    import numpy as np
+    s = SONGS[vid]
+    d = _song_dir(vid)
+    while not _have(MODEL):
+        if MODEL["file"] in _DL_ERR and not _DL[MODEL["file"]].is_alive():
+            raise IOError(_DL_ERR[MODEL["file"]])
+        yield "wait"
+    mix = _decode(np, _get_audio(vid))
+    N = mix.shape[1]
+    if N != s["n"]:
+        s["model"] = MODEL["file"]   # el audio cambio: no se mejora
+        return
+    pad = np.zeros((2, _TRIM + N + _CHUNK), np.float32)
+    pad[:, _TRIM:_TRIM + N] = mix
+    ramp = np.linspace(0, 1, _XF, dtype=np.float32)
+    tail, vocs = None, []
+    for k in range(s["nch"]):
+        a = k * STEP
+        seg = pad[:, a: a + _CHUNK]
+        while not _quiet():   # alguien canta: la mejora espera (la CPU es para lo que suena)
+            yield "wait"
+        if float(np.abs(seg).max()) < 1e-4:
+            inst = np.zeros((2, _CHUNK - 2 * _TRIM), np.float32)
+        else:
+            inst = _cpu("sep", seg)[:, _TRIM: _CHUNK - _TRIM]
+        if tail is not None:
+            inst[:, :_XF] = tail * (1 - ramp) + inst[:, :_XF] * ramp
+        tail = inst[:, STEP: STEP + _XF].copy()
+        n = min(STEP, N - a)
+        m = mix[:, a: a + n]
+        voc = (m - inst[:, :n]).mean(axis=0)
+        vocs.append(voc)
+        with open(os.path.join(d, "hq_%03d.pcm" % k), "wb") as f:
+            f.write((np.clip(np.concatenate([inst[0, :n], inst[1, :n], voc]), -1, 1) * 32767).astype("<i2").tobytes())
+        yield
+    pitch = _melody(np, np.concatenate(vocs), mix.mean(axis=0))
+    while S["now"] and S["now"]["vid"] == vid:   # sonando ahora: el cambio, al terminar
+        yield "wait"
+    for k in range(s["nch"]):
+        os.replace(os.path.join(d, "hq_%03d.pcm" % k), os.path.join(d, "%03d.pcm" % k))
+    s.update(model=MODEL["file"], pitch=pitch)
+    _save_meta(s)
+    _bump(soft=True)
 
 
 def _evict():
@@ -780,7 +903,7 @@ def _evict():
     for _, sz, v, p in sorted(dirs):
         if total <= CACHE_MB * 1024 * 1024:
             break
-        if v in keep or v in _GENS:
+        if v in keep or v in _GENS or v in _UPS:
             continue
         shutil.rmtree(p, ignore_errors=True)
         SONGS.pop(v, None)
@@ -806,18 +929,30 @@ def _pending(v):
     return s and s["status"] != "error" and (s["status"] != "ready" or s["align"] == "pending")
 
 
+def _step(table, vid, make):
+    """Un paso del generador de `vid`; devuelve lo que entrega ("wait" = no pudo avanzar)."""
+    g = table.get(vid)
+    if g is None:
+        g = table[vid] = make(vid)
+    try:
+        return next(g)
+    except StopIteration:
+        table.pop(vid, None)
+        return None
+
+
 def _worker():
     # prioridad normal a proposito: con el GIL en la mano, un hilo de baja prioridad sin CPU dejaria esperando a
-    # los hilos que atienden a la pantalla y a los moviles (lo pesado ya va en la GPU o en el proceso IDLE)
+    # los hilos que atienden a la pantalla y a los moviles (lo pesado va en el proceso de IA, de prioridad baja)
     while True:
         if not S["on"]:
             _WAKE.wait(5)
             _WAKE.clear()
             continue
         if ENG["status"] != "ready":
-            time.sleep(1.5)   # la carga del modelo retiene el GIL unos segundos: primero que la sala se pinte
+            time.sleep(1.5)   # que la sala se pinte antes de cargar nada
             try:
-                _engine()   # preparar el motor en cuanto se abre el karaoke (antes de que nadie elija cancion)
+                _engine()
             except Exception:
                 for v in _order():   # sin motor no hay pista sin voz: que no se queden esperando
                     if SONGS.get(v) and SONGS[v]["status"] not in ("ready", "error"):
@@ -826,28 +961,22 @@ def _worker():
                 _WAKE.wait(30)
                 _WAKE.clear()
                 continue
-        todo = [v for v in _order() if _pending(v)]
-        if not todo:
-            _WAKE.wait(5)
-            _WAKE.clear()
-            continue
+        try:
+            if _verify_step():   # lo primero: comprobar lo que canta quien esta cantando
+                continue
+        except Exception:
+            pass
         stepped = False
-        for vid in todo:
-            g = _GENS.get(vid)
-            if g is None:
-                g = _GENS[vid] = _job(vid)
+        for vid in [v for v in _order() if _pending(v)]:
             try:
-                r = next(g)
-            except StopIteration:
-                _GENS.pop(vid, None)
-                if SONGS[vid]["align"] == "pending":   # la letra no se pudo alinear entera: se deja como esta
-                    SONGS[vid]["align"] = "done"
-                r = None
+                r = _step(_GENS, vid, _job)
+                if r is None and SONGS[vid]["align"] == "pending" and vid not in _GENS:
+                    SONGS[vid]["align"] = "done"   # la letra no se pudo alinear entera: se deja como esta
             except Exception as e:
                 _GENS.pop(vid, None)
                 s = SONGS[vid]
                 if s["status"] == "ready":   # fallo del alineado: la cancion se puede cantar igual
-                    s["align"] = "error"
+                    s.update(align="error", aligned_upto=1e9)
                 else:
                     s.update(status="error", error=str(e)[:160])
                 _bump()
@@ -855,13 +984,97 @@ def _worker():
             if r != "wait":
                 stepped = True
                 break
-        if not stepped:   # todo espera a una descarga
-            time.sleep(.5)
+        if not stepped and _quiet():   # todo listo y nadie canta: mejorar la calidad de lo que viene
+            for vid in _order():
+                s = SONGS.get(vid)
+                if not s or s["status"] != "ready" or s.get("model") != _SPL_TAG:
+                    continue
+                try:
+                    r = _step(_UPS, vid, _upgrade)
+                except Exception:
+                    _UPS.pop(vid, None)
+                    s["model"] = MODEL["file"] + "?"   # no reintentar en esta sesion
+                    r = None
+                if r != "wait":
+                    stepped = True
+                    break
+        if not stepped:
+            _WAKE.wait(.5)
+            _WAKE.clear()
+
+
+# ---------------------------------------------------------------- verificacion de lo que se canta
+_AUD = {}   # quien -> deque de (t0 del PC, muestras int16 a 16 kHz) de su micro (los ultimos ~90 s)
+
+
+def audio_in(who, t0, raw):
+    import numpy as np
+    if not S["now"] or len(raw) > 200000:
+        return {"ok": False}
+    q = _AUD.setdefault(who, deque())
+    q.append((float(t0), np.frombuffer(raw[: len(raw) // 2 * 2], "<i2").copy()))
+    while q and q[0][0] < time.time() - 90:
+        q.popleft()
+    return {"ok": True}
+
+
+def _audio_span(who, w0, w1):
+    """Audio del micro de `who` entre dos instantes del reloj del PC (huecos en silencio)."""
+    import numpy as np
+    out = np.zeros(max(0, int((w1 - w0) * 16000)), np.float32)
+    got = 0
+    for t0, x in list(_AUD.get(who) or []):
+        a = int(round((t0 - w0) * 16000))
+        if a >= len(out) or a + len(x) <= 0:
+            continue
+        lo, hi = max(0, a), min(len(out), a + len(x))
+        out[lo:hi] = x[lo - a: hi - a] / 32768
+        got += hi - lo
+    return out, got / max(1, len(out))
+
+
+def _verify_step():
+    """Si una linea ya se canto, su audio contra la letra (una por llamada). True si trabajo."""
+    import numpy as np
+    now = S["now"]
+    an = S.get("anchor")
+    if not now or now.get("phase") not in ("sing", "results") or not an or an.get("qid") != now["qid"] or not an.get("src"):
+        return False
+    s = SONGS.get(now["vid"])
+    if not s or not s["lyrics"] or not _w2v_ok():
+        return False
+    pos = an["pos"] + (time.time() - an["wall"])
+    ver = S["verify"].setdefault(now["qid"], {})
+    for i, (a, b, text) in enumerate(_line_spans(s)):
+        if b + .6 > pos:   # en orden: lo que sigue aun no se ha cantado
+            break
+        if i in ver:
+            continue
+        if a < an.get("from", 0) - .5:   # empezo antes de que llegara su micro
+            ver[i] = None
+            continue
+        who = now["by"] if an["src"] == "phone" else "pc"
+        # instante del PC en que el cantante oia ese momento de la cancion (+ lo que tarda el sonido en salir)
+        w0 = an["wall"] + (a - .25 - an["pos"]) + an.get("lat", .06)
+        w1 = an["wall"] + (b + .35 - an["pos"]) + an.get("lat", .06)
+        x, cover = _audio_span(who, w0, w1)
+        toks = _toks(text)
+        if not toks or cover < .5:   # sin letra verificable u otro alfabeto: no se penaliza
+            ver[i] = 1.0 if not toks else None
+            continue
+        if float(np.sqrt((x * x).mean())) < .004:   # no canto
+            ver[i] = 0.0
+            continue
+        conf = _lyric_conf(np, _cpu("emis", x), toks)
+        ver[i] = 1.0 if conf is None else round(min(1.0, max(0.0, (conf - VERIFY_LO) / (VERIFY_HI - VERIFY_LO))), 2)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------- sesion (estado compartido PC <-> moviles)
 S = {"on": False, "code": "", "ip": "", "port": 0, "tport": 0, "v": 0, "players": {}, "queue": [], "now": None,
-     "history": [], "live": None, "reacts": [], "qid": 0, "rid": 0, "diff": "normal", "guide": 0, "cmds": [], "cid": 0}
+     "history": [], "live": None, "reacts": [], "qid": 0, "rid": 0, "diff": "normal", "guide": 0, "cmds": [], "cid": 0,
+     "anchor": None, "verify": {}}
 _COND = threading.Condition()
 _LAST_SOFT = [0.0]
 _SRV = []
@@ -1012,7 +1225,8 @@ def open_session(diff=None, guide=None):
     global _WORKER
     if not S["on"]:
         S.update(on=True, code="".join(random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ") for _ in range(4)),
-                 players={}, queue=[], now=None, history=[], live=None, reacts=[], cmds=[], tport=0)
+                 players={}, queue=[], now=None, history=[], live=None, reacts=[], cmds=[], tport=0,
+                 anchor=None, verify={})
         S["ip"] = _lan_ip()
         srv = _listen(_LanServer, range(8765, 8776))
         S["port"] = srv.server_address[1]
@@ -1041,8 +1255,10 @@ def open_session(diff=None, guide=None):
 
 
 def close_session():
-    S.update(on=False, now=None, queue=[], live=None)
+    S.update(on=False, now=None, queue=[], live=None, anchor=None)
     _GENS.clear()   # lo a medio procesar se suelta (memoria); al volver se rehace desde el principio
+    _UPS.clear()
+    _AUD.clear()
     for s in SONGS.values():
         if s["status"] not in ("ready", "error"):
             s["status"] = "wait"
@@ -1171,6 +1387,7 @@ def mic_out(pid, since, timeout=1.0):
 def next_song():
     S["now"] = None
     S["live"] = None
+    S["anchor"] = None
     if S["queue"]:
         q = S["queue"].pop(0)
         S["now"] = dict(q, phase="intro", score=None, pt=time.time())
@@ -1199,11 +1416,24 @@ def settings(d):
     return {"ok": True, "diff": S["diff"], "guide": S["guide"]}
 
 
-def live(score, rating):
-    if S["now"]:
-        S["live"] = {"qid": S["now"]["qid"], "score": int(score or 0), "rating": str(rating or "")[:24]}
-        _bump()
-    return {"ok": True}
+def live(d):
+    """Cada segundo, mientras se canta: puntos en directo para los moviles + ancla del reloj de la cancion (para
+    encontrar en el audio del micro lo cantado en cada linea). Responde con las lineas ya verificadas."""
+    now = S["now"]
+    if not now:
+        return {"ok": False}
+    S["live"] = {"qid": now["qid"], "score": int(d.get("score") or 0), "rating": str(d.get("rating") or "")[:24]}
+    try:
+        src = d.get("src") if d.get("src") in ("pc", "phone") else None
+        old = S.get("anchor") or {}
+        S["anchor"] = {"qid": now["qid"], "pos": float(d["pos"]), "wall": float(d["wall"]), "lat": float(d.get("lat") or .06),
+                       "src": src, "from": old.get("from") if old.get("qid") == now["qid"] and old.get("src") == src
+                       else float(d["pos"])}
+    except (KeyError, TypeError, ValueError):
+        pass
+    _WAKE.set()
+    _bump()
+    return {"ok": True, "verify": {str(k): v for k, v in (S["verify"].get(now["qid"]) or {}).items()}}
 
 
 def result(score):
@@ -1221,6 +1451,7 @@ def result(score):
     S["history"].append({"qid": now["qid"], "title": now["title"], "artist": now["artist"], "cover": now["cover"],
                          "by": now["by"], "score": sc, "diff": S["diff"], "t": int(time.time())})
     S["live"] = None
+    S["anchor"] = None
     _WAKE.set()
     _bump()
     return _pub()
@@ -1234,8 +1465,8 @@ def song_info(vid, frm=0, lrev=-1):
     if s["lyrics"] is None and s["title"]:
         _prefetch(vid)
     out = {k: s[k] for k in ("status", "progress", "chunks", "nch", "n", "dur", "error", "lrev", "align")}
-    out.update(sr=SR, step=STEP, hop=PITCH_HOP, pitch=s["pitch"][frm:], gpu=ENG["gpu"],
-               speed=ENG["speed"], cpu_speed=ENG["cpu_speed"], **{"from": frm})
+    out.update(sr=SR, step=STEP, hop=PITCH_HOP, pitch=s["pitch"][frm:], speed=ENG["speed"],
+               aligned_upto=min(s["aligned_upto"], 1e6), **{"from": frm})
     if int(lrev) != s["lrev"]:   # la letra solo viaja cuando cambia (el alineado la va completando)
         out["lyrics"] = s["lyrics"]
     return out
@@ -1313,12 +1544,22 @@ class _Guest(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         qs = parse_qs(u.query)
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 16384:
+        if n > 220000:
             self.close_connection = True
             return self._out({"error": "demasiado grande"}, status=413)
         raw = self.rfile.read(n)
         if not self._ok_room(qs):
             return self._out({"error": "room"}, status=403)
+        if u.path == "/k/audio":   # audio crudo del micro (16 kHz, int16): para verificar la letra
+            p = _player(self.headers.get("X-Key"))
+            if not p or not S["now"] or S["now"]["by"] != p["id"]:
+                return self._out({"ok": False})
+            try:
+                return self._out(audio_in(p["id"], float(self.headers.get("X-T") or 0), raw))
+            except ValueError:
+                return self._out({"ok": False})
+        if n > 16384:
+            return self._out({"error": "demasiado grande"}, status=413)
         try:
             d = json.loads(raw.decode("utf-8", "replace") or "{}")
         except ValueError:
@@ -1347,8 +1588,13 @@ class _Guest(BaseHTTPRequestHandler):
 
 
 # ---------------------------------------------------------------- rutas del PC (servidor local de la app)
-def host_api(method, path, qs, d):
+def host_api(method, path, qs, d, raw=None, headers=None):
     g = lambda k, dv="": (qs.get(k) or [dv])[0]
+    if path == "/kara/audio":   # audio del micro del PC (binario, 16 kHz int16)
+        try:
+            return audio_in("pc", float((headers or {}).get("X-T") or 0), raw or b"")
+        except ValueError:
+            return {"ok": False}
     if path == "/kara/open":
         return open_session(d.get("diff"), d.get("guide"))
     if path == "/kara/close":
@@ -1376,7 +1622,7 @@ def host_api(method, path, qs, d):
     if path == "/kara/set":
         return settings(d)
     if path == "/kara/live":
-        return live(d.get("score"), d.get("rating"))
+        return live(d)
     if path == "/kara/result":
         return result(d.get("score"))
     if path == "/kara/remove":

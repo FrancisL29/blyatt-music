@@ -3,8 +3,8 @@ pywebview>=6
 ytmusicapi>=1.12
 yt-dlp[default]
 pyinstaller>=6.16
-# modo karaoke: separacion de voz y alineado (ONNX, GPU via DirectML), QR y https local (micro del movil)
+# modo karaoke: separacion de voz, alineado y verificacion de letra (ONNX en CPU), QR y https local (micro del movil)
 numpy
-onnxruntime-directml
+onnxruntime
 segno
 cryptography

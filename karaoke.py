@@ -66,11 +66,16 @@ W2V = {   # facebook/wav2vec2-base-960h (Apache-2.0) en ONNX con pesos de 4 bits
     "size": 89834049, "sha256": "337db946188e4b3d0b4a2641dc30727a4792f70aeb1750f65a20fae471f9f217",
 }
 W2V_CHARS = "|ETAONIHSRDLUMWCFGYPBVK'XJQZ"   # indices 4.. del vocabulario (0 = blanco CTC, 4 = espacio)
+_W2V_LETTERS = {4 + i: c for i, c in enumerate(W2V_CHARS)}
 ALIGN_BIAS = .08   # medido contra letras palabra a palabra reales: el CTC marca el inicio ~80 ms tarde...
 ALIGN_BIAS_SPL = .13   # ...y con la voz de Spleeter (ventana de 93 ms, ataques mas suaves) algo mas
-# verificacion de la letra: confianza media de cada letra esperada en su tramo (medido con voces reales: letra
-# correcta ~0.36-0.40, tarareo ~0.06-0.08, solo instrumental ~0.04)
-VERIFY_LO, VERIFY_HI = .08, .22
+# verificacion de la letra (medido con 72 lineas de 6 canciones, el micro oyendo tambien la musica): confianza
+# media de cada letra esperada en su tramo (letra ~0.40, "la-la"/"na-na" ~0.10, "mmm" ~0.05, solo musica ~0.03)
+# y cuanto mejor encaja la letra que alternativas del mismo largo ("la-la", "na-na", otras lineas): la voz que
+# canta la letra encaja mejor con ella aunque se oiga mal; quien canta silabas sueltas u otra cosa, no
+VERIFY_ABS = (.07, .19)
+VERIFY_VS = (-.01, .04)
+_ALT_SYL = ("LA", "NA", "TARA", "DA", "MM", "UH")
 _CHUNK = MODEL["hop"] * (MODEL["dim_t"] - 1)   # 261120 muestras por pasada del modelo HQ5
 _TRIM = MODEL["n_fft"] // 2                    # bordes de cada pasada que se descartan
 _XF = 4096                                     # fundido entre pasadas (sin costuras audibles)
@@ -453,8 +458,8 @@ def _viterbi(np, E, toks):
 
 
 def _lyric_conf(np, E, toks):
-    """Cuanto se parece lo cantado a la letra: media, por cada letra esperada, de su mejor probabilidad en el
-    tramo donde el alineado la coloca. Tarareo o silencio dan ~0.05; cantar la letra ~0.35."""
+    """Cuanto se parece lo cantado a un texto: media, por cada letra, de su mejor probabilidad en el tramo donde
+    el alineado la coloca."""
     if not toks or len(E) < 2 * len(toks) + 2:
         return None
     path = _viterbi(np, E, toks)
@@ -467,6 +472,29 @@ def _lyric_conf(np, E, toks):
             continue
         conf.append(float(P[max(0, fr[0] - 2): min(len(E), fr[-1] + 3), toks[k]].max()))
     return float(np.mean(conf))
+
+
+def _lyric_score(np, E, text, others):
+    """0..1: se canto esta letra (y no "la-la", "mmm" u otra cosa)? `others`: texto de otras lineas de la cancion
+    (las que se parecen a esta, como un estribillo repetido, no sirven de alternativa)."""
+    toks = _toks(text)
+    conf = _lyric_conf(np, E, toks)
+    if conf is None:
+        return None, 0, 0
+    n, letters = len(toks), "".join(_W2V_LETTERS.get(t, "") for t in toks)
+    words = set(_words_of(text.lower()))
+    alts = [(_toks(x) * (n // len(_toks(x)) + 1))[:n] for x in _ALT_SYL
+            if letters.count(x) * len(x) < .4 * len(letters)]   # una letra que ya es "la la la" no se compara con eso
+    for o in others:
+        ow = set(_words_of(o.lower()))
+        ot = _toks(o)
+        if ot and len(words & ow) <= .4 * max(1, min(len(words), len(ow))):
+            alts.append((ot * (n // len(ot) + 1))[:n])
+    best = max((_lyric_conf(np, E, a) or 0) for a in alts)
+    cl = lambda v: min(1.0, max(0.0, v))
+    c = (cl((conf - VERIFY_ABS[0]) / (VERIFY_ABS[1] - VERIFY_ABS[0]))
+         * cl((conf - best - VERIFY_VS[0]) / (VERIFY_VS[1] - VERIFY_VS[0])))
+    return c, conf, best
 
 
 def _words_of(text):
@@ -1127,6 +1155,18 @@ def _guide_share(np, x, y, slack, seg=4096, hop=1024):
     return float((C * sxx).sum() / max(1e-20, float(sxx.sum())))
 
 
+def _vlog(line):
+    """Registro local de cada linea comprobada (para ajustar la puntuacion con pruebas reales)."""
+    try:
+        fp = os.path.join(_dir("karaoke"), "verify.log")
+        if os.path.isfile(fp) and os.path.getsize(fp) > 1 << 20:
+            os.replace(fp, fp + ".1")
+        with open(fp, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
 def _wall_of(an, p):
     """Instante del PC en que sonaba el momento `p` de la cancion. Con el historial de anclas (una por segundo y
     otra en cada pausa o paron por falta de pista): aguanta los parones y los relojes que se desvian."""
@@ -1155,7 +1195,8 @@ def _verify_step():
     who = now["by"] if an["src"] == "phone" else "pc"
     # lo ultimo cantado aun viaja (lotes de 250 ms + la wifi): se espera a que llegue
     tail = min(3.0, max(.7, _AUD_LAG.get(who, .3) + .55))
-    for i, (a, b, text) in enumerate(_line_spans(s)):
+    spans = _line_spans(s)
+    for i, (a, b, text) in enumerate(spans):
         if b + tail > pos:   # en orden: lo que sigue aun no se ha cantado
             break
         if i in ver:
@@ -1168,18 +1209,23 @@ def _verify_step():
         w1 = _wall_of(an, b + .35) + an.get("lat", .06)
         x, cover = _audio_span(who, w0, w1)
         toks = _toks(text)
-        if not toks or cover < .5:   # sin letra verificable u otro alfabeto: no se penaliza
-            ver[i] = 1.0 if not toks else None
+        if not toks or cover < .5:   # sin letra verificable (otro alfabeto) o sin audio del micro: no se juzga
+            ver[i] = None
             continue
         if float(np.sqrt((x * x).mean())) < .004:   # no canto
             ver[i] = 0.0
             continue
-        conf = _lyric_conf(np, _cpu("emis", x), toks)
-        c = 1.0 if conf is None else min(1.0, max(0.0, (conf - VERIFY_LO) / (VERIFY_HI - VERIFY_LO)))
-        if S["guide"] > 0:   # con voz guia: si lo que entra al micro es la guia de los altavoces, no es quien canta
-            pb = min(1.0, max(0.0, (_guide_share(np, x, _voc16(np, s, a - .85, b + .95), 9600) - .3) / .3))
+        others = [spans[j][2] for j in (i - 7, i - 4, i + 3, i + 6) if 0 <= j < len(spans)]
+        c, conf, best = _lyric_score(np, _cpu("emis", x), text, others)
+        share = 0.0
+        if c is not None and S["guide"] > 0:   # con voz guia: si lo que entra al micro es la guia, no es quien canta
+            share = _guide_share(np, x, _voc16(np, s, a - .85, b + .95), 9600)
+            pb = min(1.0, max(0.0, (share - .3) / .3))
             c = -1.0 if pb >= 1 else c * (1 - pb)   # -1: solo se oia la guia (la linea no puntua)
-        ver[i] = round(c, 2)
+        ver[i] = None if c is None else round(c, 2)
+        _vlog("%s %s #%d %s cover=%.2f rms=%.3f conf=%.3f alt=%.3f guide=%.2f -> %s  %s" % (
+            time.strftime("%m-%d %H:%M:%S"), now["vid"], i, an["src"], cover, float(np.sqrt((x * x).mean())), conf, best,
+            share, ver[i], text[:60]))
         return True
     return False
 
@@ -1187,7 +1233,7 @@ def _verify_step():
 # ---------------------------------------------------------------- sesion (estado compartido PC <-> moviles)
 S = {"on": False, "code": "", "ip": "", "port": 0, "tport": 0, "v": 0, "players": {}, "queue": [], "now": None,
      "history": [], "live": None, "reacts": [], "qid": 0, "rid": 0, "diff": "normal", "guide": 0, "cmds": [], "cid": 0,
-     "anchor": None, "verify": {}}
+     "anchor": None, "verify": {}, "lang": "es"}
 _COND = threading.Condition()
 _LAST_SOFT = [0.0]
 _SRV = []
@@ -1262,7 +1308,7 @@ def _pub():
     return {"v": S["v"], "on": S["on"], "code": S["code"], "url": url() if S["on"] else "", "mic_url": mic_url(),
             "engine": dict(ENG), "players": pl, "queue": [song(q) for q in S["queue"]], "now": now,
             "live": S["live"], "history": S["history"][-30:], "reacts": S["reacts"][-12:], "diff": S["diff"],
-            "guide": S["guide"], "cmds": S["cmds"][-10:], "t": now_t}
+            "lang": S["lang"], "guide": S["guide"], "cmds": S["cmds"][-10:], "t": now_t}
 
 
 def wait_state(v, timeout=25.0):
@@ -1334,7 +1380,7 @@ def _listen(cls, ports):
             continue
 
 
-def open_session(diff=None, guide=None):
+def open_session(diff=None, guide=None, lang=None):
     global _WORKER
     if not S["on"]:
         S.update(on=True, code="".join(random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ") for _ in range(4)),
@@ -1359,6 +1405,8 @@ def open_session(diff=None, guide=None):
         S["diff"] = diff
     if guide is not None:
         settings({"guide": guide})
+    if lang in ("es", "en"):
+        S["lang"] = lang
     if not _WORKER:
         _WORKER = threading.Thread(target=_worker, daemon=True)
         _WORKER.start()
@@ -1520,6 +1568,8 @@ def set_phase(phase):
 def settings(d):
     if d.get("diff") in DIFFS:
         S["diff"] = d["diff"]
+    if d.get("lang") in ("es", "en"):   # los moviles se muestran en el idioma del PC
+        S["lang"] = d["lang"]
     if "guide" in d:
         try:
             S["guide"] = max(0, min(100, int(d["guide"])))
@@ -1629,9 +1679,10 @@ class _Guest(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         qs = parse_qs(u.query)
-        if u.path in ("/", "/index.html"):
+        if u.path in ("/", "/index.html"):   # en el idioma del PC desde el primer pintado
             with open(os.path.join(APP.BASE, "kara.html"), "rb") as f:
-                return self._out(f.read(), "text/html; charset=utf-8")
+                html = f.read().replace(b'<html lang="es">', b'<html lang="%s">' % S["lang"].encode(), 1)
+            return self._out(html, "text/html; charset=utf-8")
         if u.path in ("/favicon.ico", "/icon.png"):
             with open(os.path.join(APP.BASE, "assets", "icon-192.png"), "rb") as f:
                 return self._out(f.read(), "image/png")
@@ -1713,7 +1764,7 @@ def host_api(method, path, qs, d, raw=None, headers=None):
         except ValueError:
             return {"ok": False}
     if path == "/kara/open":
-        return open_session(d.get("diff"), d.get("guide"))
+        return open_session(d.get("diff"), d.get("guide"), d.get("lang"))
     if path == "/kara/close":
         return close_session()
     if path == "/kara/state":

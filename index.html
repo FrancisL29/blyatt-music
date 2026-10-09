@@ -1238,6 +1238,11 @@
   .kqrcard { flex: none; width: min(34vh, 380px); aspect-ratio: 1; background: #fff; border-radius: 28px; padding: 22px;
              box-shadow: 0 40px 90px rgb(0 0 0 / .5); }
   .klobr { flex: 1; min-width: 0; }
+  @media (max-width: 860px) {   /* ventana estrecha: el QR arriba y todo en columna (con scroll si hace falta) */
+    #kLobby { overflow: hidden auto; place-items: start center; }
+    .klob { flex-direction: column; align-items: stretch; gap: 28px; padding: 76px 22px 48px; }
+    .kqrcard { width: min(62vw, 260px); align-self: center; padding: 16px; border-radius: 22px; }
+  }
   .kh1 { font-size: clamp(2.6rem, 4.4vw, 4.6rem); font-weight: 800; letter-spacing: -.035em; line-height: 1; }
   .kh2 { font-size: 1.15rem; color: rgb(255 255 255 / .66); margin-top: 12px; font-weight: 500; }
   .kaddr { margin-top: 18px; font-size: 1.05rem; color: rgb(255 255 255 / .8); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -1334,7 +1339,7 @@
   .klobr .kdtip { font-size: .9rem; color: rgb(255 255 255 / .55); font-weight: 500; margin-top: 10px; min-height: 1.3em; }
   .kset .kmeter { height: 6px; border-radius: 6px; background: rgb(255 255 255 / .12); overflow: hidden; }
   .kset .kmeter i { display: block; height: 100%; width: 0; background: #30d158; transition: width .08s; }
-  #kReacts { position: absolute; inset: 0; overflow: hidden; }
+  #kReacts { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
   .kre { position: absolute; bottom: 150px; font-size: 46px; animation: krise 3.4s cubic-bezier(.2, .7, .3, 1) forwards;
          filter: drop-shadow(0 6px 14px rgb(0 0 0 / .35)); }
   .kre small { display: block; font-size: 12px; font-weight: 700; text-align: center; color: #fff; opacity: .8; }
@@ -1986,6 +1991,7 @@ function setLang(l) {
   if (l === lang) return;
   lang = l; localStorage.setItem("lightning.lang", l);
   applyI18n();
+  if (typeof KS !== "undefined" && KS.on) kpost("/kara/set", { lang }).catch(() => {});   // los moviles del karaoke tambien
   paintUserChip();
   try { renderLibrary(); } catch (e) {}
   try { if (typeof view !== "undefined") setView(view, false); } catch (e) {}   // re-render vista actual
@@ -6288,7 +6294,7 @@ function kYin() {
   const rms = Math.sqrt(e / n);
   KM.rms = rms;
   KM.floor = Math.min(KM.floor * 1.003 + 1e-5, Math.max(rms, .0015));   // suelo de ruido: baja al instante, sube despacio
-  if (rms < Math.max(.006, KM.floor * 2.6)) return 0;   // lo que llega de los altavoces queda por debajo
+  if (rms < Math.max(.005, KM.floor * 2)) return 0;   // por encima del ruido de fondo
   const tmax = KM.tmax, W = n - tmax, d = KM.d;
   for (let tau = 1; tau <= tmax; tau++) {
     let sum = 0;
@@ -6297,13 +6303,14 @@ function kYin() {
   }
   let run = 0;
   for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
-  // solo voz clara (periodica): los acordes de la musica que se cuelan por el micro no cuentan
+  // umbrales medidos con voces reales y musica de fondo (la musica que se cuela ya la descarta la comprobacion
+  // de la letra; aqui, cuanto mas estricto, mas voz real se pierde)
   let tau = -1;
-  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .15) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  for (let k = KM.tmin; k < tmax; k++) if (d[k] < .2) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
   if (tau < 0) {
     let b = KM.tmin;
     for (let k = KM.tmin; k < tmax; k++) if (d[k] < d[b]) b = k;
-    if (d[b] < .25) tau = b; else return 0;
+    if (d[b] < .38) tau = b; else return 0;
   }
   const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
   const f = KM.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
@@ -6415,19 +6422,30 @@ function kTotalVoiced() {   // frames con voz de toda la cancion (estimado mient
   if (i.status === "ready") return Math.max(1, KS.voiced);
   return Math.max(1, KS.voiced * (i.n / 882) / KS.pitchRaw.length);
 }
-// lo que vale cada linea segun lo bien que se canto su letra (lo comprueba el servidor al acabar cada linea);
-// null = no se pudo comprobar (otro alfabeto, sin audio del micro): no se penaliza; -1 = el micro solo oia la
-// voz guia de los altavoces: la linea no puntua
-const kLyrF = c => { if (c == null) return 1; if (c < 0) return 0; const D = kDiff(); return D.lyr + (1 - D.lyr) * c; };
-function kAvgF() {   // para las lineas aun sin veredicto: como las ya comprobadas
+// la letra: el servidor comprueba cada linea al acabarla (0..1; null = no se pudo juzgar; -1 = el micro solo oia
+// la voz guia de los altavoces). Una linea cuenta como cantada desde 0.15; si se canto buena parte de la cancion
+// (40-70 % de las lineas), las demas se perdonan (una linea suelta puede fallar por ruido). Lo tarareado vale lo
+// que marque la dificultad (D.lyr). Medido con 6 canciones: letra 100 %; con eco y musica fuerte 89-100 %;
+// media cancion tarareada ~82 %; "la-la", "mmm" o solo musica 45-54 % (en Normal)
+const K_LYR = { sung: .15, from: .4, to: .7 };
+function kLyr() {   // -> [valor de cada linea comprobada (i -> 0..1), valor de lo que aun no se ha comprobado]
+  const D = kDiff(), q = {};
   let s = 0, n = 0, u = 0;
-  KS.lfac.forEach(c => { if (c != null) { s += kLyrF(c); n++; } else u++; });
-  return n ? s / n : u || !KS.vok ? 1 : kLyrF(.8);
+  KS.lfac.forEach((c, i) => {
+    if (c == null) u++;
+    else if (c >= 0) { q[i] = Math.min(1, c / K_LYR.sung); s += q[i]; n++; }
+  });
+  if (!n) { const v = u || !KS.vok ? 1 : D.lyr + (1 - D.lyr) * .8; return [{}, v]; }   // aun sin veredictos: provisional
+  const forgive = Math.min(1, Math.max(0, (s / n - K_LYR.from) / (K_LYR.to - K_LYR.from)));
+  const val = {};
+  let tot = 0;
+  for (const i in q) { val[i] = D.lyr + (1 - D.lyr) * Math.max(q[i], forgive); tot += val[i]; }
+  return [val, tot / n];
 }
 function kScoreNow() {   // proporcional a la cancion ENTERA: solo llega a 10.000 al final y cantandolo todo
-  const avg = KS.lines.length ? kAvgF() : 1, V = kTotalVoiced();
+  const [val, avg] = KS.lines.length ? kLyr() : [{}, 1], V = kTotalVoiced();
   let P = KS.p0 * avg;
-  for (let i = 0; i < KS.lp.length; i++) if (KS.lp[i]) P += KS.lp[i] * (i in KS.lfac ? kLyrF(KS.lfac[i]) : avg);
+  for (let i = 0; i < KS.lp.length; i++) if (KS.lp[i]) P += KS.lp[i] * (KS.lfac[i] === -1 ? 0 : i in val ? val[i] : avg);
   // en facil basta con cantar bien el 85 %, pero tampoco se llega antes del final (tope: lo que va de cancion)
   return Math.round(Math.min(10000 * Math.min(1, KS.vel / V), 10000 * P / (V * kDiff().full)));
 }
@@ -6935,7 +6953,7 @@ async function karaOpen() {
   LYR.clock = { time: () => 0, paused: () => true, dur: () => 0 };
   $("lbody").innerHTML = "";
   let st;
-  try { st = await kpost("/kara/open", { diff: kSet.diff, guide: kSet.guide }); } catch (e) { st = { error: String(e) }; }
+  try { st = await kpost("/kara/open", { diff: kSet.diff, guide: kSet.guide, lang }); } catch (e) { st = { error: String(e) }; }
   if (!st || st.error) { toast(t("No se pudo abrir el karaoke") + (st && st.error ? ": " + st.error : "")); karaClose(); return; }
   ["kQr", "kQrMini", "kQrBoard"].forEach(id => $(id).innerHTML = st.qr || "");
   const u = new URL(st.url);

@@ -249,7 +249,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const EN = /^en\b/i.test(navigator.language || "");
+let EN = document.documentElement.lang === "en";   // el idioma del PC (el servidor lo pone en la pagina y en el estado)
 const TR = { "Karaoke": "Karaoke", "Escribe el código que aparece en la pantalla.": "Type the code shown on the screen.",
   "Continuar": "Continue", "Únete al karaoke": "Join the karaoke", "Elige canciones, canta y compite por el primer puesto.": "Pick songs, sing and compete for the top spot.",
   "Entrar": "Join", "Sala": "Room", "Reconectando…": "Reconnecting…", "Buscar": "Search", "Cola": "Queue", "Ranking": "Leaderboard", "Ahora": "Now",
@@ -278,8 +278,12 @@ const TR = { "Karaoke": "Karaoke", "Escribe el código que aparece en la pantall
   "Seguir cantando": "Keep singing", "No se pudo usar el micrófono": "Could not use the microphone", "Cuenta atrás": "Countdown",
   "Este móvil no permite el micrófono aquí": "This phone doesn't allow the microphone here" };
 const t = s => EN ? (TR[s] || s) : s;
-document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.textContent));
-$("nameIn").placeholder = t("Tu nombre"); $("q").placeholder = t("Canción o artista");
+function relang() {   // textos fijos de la pagina (el resto se pinta con t() en cada render)
+  document.querySelectorAll("[data-t]").forEach(el => { if (el.dataset.o === undefined) el.dataset.o = el.textContent; el.textContent = t(el.dataset.o); });
+  $("nameIn").placeholder = t("Tu nombre"); $("q").placeholder = t("Canción o artista");
+  document.documentElement.lang = EN ? "en" : "es";
+}
+relang();
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const IC = {
   plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
@@ -378,7 +382,9 @@ async function poll(g) {
       const st = await api("/k/state?v=" + V);
       if (g !== gen) return;
       fails = 0; $("conn").classList.remove("on");
-      V = st.v; ST = st; render();
+      V = st.v; ST = st;
+      if (st.lang && (st.lang === "en") !== EN) { EN = st.lang === "en"; relang(); }   // cambiaron el idioma en el PC
+      render();
     } catch (e) {
       if (e.message === "room" || e.message === "join") return;
       if (++fails > 1) $("conn").classList.add("on");
@@ -481,14 +487,14 @@ function yin() {
   const rms = Math.sqrt(e / n);
   MIC.lvl = rms;
   MIC.floor = Math.min(MIC.floor * 1.003 + 1e-5, Math.max(rms, .0015));
-  if (rms < Math.max(.006, MIC.floor * 2.6)) return 0;
+  if (rms < Math.max(.005, MIC.floor * 2)) return 0;
   const tmax = MIC.tmax, W = n - tmax, d = MIC.d;
   for (let tau = 1; tau <= tmax; tau++) { let s = 0; for (let j = 0; j < W; j++) { const q = x[j] - x[j + tau]; s += q * q; } d[tau] = s; }
   let run = 0;
   for (let tau = 1; tau <= tmax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
   let tau = -1;
-  for (let k = MIC.tmin; k < tmax; k++) if (d[k] < .15) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
-  if (tau < 0) { let b = MIC.tmin; for (let k = MIC.tmin; k < tmax; k++) if (d[k] < d[b]) b = k; if (d[b] < .25) tau = b; else return 0; }
+  for (let k = MIC.tmin; k < tmax; k++) if (d[k] < .2) { while (k + 1 < tmax && d[k + 1] < d[k]) k++; tau = k; break; }
+  if (tau < 0) { let b = MIC.tmin; for (let k = MIC.tmin; k < tmax; k++) if (d[k] < d[b]) b = k; if (d[b] < .38) tau = b; else return 0; }
   const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a - 2 * b + c;
   const f = MIC.sr2 / (tau + (den ? Math.max(-1, Math.min(1, (a - c) / (2 * den))) : 0));
   return f > 70 && f < 1100 ? 69 + 12 * Math.log2(f / 440) : 0;

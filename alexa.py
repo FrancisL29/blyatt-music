@@ -199,23 +199,42 @@ def _cert(url):
     return n, e
 
 
+def _log(line):
+    """Registro local de peticiones rechazadas o fallidas (para diagnosticar sin datos sensibles)."""
+    try:
+        fp = _path("cache", "alexa.log")
+        if os.path.isfile(fp) and os.path.getsize(fp) > 1 << 20:
+            os.replace(fp, fp + ".1")
+        with open(fp, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%m-%d %H:%M:%S ") + line + "\n")
+    except OSError:
+        pass
+
+
 def _verify(raw, headers, body):
     if os.environ.get("BLYATT_ALEXA_NOVERIFY") == "1":   # pruebas locales con peticiones de mentira
         return True
+    url = headers.get("SignatureCertChainUrl") or ""
     try:
-        key = _cert(headers.get("SignatureCertChainUrl") or "")
+        key = _cert(url)
         sig = base64.b64decode(headers.get("Signature-256") or "")
         if not key or not sig:
+            _log("firma: %s (cert %s)" % ("sin certificado valido" if not key else "sin Signature-256", url[:120]))
             return False
         n, e = key
         k = (n.bit_length() + 7) // 8
         em = pow(int.from_bytes(sig, "big"), e, n).to_bytes(k, "big")
         want = b"\x00\x01" + b"\xff" * (k - 3 - len(_SHA256_INFO) - 32) + b"\x00" + _SHA256_INFO + hashlib.sha256(raw).digest()
         if not hmac.compare_digest(em, want):
+            _log("firma: no coincide (cert %s)" % url[:120])
             return False
         ts = datetime.fromisoformat(body["request"]["timestamp"].replace("Z", "+00:00"))
-        return abs((datetime.now(timezone.utc) - ts).total_seconds()) <= 150
-    except Exception:
+        if abs((datetime.now(timezone.utc) - ts).total_seconds()) > 150:
+            _log("firma: marca de tiempo fuera de plazo (%s)" % body["request"]["timestamp"])
+            return False
+        return True
+    except Exception as ex:
+        _log("firma: error %r (cert %s)" % (ex, url[:120]))
         return False
 
 
@@ -656,6 +675,7 @@ def handle(raw, headers, host):
         return 400, {"error": "json"}
     if not _verify(raw, headers, body):
         return 401, {"error": "firma"}
+    _log("ok %s %s" % ((body.get("request") or {}).get("type"), ((body.get("request") or {}).get("intent") or {}).get("name", "")))
     ctx = (body.get("context") or {}).get("System") or {}
     app_id = ((ctx.get("application") or (body.get("session") or {}).get("application") or {}).get("applicationId") or "")
     uid = (ctx.get("user") or (body.get("session") or {}).get("user") or {}).get("userId") or ""
@@ -663,6 +683,7 @@ def handle(raw, headers, host):
     typ = req.get("type", "")
     cfg = _cfg()
     if cfg["skill"] and app_id != cfg["skill"]:
+        _log("skill distinta: %s" % app_id[:80])
         return 403, {"error": "skill"}
     host = os.environ.get("BLYATT_PUBLIC_HOST") or host
     with _LOCK:
@@ -686,7 +707,8 @@ def handle(raw, headers, host):
                 res = _intent(st, uid, host, req, app_id)
             else:
                 res = _event(st, host, req)
-        except Exception:
+        except Exception as ex:
+            _log("error en %s: %r" % (typ, ex))
             res = _say("Algo falló al buscar eso. Inténtalo de nuevo.") if typ in ("IntentRequest", "LaunchRequest") else _quiet()
         _save_state()
     return 200, {"version": "1.0", "response": res}

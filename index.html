@@ -1960,6 +1960,9 @@ const EN = {
   "Aleatorio": "Shuffle", "Aleatorio activado": "Shuffle on", "Aleatorio desactivado": "Shuffle off",
   "Continuar sin cuenta": "Continue without an account", "Vincular con un código": "Link with a code",
   "Vincular dispositivo": "Link a device", "Vincular": "Link", "Listo": "Done", "Código": "Code",
+  "Conectar Alexa": "Connect Alexa",
+  "Dile a tu Echo «Alexa, abre blyatt» y, cuando te lo pida, dile este código. Caduca en 10 minutos. Después podrás decir «Alexa, pídele a blyatt que ponga…» con tus canciones y playlists.":
+    "Tell your Echo “Alexa, open blyatt” and say this code when it asks. It expires in 10 minutes. Then you can say “Alexa, ask blyatt to play…” with your songs and playlists.",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
   "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
   "En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.":
@@ -3577,6 +3580,14 @@ async function linkShow() {
     message: t("Código") + ": " + r.code.slice(0, 3) + " " + r.code.slice(3) + "\n\n" +
       t("En el iPhone abre blyatt.stream en Safari, pulsa «Vincular con un código» e introdúcelo. Caduca en 10 minutos y sirve una sola vez. El otro dispositivo usará tu cuenta de YouTube Music.") });
 }
+/* conectar Alexa: codigo de 4 cifras (10 min) que se le dice a la skill una vez; queda unida a esta cuenta */
+async function alexaShow() {
+  let r; try { r = await (await fetch("/auth/alexa/code", { method: "POST" })).json(); } catch (e) { r = { error: t("Sin conexión") }; }
+  if (!r.code) { toast(r.error || t("No se pudo generar el código")); return; }
+  askModal({ title: "Conectar Alexa", icon: "ph-speaker-hifi", okLabel: "Listo",
+    message: t("Código") + ": " + r.code.split("").join(" ") + "\n\n" +
+      t("Dile a tu Echo «Alexa, abre blyatt» y, cuando te lo pida, dile este código. Caduca en 10 minutos. Después podrás decir «Alexa, pídele a blyatt que ponga…» con tus canciones y playlists.") });
+}
 async function linkEntry() {
   const code = await askModal({ title: "Vincular con un código", icon: "ph-link", input: true, numeric: true,
     placeholder: "123 456", okLabel: "Vincular",
@@ -3647,7 +3658,7 @@ function openUserMenu(btn) {
     ...(_upd && _upd.enabled ? [["ph-arrow-circle-up", _upd.ready ? "Instalar actualización" : "Buscar actualizaciones",
                                  _upd.ready ? updApply : updCheck]] : []),
     ...(_authSt.logged_in && _authSt.own !== false && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
-      ? [["ph-link", "Vincular dispositivo", linkShow]] : []),
+      ? [["ph-link", "Vincular dispositivo", linkShow], ["ph-speaker-hifi", "Conectar Alexa", alexaShow]] : []),
     [(_authSt.logged_in && _authSt.own !== false) ? "ph-sign-out" : "ph-google-logo",
      (_authSt.logged_in && _authSt.own !== false) ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],

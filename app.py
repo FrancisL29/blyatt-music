@@ -3800,7 +3800,72 @@ def _kara():
     return karaoke
 
 
+def _alexa():
+    """Skill de Alexa (alexa.py)."""
+    import alexa
+    if alexa.APP is None:
+        alexa.APP = sys.modules[__name__]
+    return alexa
+
+
 class H(BaseHTTPRequestHandler):
+    def _alexa(self, u, method):
+        # lo usan el Echo y los servidores de Amazon, sin cookies ni Cloudflare Access: la firma de Amazon
+        # (peticiones) y la firma HMAC de cada pista (audio) son las llaves
+        A = _alexa()
+        if method == "POST" and u.path == "/alexa":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 64 * 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            code, res = A.handle(self.rfile.read(n), self.headers, self.headers.get("Host") or "blyatt.stream")
+            return self._json(res, code)
+        m = re.fullmatch(r"/alexa/a/([\w-]{6,20})\.m4a", u.path)
+        if method != "GET" or not m:
+            return self._json({"error": "?"}, 404)
+        try:
+            fp = A.audio_path(m.group(1), parse_qs(u.query).get("t", [""])[0])
+        except Exception:
+            fp = None
+            code = 502
+        else:
+            code = 403
+        if not fp:
+            self.send_response(code); self.send_header("Content-Length", "0"); self.end_headers()
+            return
+        size = os.path.getsize(fp)
+        a, b = 0, size - 1
+        rng = re.fullmatch(r"bytes=(\d*)-(\d*)", (self.headers.get("Range") or "").strip())
+        if rng and (rng.group(1) or rng.group(2)):
+            if rng.group(1):
+                a = int(rng.group(1))
+                b = min(int(rng.group(2)), size - 1) if rng.group(2) else size - 1
+            else:   # los ultimos N bytes
+                a = max(0, size - int(rng.group(2)))
+            if a > b or a >= size:
+                self.send_response(416); self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0"); self.end_headers()
+                return
+        self.send_response(206 if rng and (rng.group(1) or rng.group(2)) else 200)
+        self.send_header("Content-Type", "audio/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "max-age=86400")
+        if rng and (rng.group(1) or rng.group(2)):
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (a, b, size))
+        self.send_header("Content-Length", str(b - a + 1))
+        self.end_headers()
+        try:
+            with open(fp, "rb") as f:
+                f.seek(a)
+                left = b - a + 1
+                while left > 0:
+                    chunk = f.read(min(262144, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except OSError:
+            pass   # el Echo corto (salto, pausa): normal
+
     def _kara(self, u, method):
         # solo la app de escritorio, desde el propio PC (los moviles usan el servidor LAN de karaoke.py)
         if SERVER_MODE or self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -3890,6 +3955,8 @@ class H(BaseHTTPRequestHandler):
             return self._connect(u, "GET")
         if u.path.startswith("/kara/"):
             return self._kara(u, "GET")
+        if u.path.startswith("/alexa/"):
+            return self._alexa(u, "GET")
         if u.path == "/migrate/pull":
             d = migrate_pull(parse_qs(u.query).get("token", [""])[0])
             payload = json.dumps({"ls": d["ls"]} if d else {"error": "token invalido o caducado"}).encode()
@@ -4225,6 +4292,13 @@ class H(BaseHTTPRequestHandler):
             return self._connect(u, "POST")
         if u.path.startswith("/kara/"):
             return self._kara(u, "POST")
+        if u.path == "/alexa":
+            return self._alexa(u, "POST")
+        if u.path == "/auth/alexa/code":   # desde la app (con Cloudflare Access): codigo para vincular Alexa
+            src = _bid_file()
+            if not SERVER_MODE or not os.path.isfile(src) or src == BROWSER_FILE:
+                return self._json({"error": "Inicia sesión con Google en este dispositivo para conectar Alexa"})
+            return self._json(_alexa().pair_new(src))
         if u.path == "/migrate/push":
             n = int(self.headers.get("Content-Length") or 0)
             if n > 2 * 1024 * 1024:   # un localStorage real ronda cientos de KB

@@ -1,0 +1,226 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "blyatt",
+      "intents": [
+        {
+          "name": "PlayIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "pon {query}",
+            "ponme {query}",
+            "ponga {query}",
+            "póngame {query}",
+            "reproduce {query}",
+            "reproduzca {query}",
+            "toca {query}",
+            "toque {query}",
+            "quiero escuchar {query}",
+            "quiero oír {query}",
+            "pon la canción {query}",
+            "ponga la canción {query}",
+            "busca {query}",
+            "busque {query}",
+            "escuchar {query}",
+            "poner {query}"
+          ]
+        },
+        {
+          "name": "PlayPlaylistIntent",
+          "slots": [
+            {
+              "name": "playlist",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "pon mi playlist {playlist}",
+            "ponga mi playlist {playlist}",
+            "pon mi lista {playlist}",
+            "ponga mi lista {playlist}",
+            "pon la playlist {playlist}",
+            "ponga la playlist {playlist}",
+            "pon mi lista de reproducción {playlist}",
+            "ponga mi lista de reproducción {playlist}",
+            "reproduce mi playlist {playlist}",
+            "reproduzca mi playlist {playlist}",
+            "reproduce la playlist {playlist}",
+            "quiero escuchar mi playlist {playlist}",
+            "toca mi playlist {playlist}",
+            "pon mi playlist de {playlist}",
+            "ponga mi playlist de {playlist}"
+          ]
+        },
+        {
+          "name": "PlayArtistIntent",
+          "slots": [
+            {
+              "name": "artist",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "pon música de {artist}",
+            "ponga música de {artist}",
+            "pon canciones de {artist}",
+            "ponga canciones de {artist}",
+            "pon algo de {artist}",
+            "ponga algo de {artist}",
+            "reproduce música de {artist}",
+            "reproduzca música de {artist}",
+            "quiero escuchar música de {artist}",
+            "pon temas de {artist}",
+            "pon lo mejor de {artist}"
+          ]
+        },
+        {
+          "name": "PlayAlbumIntent",
+          "slots": [
+            {
+              "name": "album",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "pon el álbum {album}",
+            "ponga el álbum {album}",
+            "pon el disco {album}",
+            "ponga el disco {album}",
+            "reproduce el álbum {album}",
+            "reproduzca el álbum {album}",
+            "quiero escuchar el álbum {album}"
+          ]
+        },
+        {
+          "name": "PlayLikedIntent",
+          "slots": [],
+          "samples": [
+            "pon mis me gusta",
+            "ponga mis me gusta",
+            "pon mis favoritas",
+            "ponga mis favoritas",
+            "pon mis canciones favoritas",
+            "ponga mis canciones favoritas",
+            "pon las canciones que me gustan",
+            "ponga las canciones que me gustan",
+            "pon mi música",
+            "ponga mi música",
+            "reproduce mis me gusta",
+            "reproduzca mis me gusta",
+            "pon mis canciones guardadas",
+            "pon mis canciones"
+          ]
+        },
+        {
+          "name": "WhatIsPlayingIntent",
+          "slots": [],
+          "samples": [
+            "qué está sonando",
+            "qué suena",
+            "qué canción es esta",
+            "qué canción está sonando",
+            "cómo se llama esta canción",
+            "de quién es esta canción",
+            "qué es esto"
+          ]
+        },
+        {
+          "name": "LikeIntent",
+          "slots": [],
+          "samples": [
+            "me gusta esta canción",
+            "me gusta esta",
+            "dale me gusta",
+            "guarda esta canción",
+            "guarda esta",
+            "añade esta canción a mis me gusta",
+            "agrega esta canción a mis me gusta",
+            "marca esta canción como favorita"
+          ]
+        },
+        {
+          "name": "PairIntent",
+          "slots": [
+            {
+              "name": "code",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            }
+          ],
+          "samples": [
+            "el código es {code}",
+            "mi código es {code}",
+            "código {code}",
+            "es el {code}",
+            "{code}"
+          ]
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PauseIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ResumeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NextIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PreviousIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ShuffleOnIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ShuffleOffIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.LoopOnIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.LoopOffIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.RepeatIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StartOverIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}

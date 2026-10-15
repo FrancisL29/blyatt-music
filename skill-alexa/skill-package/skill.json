@@ -1,0 +1,83 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "es-US": {
+          "name": "Blyatt",
+          "summary": "Tu música de Blyatt en Alexa.",
+          "description": "Pide canciones, artistas, álbumes y las playlists de tu cuenta de Blyatt, y suenan en tu Echo.",
+          "examplePhrases": [
+            "Alexa, abre blyatt",
+            "Alexa, pídele a blyatt que ponga Bohemian Rhapsody",
+            "Alexa, dile a blyatt que ponga mi playlist favoritas"
+          ],
+          "keywords": [
+            "música",
+            "playlist",
+            "canciones"
+          ]
+        },
+        "es-MX": {
+          "name": "Blyatt",
+          "summary": "Tu música de Blyatt en Alexa.",
+          "description": "Pide canciones, artistas, álbumes y las playlists de tu cuenta de Blyatt, y suenan en tu Echo.",
+          "examplePhrases": [
+            "Alexa, abre blyatt",
+            "Alexa, pídele a blyatt que ponga Bohemian Rhapsody",
+            "Alexa, dile a blyatt que ponga mi playlist favoritas"
+          ],
+          "keywords": [
+            "música",
+            "playlist",
+            "canciones"
+          ]
+        },
+        "es-ES": {
+          "name": "Blyatt",
+          "summary": "Tu música de Blyatt en Alexa.",
+          "description": "Pide canciones, artistas, álbumes y las playlists de tu cuenta de Blyatt, y suenan en tu Echo.",
+          "examplePhrases": [
+            "Alexa, abre blyatt",
+            "Alexa, pídele a blyatt que ponga Bohemian Rhapsody",
+            "Alexa, dile a blyatt que ponga mi playlist favoritas"
+          ],
+          "keywords": [
+            "música",
+            "playlist",
+            "canciones"
+          ]
+        }
+      },
+      "isAvailableWorldwide": true,
+      "category": "STREAMING_SERVICE",
+      "testingInstructions": "Uso personal (modo desarrollo).",
+      "distributionCountries": []
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "https://blyatt.stream/alexa",
+          "sslCertificateType": "Trusted"
+        },
+        "interfaces": [
+          {
+            "type": "AUDIO_PLAYER"
+          }
+        ]
+      }
+    },
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "locales": {
+        "es-US": {},
+        "es-MX": {},
+        "es-ES": {}
+      }
+    },
+    "manifestVersion": "1.0"
+  }
+}

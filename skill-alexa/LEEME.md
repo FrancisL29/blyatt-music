@@ -32,13 +32,15 @@ Es seguro: cada petición a `/alexa` debe venir firmada por Amazon, y cada canci
 
 Con la MISMA cuenta de Amazon de tu Echo, en <https://developer.amazon.com/alexa/console/ask>:
 
-1. **Create Skill** → nombre `Blyatt`, idioma **Spanish (US)** (o el de tu Echo) → modelo **Custom** →
-   hosting **Provision your own** → plantilla **Start from Scratch**.
+1. **Create Skill** → nombre `Blyatt`, idioma **Spanish (US)** con **Sync Locales** activado (vale para todo el
+   español) → modelo **Custom** → hosting **Provision your own** → plantilla **Start from Scratch**.
 2. **Interaction Model → JSON Editor**: pega el contenido de `skill-package/interactionModels/custom/es-US.json`
    (o `es-MX.json` / `es-ES.json` según el idioma) → **Save** → **Build skill**.
 3. **Interfaces**: activa **Audio Player** → Save.
 4. **Endpoint**: HTTPS → Default Region: `https://blyatt.stream/alexa` → certificado:
-   *My development endpoint has a certificate from a trusted certificate authority* → Save.
+   *My development endpoint is a sub-domain of a domain that has a wildcard certificate from a certificate
+   authority* (el certificado de Cloudflare incluye `*.blyatt.stream`; con la opción "trusted certificate authority"
+   Amazon lo rechaza: "Certificate for host 'blyatt.stream' contains wildcard") → Save.
 5. **Test**: cambia "Off" por **Development**.
 
 Si tu Echo está en otro idioma (español de México o España), añade ese idioma en *Language settings* y pega el mismo JSON.

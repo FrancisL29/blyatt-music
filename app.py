@@ -1894,6 +1894,57 @@ _URLS_FILE = os.path.join(CACHE_DIR, "urls.json")
 _URL_MARGIN = 900   # no servir links a <15min de caducar: la descarga podria cortarse a mitad
 AUDIO_MAX_MB = 60   # una cancion en itag 18 ~4-10MB; mas que esto no es musica (o es abuso)
 AUDIO_CACHE_MB = int(os.environ.get("BLYATT_AUDIO_CACHE_MB") or (2048 if os.environ.get("BLYATT_HOST") else 1024))
+
+# ajustes de la app de escritorio (Configuracion): los lee tambien main.py (bandeja, atajos, arranque)
+SETTINGS_FILE = os.path.join(DATA, "settings.json")
+SETTINGS_HOOK = None   # main.py: aplica en caliente lo que cambia (bandeja, atajos)
+_SET_DEF = {"tray": False, "start_min": False, "hotkeys": False, "auto_update": True, "cache_mb": AUDIO_CACHE_MB}
+_SET_CACHE = (512, 1024, 2048, 4096, 8192)
+_set_lock = threading.Lock()
+
+
+def settings():
+    try:
+        with open(SETTINGS_FILE, encoding="utf8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    return {k: d.get(k, v) if type(d.get(k, v)) is type(v) else v for k, v in _SET_DEF.items()}
+
+
+def settings_set(d):
+    with _set_lock:
+        cur = settings()
+        for k, v in (d or {}).items():
+            if k in _SET_DEF and type(v) is type(_SET_DEF[k]) and (k != "cache_mb" or v in _SET_CACHE):
+                cur[k] = v
+        tmp = SETTINGS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf8") as f:
+            json.dump(cur, f)
+        os.replace(tmp, SETTINGS_FILE)
+    if SETTINGS_HOOK:
+        SETTINGS_HOOK(cur)
+    if "cache_mb" in (d or {}):
+        threading.Thread(target=_audio_evict, daemon=True).start()   # al bajar el tope se recorta ya
+    return cur
+
+
+def audio_cache(clear=False):
+    """Uso de la cache de canciones (y vaciarla). Lo que se esta sirviendo ahora no se puede borrar: se queda."""
+    used = 0
+    try:
+        for n in os.listdir(AUDIO_DIR):
+            fp = os.path.join(AUDIO_DIR, n)
+            if clear and not n.endswith(".part"):
+                try:
+                    os.remove(fp)
+                    continue
+                except OSError:
+                    pass
+            used += os.path.getsize(fp)
+    except OSError:
+        pass
+    return {"mb": round(used / 1048576), "cap": settings()["cache_mb"]}
 _urls_lock = threading.Lock()
 _id_locks, _id_locks_lock = {}, threading.Lock()
 
@@ -1969,7 +2020,7 @@ def _audio_evict():
                 continue
             st = os.stat(fp)
             files.append((st.st_mtime, st.st_size, fp))
-        total, cap = sum(f[1] for f in files), AUDIO_CACHE_MB * 1024 * 1024
+        total, cap = sum(f[1] for f in files), settings()["cache_mb"] * 1024 * 1024
         for _, size, fp in sorted(files):   # mas antiguo (menos usado) primero
             if total <= cap:
                 break
@@ -3999,7 +4050,8 @@ class H(BaseHTTPRequestHandler):
                 auto = AUTOSTART() if AUTOSTART else None
             except Exception:
                 auto = None
-            return self._json(dict(WINCTL("state"), desktop=True, autostart=auto, version=VERSION))
+            return self._json(dict(WINCTL("state"), desktop=True, autostart=auto, version=VERSION,
+                                   settings=settings(), cache=audio_cache()))
         if u.path.startswith("/connect/"):
             return self._connect(u, "GET")
         if u.path.startswith("/kara/"):
@@ -4355,7 +4407,9 @@ class H(BaseHTTPRequestHandler):
                 try:
                     if isinstance(d.get("autostart"), bool) and AUTOSTART:
                         AUTOSTART(d["autostart"])
-                    return self._json({"autostart": AUTOSTART() if AUTOSTART else None})
+                    st = settings_set({k: v for k, v in d.items() if k != "autostart"})
+                    return self._json({"autostart": AUTOSTART() if AUTOSTART else None, "settings": st,
+                                       "cache": audio_cache(bool(d.get("clear_cache")))})
                 except OSError as e:
                     return self._json({"error": "No se pudo cambiar: %s" % e})
             return self._json(WINCTL(u.path[5:]))

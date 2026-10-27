@@ -494,6 +494,29 @@
   .sw input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
   .sw input:disabled { cursor: progress; }
   .sver { margin-top: 16px; font-size: .74rem; color: var(--muted); text-align: center; }
+  #setmodal .gbox { max-height: 88vh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  #setmodal .srow input { margin-top: 0; }   /* sin el estilo de los campos de los otros modales (ancho 100 %) */
+  #setmodal .srow .sinp { width: 160px; }
+  #setmodal .srow input[type=range] { padding: 0; border-radius: 999px; }
+  #setmodal .srow input[type=checkbox] { width: auto; padding: 0; }
+  .srng { display: flex; align-items: center; gap: 10px; flex: none; }
+  .srng input { width: 110px; --fill: 0%; }
+  .srng span { min-width: 42px; white-space: nowrap; font-size: .8rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .sinp { width: 150px; flex: none; padding: 8px 11px; border-radius: 10px; border: 1px solid rgb(255 255 255 / .1);
+    background: rgb(255 255 255 / .05); color: var(--text); font: inherit; font-size: .86rem; outline: none; }
+  .sinp:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+  .ssel { flex: none; padding: 7px 8px; border-radius: 10px; border: 1px solid rgb(255 255 255 / .1); background: #1b1b22;
+    color: var(--text); font: inherit; font-size: .82rem; outline: none; cursor: pointer; }
+  .sbtn { flex: none; border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .06); color: var(--text);
+    font: inherit; font-size: .82rem; font-weight: 600; padding: 7px 13px; border-radius: 10px; cursor: pointer; }
+  .sbtn:hover { background: rgb(255 255 255 / .12); }
+  .sbtn:disabled { opacity: .5; cursor: progress; }
+  @media (max-width: 560px) {   /* movil: los controles anchos bajan bajo el texto; los interruptores siguen a la derecha */
+    .srow:has(.srng, .sinp, .ssel) { flex-wrap: wrap; row-gap: 10px; }
+    .srow:has(.srng, .sinp, .ssel) .stx { flex-basis: calc(100% - 50px); }
+    .srng, .sinp, .ssel { margin-left: 34px; }
+    .srng, #setmodal .srow .sinp { flex: 1; width: auto; } .srng input { flex: 1; width: auto; }
+  }
 
   /* ---------- PLAYER ---------- */
   #player {
@@ -1205,13 +1228,20 @@
     .back-fab, #mUser, body[data-mv="lib"] #mAdd, #iosBack.on {
       backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
     #mUser, body[data-mv="lib"] #mAdd, #iosBack.on { background: rgb(24 24 30 / .94); }
+    /* como el Liquid Glass de iPhone: transparente (sin tinte ni color de la portada), poco desenfoque y mucha
+       saturacion (lo de detras se ve nitido y vivo), borde especular arriba, brillo interior y un reflejo diagonal */
     form, #player {
-      border: 1px solid rgb(255 255 255 / .14);
-      backdrop-filter: blur(24px) saturate(185%); -webkit-backdrop-filter: blur(24px) saturate(185%);
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), inset 0 -1px 0 rgb(255 255 255 / .05), 0 12px 32px rgb(0 0 0 / .45); }
-    form { background: linear-gradient(150deg, rgb(255 255 255 / .13), rgb(255 255 255 / .04) 55%), rgb(20 20 26 / .52); }
-    #player { background: linear-gradient(150deg, rgb(255 255 255 / .14), rgb(255 255 255 / .03) 50%),
-                          color-mix(in srgb, var(--accent, #2a2a33) 22%, rgb(18 18 24 / .58)); }
+      isolation: isolate; border: 1px solid rgb(255 255 255 / .13);
+      background: linear-gradient(180deg, rgb(255 255 255 / .09), rgb(255 255 255 / .03));
+      backdrop-filter: blur(10px) saturate(200%) brightness(1.08); -webkit-backdrop-filter: blur(10px) saturate(200%) brightness(1.08);
+      box-shadow: inset 0 1px .5px rgb(255 255 255 / .5), inset 0 -1px .5px rgb(255 255 255 / .14),
+                  inset 1px 0 .5px rgb(255 255 255 / .1), inset -1px 0 .5px rgb(255 255 255 / .1),
+                  inset 0 0 20px rgb(255 255 255 / .05), 0 10px 30px rgb(0 0 0 / .3); }
+    form { position: relative; }
+    form::before, #player::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+      background: linear-gradient(115deg, rgb(255 255 255 / .16) 0%, rgb(255 255 255 / 0) 32%, rgb(255 255 255 / 0) 68%, rgb(255 255 255 / .07) 100%); }
+    #player .meta, input#q { text-shadow: 0 1px 3px rgb(0 0 0 / .45); }   /* se lee sobre cualquier fondo */
+    input#q::placeholder { color: rgb(255 255 255 / .62); }
   }
 
   /* ---------- MODO KARAOKE (app de escritorio) ----------
@@ -1723,12 +1753,67 @@
         <div class="sseg" id="setLang"><button data-l="es">Español</button><button data-l="en">English</button></div>
       </div>
     </div>
+    <div class="sgrp" id="setPlay">
+      <div class="sh" data-i18n>Reproducción</div>
+      <div class="srow"><i class="ph ph-waveform"></i>
+        <div class="stx"><div class="stt" data-i18n>Fundido entre canciones</div>
+          <div class="sds" data-i18n>Cada canción se funde con la siguiente.</div></div>
+        <div class="srng"><input type="range" id="setXf" min="0" max="12" step="1" aria-label="Fundido entre canciones" data-i18n-al><span id="setXfV"></span></div>
+      </div>
+      <div class="srow"><i class="ph ph-speaker-simple-high"></i>
+        <div class="stx"><div class="stt" data-i18n>Normalizar volumen</div>
+          <div class="sds" data-i18n>Todas las canciones suenan igual de fuerte.</div></div>
+        <label class="sw"><input type="checkbox" id="setNorm" aria-label="Normalizar volumen" data-i18n-al><span></span></label>
+      </div>
+    </div>
+    <div class="sgrp" id="setDev">
+      <div class="sh" data-i18n>Dispositivos</div>
+      <div class="srow"><i class="ph ph-device-mobile-speaker"></i>
+        <div class="stx"><div class="stt" data-i18n>Nombre de este dispositivo</div></div>
+        <input class="sinp" id="setDevName" maxlength="40" autocomplete="off" aria-label="Nombre de este dispositivo" data-i18n-al>
+      </div>
+      <div class="srow"><i class="ph ph-arrows-left-right"></i>
+        <div class="stx"><div class="stt" data-i18n>Pasar la música aquí al abrir Blyatt</div>
+          <div class="sds" data-i18n>Si suena en otro dispositivo, continúa en este.</div></div>
+        <label class="sw"><input type="checkbox" id="setAutoX" aria-label="Pasar la música aquí al abrir Blyatt" data-i18n-al><span></span></label>
+      </div>
+    </div>
     <div class="sgrp" id="setDesk" hidden>
       <div class="sh" data-i18n>Escritorio</div>
       <div class="srow"><i class="ph ph-power"></i>
         <div class="stx"><div class="stt" data-i18n>Abrir al iniciar Windows</div>
           <div class="sds" data-i18n>Blyatt se abre solo al encender la PC e iniciar sesión.</div></div>
         <label class="sw"><input type="checkbox" id="setAuto" aria-label="Abrir al iniciar Windows" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow"><i class="ph ph-moon-stars"></i>
+        <div class="stx"><div class="stt" data-i18n>Iniciar minimizado</div>
+          <div class="sds" data-i18n>Al abrirse con Windows, sin mostrar la ventana.</div></div>
+        <label class="sw"><input type="checkbox" id="setMin" aria-label="Iniciar minimizado" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow"><i class="ph ph-tray"></i>
+        <div class="stx"><div class="stt" data-i18n>Seguir en la bandeja al cerrar</div>
+          <div class="sds" data-i18n>La música sigue sonando. Para salir: clic derecho en el icono → Salir.</div></div>
+        <label class="sw"><input type="checkbox" id="setTray" aria-label="Seguir en la bandeja al cerrar" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow"><i class="ph ph-keyboard"></i>
+        <div class="stx"><div class="stt" data-i18n>Atajos de teclado globales</div>
+          <div class="sds" data-i18n>Funcionan aunque Blyatt no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.</div></div>
+        <label class="sw"><input type="checkbox" id="setKeys" aria-label="Atajos de teclado globales" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow"><i class="ph ph-arrow-circle-up"></i>
+        <div class="stx"><div class="stt" data-i18n>Buscar actualizaciones automáticamente</div>
+          <div class="sds" data-i18n>Si lo desactivas, búscalas desde tu menú de usuario.</div></div>
+        <label class="sw"><input type="checkbox" id="setUpd" aria-label="Buscar actualizaciones automáticamente" data-i18n-al><span></span></label>
+      </div>
+    </div>
+    <div class="sgrp" id="setStore" hidden>
+      <div class="sh" data-i18n>Almacenamiento</div>
+      <div class="srow"><i class="ph ph-hard-drives"></i>
+        <div class="stx"><div class="stt" id="setCacheT"></div><div class="sds" id="setCacheU"></div></div>
+        <select class="ssel" id="setCacheCap" aria-label="Tamaño máximo" data-i18n-al>
+          <option value="512">512 MB</option><option value="1024">1 GB</option><option value="2048">2 GB</option>
+          <option value="4096">4 GB</option><option value="8192">8 GB</option></select>
+        <button class="sbtn" id="setCacheClr" data-i18n>Vaciar</button>
       </div>
     </div>
     <div class="sver" id="setVer"></div>
@@ -2080,6 +2165,22 @@ const EN = {
   "Blyatt ya no se abrirá al iniciar Windows": "Blyatt won't open when Windows starts",
   "No se pudo cambiar el ajuste": "Couldn't change the setting",
   "Minimizar": "Minimize", "Maximizar": "Maximize", "Restaurar": "Restore",
+  "Reproducción": "Playback", "Fundido entre canciones": "Crossfade", "Cada canción se funde con la siguiente.": "Each song fades into the next one.",
+  "Desactivado": "Off", "Normalizar volumen": "Normalize volume", "Todas las canciones suenan igual de fuerte.": "All songs play at the same loudness.",
+  "Dispositivos": "Devices", "Nombre de este dispositivo": "This device's name", "Nombre guardado": "Name saved",
+  "Pasar la música aquí al abrir Blyatt": "Move the music here when Blyatt opens",
+  "Si suena en otro dispositivo, continúa en este.": "If it's playing on another device, it continues on this one.",
+  "Iniciar minimizado": "Start minimized", "Al abrirse con Windows, sin mostrar la ventana.": "When opened by Windows, without showing the window.",
+  "Seguir en la bandeja al cerrar": "Keep running in the tray when closed",
+  "La música sigue sonando. Para salir: clic derecho en el icono → Salir.": "The music keeps playing. To quit: right-click the icon → Exit.",
+  "Atajos de teclado globales": "Global keyboard shortcuts",
+  "Funcionan aunque Blyatt no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.":
+    "They work even when Blyatt isn't in front: Ctrl+Alt+P play or pause, Ctrl+Alt+→/← next or previous, Ctrl+Alt+↑/↓ volume.",
+  "Atajos activados: Ctrl+Alt+P, →, ←, ↑, ↓": "Shortcuts on: Ctrl+Alt+P, →, ←, ↑, ↓",
+  "Buscar actualizaciones automáticamente": "Check for updates automatically",
+  "Si lo desactivas, búscalas desde tu menú de usuario.": "If you turn it off, check from your user menu.",
+  "Almacenamiento": "Storage", "Caché de canciones": "Song cache", "de": "of", "Vaciar": "Clear", "Caché vaciada": "Cache cleared",
+  "Canciones guardadas en este dispositivo": "Songs saved on this device", "Tamaño máximo": "Maximum size",
   "Dile a tu Echo «Alexa, abre blyatt» y, cuando te lo pida, dile este código. Caduca en 10 minutos. Después podrás decir «Alexa, pídele a blyatt que ponga…» con tus canciones y playlists.":
     "Tell your Echo “Alexa, open blyatt” and say this code when it asks. It expires in 10 minutes. Then you can say “Alexa, ask blyatt to play…” with your songs and playlists.",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
@@ -2146,8 +2247,22 @@ function xfRamp(up) {   // igual potencia (seno/coseno): entre los dos dispositi
   g.cancelScheduledValues(0); g.setValueCurveAtTime(c, t0, XF_SECS);   // (0: tambien una curva a medias)
 }
 function xfSet(v) { const g = xfNode.gain; g.cancelScheduledValues(0); g.setValueAtTime(v, AC.currentTime); }
-// las fuentes entran aqui (un punto unico de entrada antes del volumen)
-const srcBus = AC.createGain(); srcBus.connect(gainNode);
+// las fuentes entran aqui (un punto unico de entrada antes del volumen). Con "Normalizar volumen" pasan antes por
+// un limitador: las canciones flojas se suben y asi un pico nunca satura
+const srcBus = AC.createGain(), limiter = AC.createDynamicsCompressor();
+[["threshold", -1.5], ["knee", 0], ["ratio", 20], ["attack", .003], ["release", .25]].forEach(([k, v]) => limiter[k].value = v);
+limiter.connect(gainNode);
+// ajustes de reproduccion (Configuracion): fundido entre canciones (s) y normalizar volumen
+const PLAY = { xf: 0, norm: false };
+try { PLAY.xf = Math.max(0, Math.min(12, +localStorage.getItem("lightning.xfade") || 0)); PLAY.norm = localStorage.getItem("lightning.norm") === "1"; } catch (e) {}
+srcBus.connect(PLAY.norm ? limiter : gainNode);
+function setNorm(on) {
+  PLAY.norm = !!on;
+  try { localStorage.setItem("lightning.norm", on ? "1" : ""); } catch (e) {}
+  srcBus.disconnect(); srcBus.connect(on ? limiter : gainNode);
+  [eng.node, eng.gNode, ...eng.fading].forEach(n => { if (n && n._n) n._n.gain.setTargetAtTime(_ng(n.buffer), AC.currentTime, .3); });
+}
+function setXfade(sec) { PLAY.xf = Math.max(0, Math.min(12, +sec || 0)); try { localStorage.setItem("lightning.xfade", PLAY.xf); } catch (e) {} if (current) scheduleGaplessNext(); }
 const bufCache = new Map(), bufOrder = [];   // id -> Promise<AudioBuffer> (cache acotada)
 // detecta el silencio de codificacion (priming/padding de AAC) al inicio/fin para encadenar sin hueco
 function analyzeSilence(buf) {
@@ -2159,6 +2274,11 @@ function analyzeSilence(buf) {
   let tail = N - 1; const minTail = N - sr * 2; while (tail > minTail && amp(tail) < thr) tail--;
   buf._lead = lead / sr;
   buf._eff = Math.max(0.05, (tail - lead) / sr);   // duracion del audio real (sin silencios)
+  // sonoridad (RMS muestreado) para "Normalizar volumen": todas a ~ -14 dBFS; subir como mucho x1.6
+  let sum = 0, cnt = 0;
+  for (let i = lead; i < tail; i += 97) { const v = (ch0[i] + ch1[i]) * .5; sum += v * v; cnt++; }
+  const rms = Math.sqrt(sum / Math.max(1, cnt));
+  buf._ng = rms > 1e-4 ? Math.min(1.6, Math.max(.3, .2 / rms)) : 1;
   return buf;
 }
 // cache persistente de audio en el DISPOSITIVO (Cache Storage) cuando el server es remoto (app movil via
@@ -2243,13 +2363,33 @@ function getBuffer(id) {
 }
 const eng = {                 // estado del motor
   node: null, buf: null, dur: 0, start: 0, offset: 0, playing: false,
-  gNode: null, gInfo: null, endTimer: null, onAdvance: null, onEnded: null, onState: null,
+  gNode: null, gInfo: null, endTimer: null, onAdvance: null, onEnded: null, onState: null, fading: [],
 };
-function _clearGapless() { if (eng.gNode) { try { eng.gNode.stop(); } catch (e) {} eng.gNode.disconnect(); } eng.gNode = null; eng.gInfo = null; }
-function _stop() { _clearGapless(); if (eng.node) { eng.node.onended = null; try { eng.node.stop(); } catch (e) {} eng.node.disconnect(); eng.node = null; } if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; } }
+const _ng = (buf) => PLAY.norm && buf && buf._ng || 1;
+// cada pista lleva su propio volumen: n._n normalizacion y n._g fundido entre canciones (separados: cambiar uno
+// no pisa la curva programada del otro)
+function _src(buf) {
+  const n = AC.createBufferSource(), nn = AC.createGain(), g = AC.createGain();
+  n.buffer = buf; nn.gain.value = _ng(buf); n.connect(nn); nn.connect(g); g.connect(srcBus); n._n = nn; n._g = g;
+  return n;
+}
+function _kill(n) { if (!n) return; n.onended = null; try { n.stop(); } catch (e) {} n.disconnect(); if (n._g) { n._n.disconnect(); n._g.disconnect(); } }
+function _clearGapless() {
+  _kill(eng.gNode);
+  if (eng.gInfo && eng.gInfo.X && eng.node && eng.node._g) {   // el fundido de salida ya programado: se anula
+    const g = eng.node._g.gain, w = eng.gInfo.when;
+    try { g.cancelScheduledValues(w); if (AC.currentTime >= w) g.setValueAtTime(1, AC.currentTime); } catch (e) {}
+  }
+  eng.gNode = null; eng.gInfo = null;
+}
+function _stop() {
+  _clearGapless(); _kill(eng.node); eng.node = null;
+  eng.fading.forEach(_kill); eng.fading = [];   // la que se estaba despidiendo en un fundido
+  if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
+}
 function _startBuf(buf, offset) {
   const lead = buf._lead || 0, eff = buf._eff || buf.duration;
-  const n = AC.createBufferSource(); n.buffer = buf; n.connect(srcBus);
+  const n = _src(buf);
   n.start(0, lead + offset);                 // arranca en el audio real (omite el silencio de priming)
   eng.node = n; eng.buf = buf; eng.dur = eff; eng.start = AC.currentTime - offset; eng.offset = offset; eng.playing = true;
   try { n.stop(eng.start + eff); } catch (e) {}   // corta antes del padding final
@@ -2260,17 +2400,24 @@ function _startBuf(buf, offset) {
 // segundo plano Chromium estrangula los setTimeout (hasta 1/min) y el avance llegaba tarde o nunca.
 // El setTimeout de _scheduleBoundary queda solo como respaldo; el guard evita doble avance.
 function _watchEnd(n) { n.onended = () => { if (eng.node === n && eng.playing) _onBoundary(); }; }
+// cambio de pista: al terminar la actual o, con fundido, cuando entra la siguiente (la UI cambia ahi)
+const _boundaryAt = () => eng.gInfo ? eng.gInfo.when : eng.start + eng.dur;
 function _scheduleBoundary() {
   if (eng.endTimer) clearTimeout(eng.endTimer);
-  const remain = eng.dur - (AC.currentTime - eng.start);
-  eng.endTimer = setTimeout(_onBoundary, Math.max(0, remain * 1000) + 40);
+  eng.endTimer = setTimeout(_onBoundary, Math.max(0, (_boundaryAt() - AC.currentTime) * 1000) + 40);
 }
 function _onBoundary() {
   if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
-  if (eng.playing && eng.node && AC.currentTime < eng.start + eng.dur - 0.25) { _scheduleBoundary(); return; }   // disparo prematuro
+  if (eng.playing && eng.node && AC.currentTime < _boundaryAt() - 0.25) { _scheduleBoundary(); return; }   // disparo prematuro
   if (eng.gInfo && eng.playing) {            // la siguiente ya viene sonando (programada sample-accurate)
     const g = eng.gInfo;
-    if (eng.node) eng.node.onended = null;
+    if (eng.node) {
+      eng.node.onended = null;
+      if (g.X) {   // fundido: la anterior sigue bajando hasta su final
+        const old = eng.node; eng.fading.push(old);
+        old.onended = () => { eng.fading = eng.fading.filter(x => x !== old); _kill(old); };
+      }
+    }
     eng.node = eng.gNode; eng.buf = g.buf; eng.dur = g.buf._eff || g.buf.duration; eng.start = g.when; eng.offset = 0;
     eng.gNode = null; eng.gInfo = null;
     try { eng.node.stop(eng.start + eng.dur); } catch (e) {}   // corta antes del padding de esta pista
@@ -2289,11 +2436,23 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
   if (!song || !eng.playing) return;
   let buf; try { buf = await getBuffer(song.id); } catch (e) { return; }
   if (!eng.playing || eng.gInfo) return;
-  const when = eng.start + eng.dur;          // momento exacto en que termina el audio real actual
-  if (when <= AC.currentTime) return;        // ya muy tarde
-  const n = AC.createBufferSource(); n.buffer = buf; n.connect(srcBus);
+  const end = eng.start + eng.dur;           // momento exacto en que termina el audio real actual
+  if (end <= AC.currentTime) return;         // ya muy tarde
+  // fundido: la siguiente entra X s antes del final (como mucho un tercio de cada cancion); sin el, gapless exacto
+  let X = Math.min(PLAY.xf, eng.dur / 3, (buf._eff || buf.duration) / 3), when = end - X;
+  if (X && when < AC.currentTime + .05) { when = AC.currentTime + .05; X = Math.max(0, end - when); }   // ya empezado
+  const n = _src(buf);
   n.start(when, buf._lead || 0);             // la siguiente entra en su audio real, sin su silencio inicial
-  eng.gNode = n; eng.gInfo = { buf, song, when };
+  if (X > .05 && eng.node && eng.node._g) {  // igual potencia (seno/coseno): el volumen no se hunde a mitad
+    const up = new Float32Array(64), down = new Float32Array(64);
+    for (let i = 0; i < 64; i++) { const x = i / 63 * Math.PI / 2; up[i] = Math.sin(x); down[i] = Math.cos(x); }
+    try {   // solo desde el fundido: la subida de la actual (si viene de otro fundido) sigue su curso
+      eng.node._g.gain.cancelScheduledValues(when); eng.node._g.gain.setValueCurveAtTime(down, when, X);
+      n._g.gain.setValueAtTime(0, AC.currentTime); n._g.gain.setValueCurveAtTime(up, when, X);
+    } catch (e) { X = 0; n._g.gain.cancelScheduledValues(0); n._g.gain.value = 1; }
+  } else X = 0;
+  eng.gNode = n; eng.gInfo = { buf, song, when, X };
+  if (X) _scheduleBoundary();
 }
 /* fachada compatible con el codigo existente (currentTime/duration/paused/volume/play/pause) */
 const audio = {
@@ -3795,26 +3954,96 @@ $("wbar").onclick = (e) => {
   const b = e.target.closest("button[data-w]"); if (!b) return;
   apost("/win/" + b.dataset.w).then(r => { if (r && "max" in r) wbarMax(r.max); }).catch(() => {});
 };
+const _setChk = (id, on) => { $(id).checked = !!on; };
+const _mb = (mb) => mb >= 1024 ? (mb / 1024).toFixed(mb % 1024 ? 1 : 0).replace(".", lang === "en" ? "." : ",") + " GB" : mb + " MB";
+let _devCache = null;   // canciones guardadas en el dispositivo (app movil / web remota)
 function paintSettings() {
   $("setLang").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.l === lang));
-  $("setDesk").hidden = !APPINFO.desktop;
-  $("setAuto").checked = !!APPINFO.autostart;
-  $("setVer").textContent = APPINFO.desktop ? "Blyatt " + (APPINFO.version === "dev" ? "dev" : "v" + APPINFO.version) : "";
+  // reproduccion: solo con el motor Web Audio (en iPhone suena por <audio>)
+  $("setPlay").hidden = IOS_WEB;
+  $("setXf").value = PLAY.xf; setFill($("setXf"), PLAY.xf / 12 * 100);
+  $("setXfV").textContent = PLAY.xf ? PLAY.xf + " s" : t("Desactivado");
+  _setChk("setNorm", PLAY.norm);
+  $("setDevName").value = CX.name;
+  _setChk("setAutoX", localStorage.getItem("lightning.autoxfer") === "1");
+  const D = APPINFO.desktop, st = APPINFO.settings || {};
+  $("setDesk").hidden = !D;
+  _setChk("setAuto", APPINFO.autostart); _setChk("setMin", st.start_min); _setChk("setTray", st.tray);
+  _setChk("setKeys", st.hotkeys); _setChk("setUpd", st.auto_update !== false);
+  $("setMin").disabled = !APPINFO.autostart;   // solo aplica cuando la abre Windows
+  // almacenamiento: en escritorio la cache del server (disco de la PC); en movil, la del dispositivo
+  $("setStore").hidden = !D && !AUDIO_CACHE;
+  $("setCacheCap").hidden = !D;
+  if (D && APPINFO.cache) {
+    $("setCacheT").textContent = t("Caché de canciones");
+    $("setCacheU").textContent = _mb(APPINFO.cache.mb) + " " + t("de") + " " + _mb(APPINFO.cache.cap);
+    $("setCacheCap").value = String(APPINFO.cache.cap);
+  } else if (AUDIO_CACHE) {
+    $("setCacheT").textContent = t("Canciones guardadas en este dispositivo");
+    $("setCacheU").textContent = _devCache == null ? "…" : _devCache + " " + t(_devCache === 1 ? "canción" : "canciones");
+  }
+  $("setVer").textContent = D ? "Blyatt " + (APPINFO.version === "dev" ? "dev" : "v" + APPINFO.version) : "";
 }
 async function openSettings() {
   if (APPINFO.desktop) { try { Object.assign(APPINFO, await jget("/app/info")); } catch (e) {} }
   paintSettings(); $("setmodal").hidden = false;
+  if (!APPINFO.desktop && AUDIO_CACHE) {
+    try { _devCache = (await (await caches.open(AUDIO_CACHE)).keys()).length; } catch (e) { _devCache = 0; }
+    paintSettings();
+  }
+}
+// ajustes de escritorio: los guarda el server (main.py los aplica: bandeja, atajos, arranque)
+async function setDesk(body, okMsg) {
+  try {
+    const r = await apost("/app/settings", body);
+    if (r.error) throw new Error(r.error);
+    if ("autostart" in r) APPINFO.autostart = !!r.autostart;
+    if (r.settings) APPINFO.settings = r.settings;
+    if (r.cache) APPINFO.cache = r.cache;
+    if (okMsg) toast(t(okMsg));
+  } catch (err) { toast(t("No se pudo cambiar el ajuste")); }
+  paintSettings();
 }
 $("setLang").onclick = (e) => { const b = e.target.closest("button[data-l]"); if (b) { setLang(b.dataset.l); paintSettings(); } };
+$("setXf").oninput = () => { const v = +$("setXf").value; setFill($("setXf"), v / 12 * 100); $("setXfV").textContent = v ? v + " s" : t("Desactivado"); };
+$("setXf").onchange = () => setXfade($("setXf").value);
+$("setNorm").onchange = () => setNorm($("setNorm").checked);
+$("setDevName").onchange = () => {
+  const v = $("setDevName").value.trim().slice(0, 40); if (!v) { $("setDevName").value = CX.name; return; }
+  CX.name = v; try { localStorage.setItem("lightning.devname", v); } catch (e) {}
+  cxPost("/connect/hello");   // el hub guarda el nombre nuevo (y avisa al resto)
+  toast(t("Nombre guardado"));
+};
+$("setAutoX").onchange = () => { try { localStorage.setItem("lightning.autoxfer", $("setAutoX").checked ? "1" : ""); } catch (e) {} };
 $("setAuto").onchange = async () => {
   const el = $("setAuto"), want = el.checked; el.disabled = true;
-  try {
-    const r = await apost("/app/settings", { autostart: want });
-    if (r.error) throw new Error(r.error);
-    APPINFO.autostart = !!r.autostart;
-    toast(t(r.autostart ? "Blyatt se abrirá al iniciar Windows" : "Blyatt ya no se abrirá al iniciar Windows"));
-  } catch (err) { toast(t("No se pudo cambiar el ajuste")); }
+  await setDesk({ autostart: want }, want ? "Blyatt se abrirá al iniciar Windows" : "Blyatt ya no se abrirá al iniciar Windows");
   el.disabled = false; paintSettings();
+};
+$("setMin").onchange = () => setDesk({ start_min: $("setMin").checked });
+$("setTray").onchange = () => setDesk({ tray: $("setTray").checked });
+$("setKeys").onchange = () => setDesk({ hotkeys: $("setKeys").checked }, $("setKeys").checked ? "Atajos activados: Ctrl+Alt+P, →, ←, ↑, ↓" : "");
+$("setUpd").onchange = () => setDesk({ auto_update: $("setUpd").checked });
+$("setCacheCap").onchange = () => setDesk({ cache_mb: +$("setCacheCap").value });
+$("setCacheClr").onclick = async () => {
+  const b = $("setCacheClr"); b.disabled = true;
+  if (APPINFO.desktop) await setDesk({ clear_cache: true }, "Caché vaciada");
+  else if (AUDIO_CACHE) {
+    try { await caches.delete(AUDIO_CACHE); localStorage.removeItem("lightning.audioLRU"); _devCache = 0; toast(t("Caché vaciada")); }
+    catch (e) { toast(t("No se pudo cambiar el ajuste")); }
+    paintSettings();
+  }
+  b.disabled = false;
+};
+// bandeja del sistema y atajos de teclado globales (app de escritorio): ordenes que llegan de main.py
+window.blyattCmd = (c) => {
+  if (c === "play") { if (current) togglePlay(); }
+  else if (c === "next") playNext(false);
+  else if (c === "prev") playPrev();
+  else if (c === "vol+" || c === "vol-") {
+    const nv = Math.min(100, Math.max(0, +vol.value + (c === "vol+" ? 10 : -10)));
+    vol.value = nv; audio.volume = nv / 100; setFill(vol, nv); updateMute();
+  }
 };
 $("setclose").onclick = () => { $("setmodal").hidden = true; };
 $("setmodal").onclick = (e) => { if (e.target === $("setmodal")) $("setmodal").hidden = true; };
@@ -6161,6 +6390,11 @@ function cxApply(r) {
   (r.cmds || []).forEach(c => { if (c.type === "take") took = true; try { cxExec(c); } catch (e) {} });
   const act = r.active && r.active !== CX.dev ? (r.devices || []).find(d => d.id === r.active && d.online) : null;
   CX.remote = !!act; CX.activeName = act ? act.name : "";
+  if (!CX.autoDone) {   // "Pasar la musica aqui al abrir Blyatt": una vez, con el primer estado del hub
+    CX.autoDone = true;
+    let on = false; try { on = localStorage.getItem("lightning.autoxfer") === "1"; } catch (e) {}
+    if (on && act && r.state && r.state.playing) setTimeout(() => cxTransfer({ id: CX.dev, name: CX.name }), 300);
+  }
   if (CX.remote) {
     if (!was && !CX.leaving && !audio.paused) { CX.remote = false; audio.pause(); CX.remote = true; }   // por si acaso: nunca dos sonando
     const nw = performance.now();   // latencia: al entrar en modo remoto y cada minuto (la red cambia)

@@ -152,7 +152,7 @@ def on_exit():
             pass
 
 
-def start(version, data_dir):
+def start(version, data_dir, enabled=lambda: True):   # enabled: ajuste "buscar actualizaciones automaticamente"
     global _dir
     _state["version"] = version
     _dir = os.path.join(data_dir, "updates")
@@ -166,6 +166,7 @@ def start(version, data_dir):
     def loop():
         time.sleep(15)   # que el arranque (server, ventana, yt-dlp) no compita con la consulta
         while True:
-            check()
+            if enabled():
+                check()
             time.sleep(EVERY)
     threading.Thread(target=loop, daemon=True).start()

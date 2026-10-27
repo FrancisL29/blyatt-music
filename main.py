@@ -168,6 +168,12 @@ public class Frame : NativeWindow {
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr h, int id, uint mods, uint vk);
+  [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr h, int id);
+  public event Action<int> Hotkey;   // atajo global pulsado (id)
+  public bool Ending;                // Windows se apaga / cierra sesion: no quedarse en la bandeja
+  public bool AddHotkey(int id, uint mods, uint vk) { return RegisterHotKey(Handle, id, mods | 0x4000, vk); }   // NOREPEAT
+  public void RemoveHotkey(int id) { UnregisterHotKey(Handle, id); }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   bool away, fix; int w, ht;
   public Frame(IntPtr h) { AssignHandle(h); SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x37); }   // FRAMECHANGED
@@ -182,6 +188,8 @@ public class Frame : NativeWindow {
       r.T = top; Marshal.StructureToPtr(r, m.LParam, false);
       return;
     }
+    if (m.Msg == 0x312) { Action<int> k = Hotkey; if (k != null) k((int)m.WParam); return; }   // WM_HOTKEY
+    if (m.Msg == 0x11) Ending = true;   // WM_QUERYENDSESSION
     if (m.Msg == 0x5) {   // WM_SIZE: WinForms, al restaurar (de maximizada o minimizada), vuelve a sumar el alto
       int k = (int)m.WParam;  // del titulo que ya no existe: se reaplica el ultimo tamano normal
       if (k == 1 || k == 2) away = true;
@@ -244,8 +252,16 @@ def _nonclient_regions():
             if main:
                 _HWND[0] = main_win.native.Handle.ToInt64()
                 _HWND[1] = _strip_caption(main_win.native)
+                if _HWND[1]:
+                    _frame[0].Hotkey += lambda i: _js(_HOTKEYS[i][1]) if i in _HOTKEYS else None
         except Exception as e:
             print("regiones de arrastre de WebView2 no disponibles:", e)
+        if main:
+            try:
+                _make_tray()
+                _apply_settings(app.settings())
+            except Exception as e:
+                print("bandeja / atajos no disponibles:", e)
         ready(self, sender, args)
     edgechromium.EdgeChrome.on_webview_ready = on_ready
 
@@ -270,11 +286,11 @@ def win_cmd(cmd):
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
-def _launch_cmd():
+def _launch_cmd():   # --autostart: "Iniciar minimizado" solo aplica cuando la abre Windows
     if app.FROZEN:
-        return '"%s"' % sys.executable
+        return '"%s" --autostart' % sys.executable
     pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")   # desarrollo: sin consola
-    return '"%s" "%s"' % (pyw if os.path.isfile(pyw) else sys.executable, os.path.abspath(__file__))
+    return '"%s" "%s" --autostart' % (pyw if os.path.isfile(pyw) else sys.executable, os.path.abspath(__file__))
 
 
 def autostart(on=None):
@@ -290,6 +306,88 @@ def autostart(on=None):
             return bool(winreg.QueryValueEx(k, "Blyatt")[0])
         except FileNotFoundError:
             return False
+
+
+# ---------- bandeja del sistema y atajos de teclado globales ----------
+_QUIT = threading.Event()   # "Salir" de verdad (con la bandeja activa, cerrar la ventana solo la oculta)
+_tray = []
+# Ctrl+Alt (MOD_ALT 1 | MOD_CONTROL 2) + P / Derecha / Izquierda / Arriba / Abajo
+_HOTKEYS = {1: (0x50, "play"), 2: (0x27, "next"), 3: (0x25, "prev"), 4: (0x26, "vol+"), 5: (0x28, "vol-")}
+
+
+def _js(cmd):
+    # a la pagina desde otro hilo: el de WinForms no puede esperar a WebView2 (que necesita ese mismo hilo)
+    threading.Thread(target=lambda: main_win.run_js("window.blyattCmd && blyattCmd(%s)" % json.dumps(cmd)),
+                     daemon=True).start()
+
+
+def _show():
+    def go():
+        main_win.show()
+        if _u32.IsIconic(_HWND[0]):
+            main_win.restore()
+        _u32.SetForegroundWindow(_HWND[0])
+    threading.Thread(target=go, daemon=True).start()
+
+
+def _quit():
+    _QUIT.set()
+    threading.Thread(target=main_win.destroy, daemon=True).start()
+
+
+def _make_tray():   # hilo de WinForms
+    import clr
+    clr.AddReference("System.Windows.Forms")
+    clr.AddReference("System.Drawing")
+    from System.Drawing import Icon
+    from System.Windows.Forms import ContextMenuStrip, MouseButtons, NotifyIcon, ToolStripSeparator
+    ni = NotifyIcon()
+    ni.Icon = Icon(os.path.join(app.BASE, "assets", "blyatt.ico"))
+    ni.Text = "Blyatt"
+    menu = ContextMenuStrip()
+    for label, fn in (("Abrir Blyatt", _show), ("Reproducir / pausar", lambda: _js("play")),
+                      ("Siguiente", lambda: _js("next")), ("Anterior", lambda: _js("prev")), (None, None),
+                      ("Salir", _quit)):
+        if not label:
+            menu.Items.Add(ToolStripSeparator())
+            continue
+        menu.Items.Add(label).Click += (lambda f: lambda s, e: f())(fn)
+    ni.ContextMenuStrip = menu
+    ni.MouseClick += lambda s, e: _show() if e.Button == MouseButtons.Left else None
+    _tray.append(ni)
+
+
+def _apply_settings(st):   # hilo de WinForms: lo que cambia en caliente (bandeja y atajos)
+    if _tray:
+        _tray[0].Visible = bool(st["tray"])
+    if _frame:
+        f = _frame[0]
+        for i, (vk, _) in _HOTKEYS.items():
+            f.RemoveHotkey(i)
+            if st["hotkeys"] and not f.AddHotkey(i, 3, vk):
+                print("atajo ocupado por otra app:", i)
+
+
+def _settings_hook(st):   # desde el hilo HTTP
+    from System import Action
+    try:
+        main_win.native.BeginInvoke(Action(lambda: _apply_settings(st)))
+    except Exception:
+        pass
+
+
+def _on_closing():   # hilo de WinForms; devolver False cancela el cierre
+    ending = bool(_frame and _frame[0].Ending)
+    if app.settings()["tray"] and not _QUIT.is_set() and not ending:
+        threading.Thread(target=main_win.hide, daemon=True).start()   # sigue sonando en la bandeja
+        if _tray and not _tray[1:]:   # la primera vez, se avisa donde quedo
+            from System.Windows.Forms import ToolTipIcon
+            _tray[0].ShowBalloonTip(4000, "Blyatt sigue aquí", "La música sigue sonando. Clic derecho en el icono → Salir para cerrarlo.", ToolTipIcon.Info)
+            _tray.append(True)
+        return False
+    _APP_CLOSING.set()
+    if _tray:
+        _tray[0].Visible = False   # sin icono fantasma en la bandeja
 
 
 def _frozen_setup():
@@ -312,11 +410,12 @@ def _frozen_setup():
         _init(self, *a, **k)
     subprocess.Popen.__init__ = _no_window
     import updater
-    updater.start(app.VERSION, app.DATA)
+    updater.start(app.VERSION, app.DATA, lambda: app.settings()["auto_update"])
     app.UPDATER = updater
 
     def restart():
         if updater.apply(relaunch=True):   # el instalador espera al mutex y reabre Blyatt al terminar
+            _QUIT.set()   # cerrar de verdad aunque este la bandeja activa
             _APP_CLOSING.set()
             try:
                 main_win.destroy()
@@ -340,6 +439,7 @@ if __name__ == "__main__":
     app.SPOTLOGIN = spotify_login
     app.WINCTL = win_cmd
     app.AUTOSTART = autostart
+    app.SETTINGS_HOOK = _settings_hook
     _nonclient_regions()
     try:
         httpd = serve(PORT)
@@ -347,11 +447,14 @@ if __name__ == "__main__":
         _msgbox("No se pudo abrir el puerto %d: ¿hay otra copia de Blyatt abierta?" % PORT)
         os._exit(1)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    main_win = webview.create_window("Blyatt", f"http://127.0.0.1:{PORT}",
-                                     width=1200, height=800, min_size=(900, 600))
+    # abierta por Windows con "Iniciar minimizado": en la bandeja si esta activa, si no minimizada
+    st = app.settings()
+    quiet = "--autostart" in sys.argv and st["start_min"]
+    main_win = webview.create_window("Blyatt", f"http://127.0.0.1:{PORT}", width=1200, height=800, min_size=(900, 600),
+                                     hidden=quiet and st["tray"], minimized=quiet and not st["tray"])
     # al cerrar la ventana principal, avisa a los polls de login para que cierren sus ventanas
     # (si no, una ventana de login abierta mantiene webview.start() vivo = proceso zombie)
-    main_win.events.closing += lambda: _APP_CLOSING.set()
+    main_win.events.closing += _on_closing
     webview.start(private_mode=False, storage_path=os.path.join(app.DATA, "auth", "webview"),
                   icon=os.path.join(app.BASE, "assets", "blyatt.ico"))   # ventana y barra de tareas
     _APP_CLOSING.set()

@@ -31,3 +31,7 @@ _build_version.py
 models/
 karaoke/
 karaoke_tls/
+
+# ajustes de la app de escritorio (en desarrollo DATA es el repo)
+settings.json
+settings.json.tmp

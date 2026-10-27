@@ -2017,7 +2017,16 @@ const AC = new (window.AudioContext || window.webkitAudioContext)();
 const gainNode = AC.createGain();
 // "ducking" (como Spotify o la radio): nodo propio tras el volumen del usuario. Cuando otra app habla un momento
 // (audio de WhatsApp, navegacion...) la musica baja suave y al terminar vuelve; el volumen elegido no se toca
-const duckNode = AC.createGain(); gainNode.connect(duckNode); duckNode.connect(AC.destination);
+const duckNode = AC.createGain(); duckNode.connect(AC.destination);
+// fundido al pasar la musica entre dispositivos (Blyatt Connect): nodo propio, no toca volumen ni ducking
+const xfNode = AC.createGain(); gainNode.connect(xfNode); xfNode.connect(duckNode);
+const XF_SECS = 3;
+function xfRamp(up) {   // igual potencia (seno/coseno): entre los dos dispositivos el volumen no se hunde
+  const t0 = AC.currentTime, g = xfNode.gain, c = new Float32Array(64);
+  for (let i = 0; i < 64; i++) { const x = i / 63 * Math.PI / 2; c[i] = up ? Math.sin(x) : Math.cos(x); }
+  g.cancelScheduledValues(0); g.setValueCurveAtTime(c, t0, XF_SECS);   // (0: tambien una curva a medias)
+}
+function xfSet(v) { const g = xfNode.gain; g.cancelScheduledValues(0); g.setValueAtTime(v, AC.currentTime); }
 /* MODO KARAOKE (tiempo real, coste ~0): la voz principal va centrada en la mezcla (igual en L y R). Se queda
    la parte lateral (L-R: instrumentos abiertos en estereo) y, del centro, solo graves (<130 Hz: bajo, bombo) y
    agudos (>8 kHz: platos, aire); la banda de la voz del centro desaparece. Las fuentes entran a srcBus y un
@@ -2132,6 +2141,14 @@ function prewarm(songs) {
   if (!ids.length) return;
   ids.forEach(id => _prewarmed.add(id));
   fetch("/prewarm?ids=" + ids.join(",")).catch(() => {});
+}
+// deja una cancion lista para sonar al instante (transferencias): decodificada en el motor Web Audio;
+// en iPhone (motor <audio>) sus bytes quedan en la cache del dispositivo, de donde los toma al empezar
+function warmAudio(id) {
+  if (!IOS_WEB) return getBuffer(id);
+  if (!AUDIO_CACHE) return Promise.resolve();
+  return caches.open(AUDIO_CACHE).then(c => c.match("/stream?id=" + id))
+    .then(hit => hit || fetchStream(id).then(ab => _acPut(id, ab)));
 }
 function getBuffer(id) {
   if (bufCache.has(id)) return bufCache.get(id);
@@ -2297,7 +2314,8 @@ if (IOS_WEB) (() => {
    (posicion extrapolada, duracion, pausa) y sus play/pause/seek se convierten en ordenes para el: la UI
    existente (barra, vista completa, iconos, pantalla de bloqueo, notificacion) funciona sin cambios. */
 const CX = { dev: "", name: "", type: "web", hub: null, ver: -1, rxAt: 0, remote: false, activeName: "",
-             enabled: false, needAccess: false, running: false, loginAt: 0, askedAccess: false };
+             enabled: false, needAccess: false, running: false, loginAt: 0, askedAccess: false,
+             leaving: false, xfTok: 0 };   // leaving: entrego la musica y sigo sonando hasta el fundido
 (() => {
   let id = ""; try { id = localStorage.getItem("lightning.devid") || ""; } catch (e) {}
   if (!/^[\w-]{6,40}$/.test(id)) {
@@ -2312,7 +2330,7 @@ const CX = { dev: "", name: "", type: "web", hub: null, ver: -1, rxAt: 0, remote
   let nm = ""; try { nm = localStorage.getItem("lightning.devname") || ""; } catch (e) {}
   CX.name = nm || def;
 })();
-let _cxSeek = null, _cxAutoplay = true, _cxPushT = null;
+let _cxSeek = null, _cxSeekAt = 0, _cxFade = false, _cxAutoplay = true, _cxPushT = null;
 const cxSt = () => (CX.hub && CX.hub.state) || {};
 // la posicion que llega ya es vieja: lo que tardo en subir desde el que suena + en bajar hasta aqui (~ida y
 // vuelta medida). Sin compensarlo la letra en el otro dispositivo iba 0.1-0.4 s por detras
@@ -2332,6 +2350,7 @@ function cxPos() {
   const base = {};
   ["currentTime", "duration", "paused"].forEach(k => base[k] = Object.getOwnPropertyDescriptor(audio, k));
   const bplay = audio.play, bpause = audio.pause;
+  audio._lpause = () => bpause.call(audio);   // pausa el motor local aunque estemos en modo remoto
   Object.defineProperties(audio, {
     currentTime: { configurable: true,
       get() { return CX.remote ? cxPos() : base.currentTime.get.call(audio); },
@@ -2343,7 +2362,7 @@ function cxPos() {
   });
 })();
 function cxPost(path, body) {
-  return fetch(path, { method: "POST", body: JSON.stringify(Object.assign({ dev: CX.dev, name: CX.name, type: CX.type }, body || {})) })
+  return fetch(path, { method: "POST", body: JSON.stringify(Object.assign({ dev: CX.dev, name: CX.name, type: CX.type, xf: 1 }, body || {})) })
     .then(r => r.json()).catch(() => ({}));
 }
 // orden al dispositivo activo + actualizacion optimista local (la UI responde al instante)
@@ -4501,6 +4520,7 @@ async function _engStart(s, tok) {
     seek.classList.remove("loading");
     onPlaybackStarted(s);
   } catch (err) {
+    if (_cxFade) { _cxFade = false; xfSet(1); }   // la transferencia fallo: que no quede en silencio
     if (tok !== playToken) return;
     seek.classList.remove("loading");
     toast(t("No se pudo reproducir:") + " " + (err.message || err));
@@ -4509,9 +4529,11 @@ async function _engStart(s, tok) {
 function onPlaybackStarted(s) {
   sleepCheck();
   if (_cxSeek != null) {   // llego por transferencia: continua donde iba en el otro dispositivo
-    const p = _cxSeek, go = _cxAutoplay; _cxSeek = null;
+    const go = _cxAutoplay;   // con fundido el otro sigue sonando: se suma lo que paso desde que llego
+    const p = _cxSeek + (_cxFade && go ? (performance.now() - _cxSeekAt) / 1000 : 0); _cxSeek = null;
     if (p > 1) audio.currentTime = p;
     if (!go) audio.pause();
+    if (_cxFade) { _cxFade = false; go ? xfRamp(true) : xfSet(1); }
   }
   cxPush(!audio.paused);
   paintPlayer(s);
@@ -5884,34 +5906,74 @@ function cxState() {
            queue: queue.slice(st, qIndex + 300).map(cxPick), qi: Math.max(0, qIndex - st), shuffle, repeat };
 }
 function cxPush(claim) {   // el que suena publica su estado (claim: acaba de empezar a sonar aqui)
-  if (!CX.enabled || CX.remote || !current) return;
+  if (!CX.enabled || CX.remote || CX.leaving || !current) return;
   clearTimeout(_cxPushT);
   _cxPushT = setTimeout(() => cxPost("/connect/state", { claim: !!claim, state: cxState() }), claim ? 0 : 300);
 }
 // cada 10 s mientras suena: posicion al dia y "suena aqui" (si el server se reinicio, recupera al activo)
 setInterval(() => { if (CX.enabled && !CX.remote && current && !audio.paused) cxPush(true); }, 10000);
-function cxTake(st) {   // este dispositivo pasa a sonar con el estado exacto del anterior
-  CX.remote = false;
+function cxTake(st, fade) {   // este dispositivo pasa a sonar con el estado exacto del anterior
+  CX.remote = false; CX.leaving = false; CX.xfTok++;
   if (!st || !st.track) { syncCxUI(); return; }
   const q = st.queue && st.queue.length ? cxUnpick(st.queue) : [st.track];
   queue = q.slice(); qIndex = Math.min(st.qi || 0, queue.length - 1); queueOrig = null;
   if (!queue[qIndex] || queue[qIndex].id !== st.track.id) { queue = [st.track]; qIndex = 0; }
   shuffle = !!st.shuffle; syncShuffleUI(); setRepeat(st.repeat || "off");
-  _cxSeek = st.pos || 0; _cxAutoplay = st.playing !== false;
+  _cxAutoplay = st.playing !== false; _cxSeekAt = performance.now();
+  // fundido: la cancion ya esta cargada (prep); entra en silencio y sube mientras el otro baja
+  _cxFade = !!fade && !IOS_WEB; if (_cxFade) xfSet(0);
+  _cxSeek = (st.pos || 0) + (_cxFade ? (CX.lat || .15) / 2 : 0);   // + lo que tardo en bajar del hub
   playSong(queue[qIndex], true);
   toast(t("Reproduciendo en este dispositivo"));
   // iOS solo deja sonar tras un toque: si no lo hubo, la barra ya muestra la cancion y el play la arranca
 }
+// transferencia preparada, en el destino: primero se carga la cancion (y la siguiente) y luego se avisa al hub;
+// mientras tanto la musica sigue sonando en el otro dispositivo
+async function cxPrep(st) {
+  let ok = false;
+  try {
+    const tr = st && st.track, nx = tr && (st.queue || [])[(st.qi || 0) + 1];
+    if (tr) {
+      if (nx && nx.id !== tr.id) warmAudio(nx.id).catch(() => {});
+      await warmAudio(tr.id); ok = true;
+    }
+  } catch (e) {}
+  cxPost("/connect/ready", { ok });
+}
+function cxLeave() {   // entregue la musica con fundido: sigo sonando hasta que el destino arranque
+  const tok = ++CX.xfTok; CX.leaving = true;
+  setTimeout(() => { if (CX.xfTok === tok) cxFadeOut(); }, 12000);   // por si el destino nunca arranca
+}
+function cxFadeOut() {
+  if (!CX.leaving) return;
+  const tok = ++CX.xfTok;
+  xfRamp(false);
+  setTimeout(() => {
+    if (CX.xfTok !== tok) return;   // entretanto la musica volvio a este dispositivo
+    CX.leaving = false; audio._lpause(); xfSet(1);
+    if (eng.onState) eng.onState();
+  }, XF_SECS * 1000 + 100);
+}
 function cxExec(c) {
   switch (c.type) {
-    case "release": if (!audio.paused) audio.pause(); break;   // otro dispositivo empezo a sonar
+    case "release":   // otro dispositivo empezo a sonar
+      if (CX.leaving) cxFadeOut(); else if (!audio.paused) audio.pause();
+      break;
     case "handoff": {   // transferencia desde aqui: estado exacto (sonando o no) y luego se calla
       const stt = cxState();
-      if (!audio.paused) audio.pause();
-      cxPost("/connect/handoff", { to: c.to, state: stt });
+      if (c.fade && !IOS_WEB && eng.playing) {   // el destino ya cargo: seguir sonando y fundirse cuando arranque
+        stt.pos += (CX.lat || .15) / 2;   // lo que tarda en llegar al hub
+        cxLeave();
+        cxPost("/connect/handoff", { to: c.to, state: stt, fade: true });
+      } else {
+        if (!audio.paused) audio.pause();
+        cxPost("/connect/handoff", { to: c.to, state: stt });
+      }
       break;
     }
-    case "take": cxTake(c.state); break;
+    case "prep": cxPrep(c.state); break;
+    case "fadeout": cxFadeOut(); break;
+    case "take": cxTake(c.state, c.fade); break;
     case "play": if (audio.paused) togglePlay(); break;
     case "pause": if (!audio.paused) togglePlay(); break;
     case "next": playNext(false); break;
@@ -5936,8 +5998,20 @@ function cxExec(c) {
     case "repeat": setRepeat(c.mode); break;
   }
 }
+// modo remoto: la actual y la siguiente quedan cargadas aqui, como si sonaran en este dispositivo; si el
+// usuario pasa la musica a este, el cambio es inmediato (sin esperar la descarga)
+let _cxWarmKey = "", _cxWarmT = null;
+function cxWarm(st) {
+  if (navigator.connection && navigator.connection.saveData) return;   // ahorro de datos: no se adelanta nada
+  const nx = (st.queue || [])[(st.qi || 0) + 1], ids = nx && nx.id !== st.track.id ? [st.track.id, nx.id] : [st.track.id];
+  if (ids.join() === _cxWarmKey) return;
+  _cxWarmKey = ids.join(); clearTimeout(_cxWarmT);
+  // con una pausa por si el otro va saltando canciones; primero la actual, luego la siguiente
+  _cxWarmT = setTimeout(() => ids.reduce((p, id) => p.then(() => warmAudio(id).catch(() => {})), Promise.resolve()), 1500);
+}
 function cxMirror(st) {   // modo remoto: la UI refleja lo que suena en el otro dispositivo
   if (!st || !st.track) return;
+  cxWarm(st);
   if (!current || current.id !== st.track.id) {
     paintNowPlaying(st.track); if (npOpen) paintNp(st.track);
     if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }   // la letra sigue a la cancion remota
@@ -5959,7 +6033,7 @@ function cxApply(r) {
   const act = r.active && r.active !== CX.dev ? (r.devices || []).find(d => d.id === r.active && d.online) : null;
   CX.remote = !!act; CX.activeName = act ? act.name : "";
   if (CX.remote) {
-    if (!was && !audio.paused) { CX.remote = false; audio.pause(); CX.remote = true; }   // por si acaso: nunca dos sonando
+    if (!was && !CX.leaving && !audio.paused) { CX.remote = false; audio.pause(); CX.remote = true; }   // por si acaso: nunca dos sonando
     const nw = performance.now();   // latencia: al entrar en modo remoto y cada minuto (la red cambia)
     if (!was || !CX.latAt || nw - CX.latAt > 60000) { CX.latAt = nw; for (let k = 0; k < 3; k++) setTimeout(cxMeasureLat, k * 400); }
     cxMirror(r.state);
@@ -5979,7 +6053,7 @@ async function cxStart() {
     if (!_authSt.logged_in) { CX.enabled = false; CX.remote = false; syncCxUI(); await wait(5000); continue; }
     CX.enabled = true;
     try {
-      const q = `dev=${CX.dev}&ver=${CX.ver}&name=${encodeURIComponent(CX.name)}&type=${CX.type}`;
+      const q = `dev=${CX.dev}&ver=${CX.ver}&name=${encodeURIComponent(CX.name)}&type=${CX.type}&xf=1`;
       const r = await (await fetch("/connect/poll?" + q, { cache: "no-store" })).json();
       if (r.error) {
         CX.needAccess = r.error === "need_access";

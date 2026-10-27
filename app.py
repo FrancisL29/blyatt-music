@@ -2275,6 +2275,7 @@ UPDATE_RESTART = None  # main.py: instala la version descargada y reinicia la ap
 _CX = {}
 _cx_cond = threading.Condition()
 _CX_ONLINE = 40   # s sin sondear = desconectado
+_CX_PREP = 25     # s maximos que se espera a que el destino de una transferencia cargue la cancion
 _CX_CMDS = {"play", "pause", "next", "prev", "seek", "load", "queue", "shuffle", "repeat"}
 
 
@@ -2318,8 +2319,25 @@ def _cx_expire(h, now):
             h["state"] = st
         h["active"] = None
         changed = True
+    x = h.get("xfer")
+    if x and now - x["at"] > _CX_PREP:   # el destino no termino de cargar: se entrega igual (sin fundido)
+        _cx_xfer_go(h, now, False)
     if changed:
         _cx_bump(h)
+
+
+def _cx_xfer_go(h, now, fade):
+    """Transferencia preparada: el destino ya cargo la cancion, el activo le entrega su estado exacto."""
+    x = h.pop("xfer", None)
+    cur = h["active"]
+    if not x or (cur and cur != x["from"]):   # mientras tanto empezo a sonar otro dispositivo
+        return
+    if cur and cur in _cx_online(h, now):
+        _cx_cmd(h, cur, {"type": "handoff", "to": x["to"], "fade": fade})
+    else:
+        h["active"] = x["to"]
+        _cx_cmd(h, x["to"], {"type": "take", "state": _cx_extrap(h["state"], now)})
+    _cx_bump(h)
 
 
 def _cx_extrap(st, now):
@@ -2367,12 +2385,16 @@ def _cx_snap(h, dev, now, take_cmds=False):
     on = _cx_online(h, now)
     st = h["state"]
     snap_st = dict(st, age=round(now - st["ts"], 3)) if st else None
+    cmds = h["cmds"].pop(dev, []) if take_cmds else []
+    for c in cmds:
+        if c["type"] == "take" and c.get("fade"):   # el anterior sigue sonando: la posicion de ahora mismo
+            c["state"] = _cx_extrap(c["state"], now)
     return {"ver": h["ver"], "me": dev, "active": h["active"], "state": snap_st,
             "devices": [{"id": d, "name": v["name"], "type": v["type"], "online": d in on}
                         for d, v in sorted(h["devices"].items(), key=lambda kv: -kv[1]["seen"])],
             # solo el sondeo entrega las ordenes: si las devolviera cualquier respuesta (p.ej. la del
             # /connect/transfer del propio activo) se perderian y el "handoff" nunca llegaria
-            "cmds": h["cmds"].pop(dev, []) if take_cmds else []}
+            "cmds": cmds}
 
 
 def connect_api(path, qs, d):
@@ -2402,7 +2424,8 @@ def connect_api(path, qs, d):
         name = str(d.get("name") or g("name") or "Dispositivo")[:40]
         typ = str(d.get("type") or g("type") or "web")[:12]
         old = h["devices"].get(dev)
-        h["devices"][dev] = {"name": name, "type": typ, "seen": now}
+        # xf: el cliente sabe precargar y fundir en las transferencias (las versiones viejas no)
+        h["devices"][dev] = {"name": name, "type": typ, "seen": now, "xf": bool(d.get("xf") or g("xf"))}
         if not old or old["name"] != name:
             _cx_bump(h)
         if len(h["devices"]) > 20:   # tope: fuera los desconectados mas antiguos
@@ -2431,6 +2454,9 @@ def connect_api(path, qs, d):
                 if h["active"]:
                     _cx_cmd(h, h["active"], {"type": "release"})   # el anterior se calla
                 h["active"] = dev
+                h.pop("xfer", None)
+            if d.get("claim") and h.get("leaving") and h["leaving"] != dev:
+                _cx_cmd(h, h.pop("leaving"), {"type": "fadeout"})   # el nuevo ya suena: el anterior se funde
             h["state"] = _cx_clean(d.get("state"), dev, now)
             _cx_bump(h)
         elif path == "/connect/cmd":   # mando a distancia -> al activo
@@ -2455,7 +2481,14 @@ def connect_api(path, qs, d):
                 return {"error": "Dispositivo no encontrado"}
             cur = h["active"]
             if cur != to:
-                if cur and cur in _cx_online(h, now):
+                h.pop("xfer", None)
+                on = _cx_online(h, now)
+                if cur and cur in on and to in on and h["devices"][to].get("xf"):
+                    # primero el destino carga la cancion (la musica sigue sonando aqui); con su "listo"
+                    # (/connect/ready) el activo entrega el estado y los dos se funden
+                    h["xfer"] = {"to": to, "from": cur, "at": now}
+                    _cx_cmd(h, to, {"type": "prep", "state": _cx_extrap(h["state"], now)})
+                elif cur and cur in on:
                     _cx_cmd(h, cur, {"type": "handoff", "to": to})   # entrega su estado EXACTO (handoff)
                 else:
                     h["active"] = to
@@ -2464,10 +2497,16 @@ def connect_api(path, qs, d):
         elif path == "/connect/handoff":   # el activo se pausa y entrega su estado al destino
             to = str(d.get("to") or "")
             if h["active"] == dev and to in h["devices"]:
+                fade = bool(d.get("fade"))   # sigue sonando hasta que el destino arranque ("fadeout")
                 h["state"] = _cx_clean(d.get("state"), to, now)
                 h["active"] = to
-                _cx_cmd(h, to, {"type": "take", "state": dict(h["state"])})
+                h["leaving"] = dev if fade else None
+                _cx_cmd(h, to, {"type": "take", "state": dict(h["state"]), "fade": fade})
                 _cx_bump(h)
+        elif path == "/connect/ready":   # el destino ya cargo la cancion: ahora si se entrega
+            x = h.get("xfer")
+            if x and x["to"] == dev:
+                _cx_xfer_go(h, now, bool(d.get("ok")))
         return _cx_snap(h, dev, now)
 
 

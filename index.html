@@ -494,7 +494,8 @@
   .sw input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
   .sw input:disabled { cursor: progress; }
   .sver { margin-top: 16px; font-size: .74rem; color: var(--muted); text-align: center; }
-  #setmodal .gbox { max-height: 88vh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  #setmodal .gbox { max-height: 88vh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  #setmodal .gbox::-webkit-scrollbar { display: none; }
   #setmodal .srow input { margin-top: 0; }   /* sin el estilo de los campos de los otros modales (ancho 100 %) */
   #setmodal .srow .sinp { width: 160px; }
   #setmodal .srow input[type=range] { padding: 0; border-radius: 999px; }
@@ -2239,7 +2240,14 @@ const gainNode = AC.createGain();
 // (audio de WhatsApp, navegacion...) la musica baja suave y al terminar vuelve; el volumen elegido no se toca
 const duckNode = AC.createGain(); duckNode.connect(AC.destination);
 // fundido al pasar la musica entre dispositivos (Blyatt Connect): nodo propio, no toca volumen ni ducking
-const xfNode = AC.createGain(); gainNode.connect(xfNode); xfNode.connect(duckNode);
+const xfNode = AC.createGain(), pzNode = AC.createGain(); gainNode.connect(xfNode); xfNode.connect(pzNode); pzNode.connect(duckNode);
+// pausa / reanudar con un fundido corto (nodo propio): la musica baja en ~0.2 s en vez de cortarse en seco
+const PZ = .2;
+function pzTo(v, sec) {
+  const g = pzNode.gain, t = AC.currentTime;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+  if (v) g.linearRampToValueAtTime(v, t + sec); else g.setTargetAtTime(0, t, sec / 4);
+}
 const XF_SECS = 3;
 function xfRamp(up) {   // igual potencia (seno/coseno): entre los dos dispositivos el volumen no se hunde
   const t0 = AC.currentTime, g = xfNode.gain, c = new Float32Array(64);
@@ -2364,6 +2372,7 @@ function getBuffer(id) {
 const eng = {                 // estado del motor
   node: null, buf: null, dur: 0, start: 0, offset: 0, playing: false,
   gNode: null, gInfo: null, endTimer: null, onAdvance: null, onEnded: null, onState: null, fading: [],
+  vol: 1, pzT: null, pzEnd: 0,   // volumen elegido; pausa en curso (fundido de salida)
 };
 const _ng = (buf) => PLAY.norm && buf && buf._ng || 1;
 // cada pista lleva su propio volumen: n._n normalizacion y n._g fundido entre canciones (separados: cambiar uno
@@ -2383,11 +2392,13 @@ function _clearGapless() {
   eng.gNode = null; eng.gInfo = null;
 }
 function _stop() {
+  if (eng.pzT) { clearTimeout(eng.pzT); eng.pzT = null; }
   _clearGapless(); _kill(eng.node); eng.node = null;
   eng.fading.forEach(_kill); eng.fading = [];   // la que se estaba despidiendo en un fundido
   if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
 }
 function _startBuf(buf, offset) {
+  pzTo(1, .12);   // tras una pausa (o una pausa a medio bajar) entra con un fundido corto, sin chasquido
   const lead = buf._lead || 0, eff = buf._eff || buf.duration;
   const n = _src(buf);
   n.start(0, lead + offset);                 // arranca en el audio real (omite el silencio de priming)
@@ -2460,14 +2471,30 @@ const audio = {
   set currentTime(t) {
     t = Math.max(0, Math.min(t, eng.dur || 0));
     if (eng.playing && eng.buf) { _stop(); _startBuf(eng.buf, t); scheduleGaplessNext(); }
-    else eng.offset = t;
+    else { if (eng.pzT) _stop(); eng.offset = t; }   // movida durante el fundido de la pausa: reanuda en la nueva
   },
   get duration() { return eng.dur; },
   get paused() { return !eng.playing; },
-  get volume() { return gainNode.gain.value; },
-  set volume(v) { gainNode.gain.value = v; },
-  play() { if (AC.state === "suspended") AC.resume(); if (!eng.playing && eng.buf) { _startBuf(eng.buf, Math.min(eng.offset, eng.dur)); if (eng.onState) eng.onState(); scheduleGaplessNext(); } },
-  pause() { if (eng.playing) { eng.offset = AC.currentTime - eng.start; _stop(); eng.playing = false; if (eng.onState) eng.onState(); } },
+  get volume() { return eng.vol; },
+  // el volumen se desliza (~0.15 s): bajarlo a 0 o silenciar es un fundido, no un corte; sin "zipper" al arrastrar
+  set volume(v) { eng.vol = v; const g = gainNode.gain, t = AC.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.setTargetAtTime(v, t, .05); },
+  play() {
+    if (AC.state === "suspended") AC.resume();
+    if (eng.pzT && AC.currentTime < eng.pzEnd) {   // aun bajando: vuelve a subir sin reiniciar la pista
+      clearTimeout(eng.pzT); eng.pzT = null; eng.playing = true; pzTo(1, .12); _scheduleBoundary();
+      if (eng.onState) eng.onState(); return;
+    }
+    if (!eng.playing && eng.buf) { _stop(); _startBuf(eng.buf, Math.min(eng.offset, eng.dur)); if (eng.onState) eng.onState(); scheduleGaplessNext(); }
+  },
+  pause() {   // la UI pasa a pausa ya; el audio baja en PZ s y entonces se detiene (y reanuda desde ahi)
+    if (!eng.playing) return;
+    const t = AC.currentTime;
+    eng.offset = Math.min(eng.dur, t + PZ - eng.start); eng.playing = false; eng.pzEnd = t + PZ;
+    if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
+    pzTo(0, PZ);
+    clearTimeout(eng.pzT); eng.pzT = setTimeout(() => { eng.pzT = null; if (!eng.playing) _stop(); }, PZ * 1000 + 40);
+    if (eng.onState) eng.onState();
+  },
 };
 /* ====== iPhone/iPad: motor con un elemento <audio> ======
    iOS suspende Web Audio al bloquear la pantalla o salir de la app; un <audio> sigue sonando en segundo
@@ -3911,10 +3938,6 @@ function openUserMenu(btn) {
   const r = btn.getBoundingClientRect();
   showMenu([
     ["ph-gear", "Configuración", openSettings],
-    ["ph-translate", "Idioma", null, [
-      ["", "Español", () => setLang("es")],
-      ["", "Inglés", () => setLang("en")],
-    ]],
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
     ...(_upd && _upd.enabled ? [["ph-arrow-circle-up", _upd.ready ? "Instalar actualización" : "Buscar actualizaciones",
                                  _upd.ready ? updApply : updCheck]] : []),

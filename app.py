@@ -2272,6 +2272,8 @@ CONNECT_REMOTE = os.environ.get("BLYATT_CONNECT_REMOTE", "https://blyatt.stream"
 CONNECTLOGIN = None   # main.py: ventana para iniciar sesion en Cloudflare Access (escritorio)
 UPDATER = None        # main.py (app instalada): modulo updater (releases de GitHub)
 UPDATE_RESTART = None  # main.py: instala la version descargada y reinicia la app
+WINCTL = None          # main.py: botones de la barra de titulo propia (min / max / close) -> {"max": bool}
+AUTOSTART = None       # main.py: abrir al iniciar Windows; AUTOSTART() lee, AUTOSTART(True/False) cambia
 _CX = {}
 _cx_cond = threading.Condition()
 _CX_ONLINE = 40   # s sin sondear = desconectado
@@ -3990,6 +3992,14 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/update/status":
             return self._json(dict(UPDATER.status(), enabled=True) if UPDATER else {"enabled": False, "version": VERSION})
+        if u.path == "/app/info":   # la pagina se sabe dentro de la app de escritorio (barra propia, ajustes)
+            if not WINCTL:
+                return self._json({"desktop": False})
+            try:
+                auto = AUTOSTART() if AUTOSTART else None
+            except Exception:
+                auto = None
+            return self._json(dict(WINCTL("state"), desktop=True, autostart=auto, version=VERSION))
         if u.path.startswith("/connect/"):
             return self._connect(u, "GET")
         if u.path.startswith("/kara/"):
@@ -4331,6 +4341,24 @@ class H(BaseHTTPRequestHandler):
             return self._connect(u, "POST")
         if u.path.startswith("/kara/"):
             return self._kara(u, "POST")
+        if u.path.startswith("/win/") or u.path == "/app/settings":
+            # solo la propia app: una cabecera propia obliga a un preflight CORS que nadie aprueba (otra web
+            # abierta en el navegador no puede cerrar la ventana ni activar el inicio automatico)
+            if not WINCTL or self.headers.get("X-Blyatt") != "1":
+                return self._json({"error": "Solo en la app de escritorio"}, 403)
+            if u.path == "/app/settings":
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    d = json.loads(self.rfile.read(min(n, 4096)).decode("utf-8", "replace") or "{}")
+                except Exception:
+                    d = {}
+                try:
+                    if isinstance(d.get("autostart"), bool) and AUTOSTART:
+                        AUTOSTART(d["autostart"])
+                    return self._json({"autostart": AUTOSTART() if AUTOSTART else None})
+                except OSError as e:
+                    return self._json({"error": "No se pudo cambiar: %s" % e})
+            return self._json(WINCTL(u.path[5:]))
         if u.path == "/alexa":
             return self._alexa(u, "POST")
         if u.path == "/auth/alexa/code":   # desde la app (con Cloudflare Access): codigo para vincular Alexa

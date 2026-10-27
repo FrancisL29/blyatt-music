@@ -52,6 +52,10 @@ Source: "bin\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteaft
 Name: "{autoprograms}\Blyatt"; Filename: "{app}\Blyatt.exe"
 Name: "{autodesktop}\Blyatt"; Filename: "{app}\Blyatt.exe"; Tasks: desktopicon
 
+[Registry]
+; "Abrir al iniciar Windows" lo activa la app (Configuracion); al desinstalar se quita
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Blyatt"; Flags: uninsdeletevalue dontcreatekey
+
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando Microsoft Edge WebView2..."; Check: NeedsWebView2; Flags: waituntilterminated
 Filename: "{app}\Blyatt.exe"; Description: "{cm:LaunchProgram,Blyatt}"; Flags: nowait postinstall skipifsilent

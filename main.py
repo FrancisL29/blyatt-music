@@ -4,10 +4,13 @@ import ctypes
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
+import winreg
 
 import webview
+from webview.platforms import edgechromium
 
 import app
 from app import serve
@@ -148,6 +151,147 @@ def _msgbox(text):
         pass
 
 
+# ---------- barra de titulo propia ----------
+# Windows 10 no deja colorear la barra nativa: se quita (WM_NCCALCSIZE) y la pagina pinta la suya, transparente.
+# Los bordes invisibles de redimension, la sombra y el snap siguen siendo los de Windows; el arrastre lo
+# hace WebView2 con la CSS `app-region: drag` (doble clic maximiza, Aero Snap, menu del sistema).
+# El procedimiento de ventana es C# (NativeWindow): en Python cada mensaje de la ventana esperaria al GIL y
+# la ventana se congelaba mientras el servidor trabaja. Se compila una vez con el csc de .NET Framework.
+_u32 = ctypes.windll.user32
+_FRAME_CS = r"""
+using System; using System.Runtime.InteropServices; using System.Windows.Forms;
+namespace BlyattNative {
+public class Frame : NativeWindow {
+  [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr h);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern int GetSystemMetricsForDpi(int i, uint dpi);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  bool away, fix; int w, ht;
+  public Frame(IntPtr h) { AssignHandle(h); SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x37); }   // FRAMECHANGED
+  protected override void WndProc(ref Message m) {
+    if (m.Msg == 0x83 && m.WParam != IntPtr.Zero) {   // WM_NCCALCSIZE: bordes de Windows salvo arriba (sin titulo)
+      int top = ((RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT))).T;
+      base.WndProc(ref m);
+      RECT r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+      if (IsZoomed(m.HWnd)) {   // maximizada sobresale el grosor del borde: que no se corte arriba
+        uint d = GetDpiForWindow(m.HWnd); top += GetSystemMetricsForDpi(33, d) + GetSystemMetricsForDpi(92, d);
+      }
+      r.T = top; Marshal.StructureToPtr(r, m.LParam, false);
+      return;
+    }
+    if (m.Msg == 0x5) {   // WM_SIZE: WinForms, al restaurar (de maximizada o minimizada), vuelve a sumar el alto
+      int k = (int)m.WParam;  // del titulo que ya no existe: se reaplica el ultimo tamano normal
+      if (k == 1 || k == 2) away = true;
+      else if (k == 0 && away) { away = false; fix = true; PostMessage(m.HWnd, 0x8007, IntPtr.Zero, IntPtr.Zero); }
+      else if (k == 0 && !fix) { RECT r; GetWindowRect(m.HWnd, out r); w = r.R - r.L; ht = r.B - r.T; }
+    } else if (m.Msg == 0x8007) {   // se reaplica el ultimo tamano normal (la posicion la decide Windows)
+      if (w > 0) SetWindowPos(m.HWnd, IntPtr.Zero, 0, 0, w, ht, 0x16);
+      fix = false; return;
+    }
+    base.WndProc(ref m);
+  }
+}}
+"""
+_frame = []   # la NativeWindow debe vivir mientras exista la ventana
+
+
+def _frame_type():
+    import hashlib
+    import clr
+    dll = os.path.join(app.DATA, "cache", "blyatt_frame_%s.dll" % hashlib.sha1(_FRAME_CS.encode()).hexdigest()[:10])
+    if not os.path.isfile(dll):
+        from Microsoft.CSharp import CSharpCodeProvider
+        from System.CodeDom.Compiler import CompilerParameters
+        os.makedirs(os.path.dirname(dll), exist_ok=True)
+        cp = CompilerParameters(["System.dll", "System.Windows.Forms.dll"], dll)
+        cp.GenerateInMemory = False
+        res = CSharpCodeProvider().CompileAssemblyFromSource(cp, _FRAME_CS)
+        if res.Errors.HasErrors:
+            raise RuntimeError("; ".join(str(e) for e in res.Errors))
+        for f in os.listdir(os.path.dirname(dll)):   # versiones anteriores
+            if f.startswith("blyatt_frame_") and f != os.path.basename(dll):
+                try:
+                    os.remove(os.path.join(os.path.dirname(dll), f))
+                except OSError:
+                    pass
+    clr.AddReference(dll)
+    from BlyattNative import Frame
+    return Frame
+
+
+def _strip_caption(native):
+    """En el hilo de WinForms. Si algo falla queda la barra de Windows (y la pagina no pinta la suya)."""
+    try:
+        _frame.append(_frame_type()(native.Handle))
+        return True
+    except Exception as e:
+        print("barra de titulo propia no disponible:", e)
+        return False
+
+
+def _nonclient_regions():
+    # `app-region: drag` solo funciona con esta opcion de WebView2, antes de la primera navegacion. La barra de
+    # Windows se quita solo si se pudo activar (un WebView2 antiguo sin ella dejaria la ventana sin forma de moverla)
+    ready = edgechromium.EdgeChrome.on_webview_ready
+
+    def on_ready(self, sender, args):   # hilo de WinForms
+        main = self.pywebview_window is main_win
+        try:
+            sender.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = True
+            if main:
+                _HWND[0] = main_win.native.Handle.ToInt64()
+                _HWND[1] = _strip_caption(main_win.native)
+        except Exception as e:
+            print("regiones de arrastre de WebView2 no disponibles:", e)
+        ready(self, sender, args)
+    edgechromium.EdgeChrome.on_webview_ready = on_ready
+
+
+_HWND = [0, False]   # handle y si se quito la barra de Windows (se guardan en el hilo de WinForms)
+
+
+def win_cmd(cmd):
+    """Botones de la barra propia (min / max-restaurar / cerrar) y su estado. Como los de Windows: WM_SYSCOMMAND
+    (animaciones nativas, sin bloquear el hilo HTTP)."""
+    h = _HWND[0]
+    zoomed = bool(h and _u32.IsZoomed(h))
+    sc = {"min": 0xF020, "max": 0xF120 if zoomed else 0xF030, "close": 0xF060}.get(cmd)   # SC_MINIMIZE/RESTORE/MAXIMIZE/CLOSE
+    if h and sc:
+        _u32.PostMessageW(h, 0x0112, sc, 0)
+        if cmd == "max":
+            zoomed = not zoomed
+    return {"max": zoomed, "frame": _HWND[1]}
+
+
+# ---------- abrir al iniciar Windows (solo esta cuenta: HKCU\...\Run) ----------
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _launch_cmd():
+    if app.FROZEN:
+        return '"%s"' % sys.executable
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")   # desarrollo: sin consola
+    return '"%s" "%s"' % (pyw if os.path.isfile(pyw) else sys.executable, os.path.abspath(__file__))
+
+
+def autostart(on=None):
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
+        if on is True:
+            winreg.SetValueEx(k, "Blyatt", 0, winreg.REG_SZ, _launch_cmd())
+        elif on is False:
+            try:
+                winreg.DeleteValue(k, "Blyatt")
+            except FileNotFoundError:
+                pass
+        try:
+            return bool(winreg.QueryValueEx(k, "Blyatt")[0])
+        except FileNotFoundError:
+            return False
+
+
 def _frozen_setup():
     """App instalada (.exe): una sola instancia, sin ventanas de consola para ffmpeg/node, auto-update."""
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -194,6 +338,9 @@ if __name__ == "__main__":
     app.WEBLOGIN = google_login
     app.WEBLOGOUT = google_logout
     app.SPOTLOGIN = spotify_login
+    app.WINCTL = win_cmd
+    app.AUTOSTART = autostart
+    _nonclient_regions()
     try:
         httpd = serve(PORT)
     except OSError:

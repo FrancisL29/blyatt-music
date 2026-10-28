@@ -1878,7 +1878,7 @@
         <div class="stx"><div class="stt" data-i18n>Guion con IA</div>
           <div class="sds" id="setDjAiS"></div></div>
         <div class="sdjai" id="setDjAi" hidden>
-          <input class="sinp" id="setDjKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… / gsk_… / sk-ant-…" aria-label="Clave de la IA" data-i18n-al>
+          <input class="sinp" id="setDjKey" type="password" autocomplete="off" spellcheck="false" placeholder="AQ.… / gsk_… / sk-ant-…" aria-label="Clave de la IA" data-i18n-al>
           <select class="ssel" id="setDjModel" aria-label="Modelo" data-i18n-al><option value="haiku">Haiku 5.5</option><option value="opus">Opus 5.5</option></select>
           <button class="sbtn" id="setDjSave" data-i18n>Guardar</button>
         </div>
@@ -2347,7 +2347,7 @@ const EN = {
     "Paste a free Gemini (aistudio.google.com) or Groq key so Lara can improvise. Without one she uses pre-written lines.",
   "Gemini (Google, gratis)": "Gemini (Google, free)", "Groq (gratis)": "Groq (free)", "Frases ya escritas": "Pre-written lines",
   "La clave de la IA no es válida": "The AI key isn't valid", "La IA llegó a su límite gratuito: vuelve en un rato": "The AI hit its free limit: try again in a bit",
-  "Esa clave no parece de Gemini (AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)": "That doesn't look like a Gemini (AIza…), Groq (gsk_…) or Anthropic (sk-ant-…) key",
+  "Esa clave no parece de Gemini (AQ.… o AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)": "That doesn't look like a Gemini (AQ.… or AIza…), Groq (gsk_…) or Anthropic (sk-ant-…) key",
   "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)": "Your Anthropic account has no credit: buy credits at console.anthropic.com (Plans & Billing)",
   "La clave de Anthropic no es válida": "The Anthropic key isn't valid",
   "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
@@ -8164,7 +8164,7 @@ function djPaintSettings() {
     (st.voice ? "" : " " + t("Falta la voz en el servidor (edge-tts).")) + (st.ai_error ? " ⚠ " + t(st.ai_error) : "");
   $("setDjModel").value = st.model || "haiku";
   $("setDjModel").hidden = st.provider !== "claude";   // el modelo solo se elige con Claude
-  $("setDjKey").placeholder = st.key ? "•••••••• (" + t("guardada") + ")" : "AIza… / gsk_… / sk-ant-…";
+  $("setDjKey").placeholder = st.key ? "•••••••• (" + t("guardada") + ")" : "AQ.… / gsk_… / sk-ant-…";
 }
 async function djLoadStatus() { try { DJ.st = await jget("/dj/status"); } catch (e) {} }
 const _djOpenSet = openSettings;

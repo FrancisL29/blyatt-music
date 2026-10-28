@@ -34,11 +34,11 @@ MODELS = {"opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"}
 # quien escribe el guion: Gemini o Groq (gratis con una clave de su web) o Claude (de pago); sin clave, plantillas.
 # La clave dice el proveedor: AIza... Gemini, gsk_... Groq, sk-ant-... Claude
 PROVIDERS = {"none": "Frases ya escritas", "gemini": "Gemini (Google, gratis)", "groq": "Groq (gratis)", "claude": "Claude (Anthropic)"}
-_KEY_RE = r"(sk-ant-[\w-]{20,200}|AIza[\w-]{30,60}|gsk_\w{30,80})"
+_KEY_RE = r"(sk-ant-[\w-]{20,200}|AIza[\w-]{30,60}|AQ\.[\w.-]{20,300}|gsk_\w{30,80})"   # AQ.: formato nuevo de Google
 
 
 def _provider_of(key):
-    return ("claude" if key.startswith("sk-ant-") else "gemini" if key.startswith("AIza")
+    return ("claude" if key.startswith("sk-ant-") else "gemini" if key.startswith(("AIza", "AQ."))
             else "groq" if key.startswith("gsk_") else "none")
 _MAX_FILES = 400        # frases guardadas en disco (~40 KB c/u)
 _AI_DAY = 150           # intervenciones con IA por cuenta y dia; despues, plantillas
@@ -80,7 +80,7 @@ def set_config(d):
     if "key" in d:
         k = str(d.get("key") or "").strip()
         if k and not re.fullmatch(_KEY_RE, k):
-            return {"error": "Esa clave no parece de Gemini (AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)"}
+            return {"error": "Esa clave no parece de Gemini (AQ.… o AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)"}
         raw["key"] = k
         raw.pop("provider", None)   # la clave nueva manda
     if d.get("model") in MODELS:

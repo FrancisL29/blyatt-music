@@ -197,7 +197,8 @@
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   body.sb-collapsed .user-chip { padding-left: 13px; }
   #gmodal, #plmodal, #askmodal, #impmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
-  #askmodal { z-index: 40; }   /* askModal puede abrirse SOBRE impmodal (p.ej. pedir Client ID) */
+  #askmodal { z-index: 40; }
+  body.kara-on #askmodal { z-index: 60; }   /* tambien sobre el karaoke (fiesta online) */   /* askModal puede abrirse SOBRE impmodal (p.ej. pedir Client ID) */
   #gmodal[hidden], #plmodal[hidden], #askmodal[hidden], #impmodal[hidden] { display: none; }
   /* ===== importar biblioteca ===== */
   #impmodal .gbox { width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; overscroll-behavior: contain; }
@@ -1366,6 +1367,43 @@
   .kaddr .kcode { letter-spacing: .14em; }
   .ksec { margin: 34px 0 12px; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
   .kplayers { display: flex; flex-wrap: wrap; gap: 12px; min-height: 44px; }
+  #kLobby { overflow: hidden auto; place-items: safe center; }
+  /* fiesta online: invitar / unirse / estado */
+  .kparty { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: .98rem; color: rgb(255 255 255 / .82); }
+  .kparty:empty { display: none; }
+  .kparty button { display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgb(255 255 255 / .14); background: rgb(255 255 255 / .08);
+    color: #fff; font: inherit; font-weight: 700; font-size: .92rem; padding: 9px 15px; border-radius: 12px; cursor: pointer; transition: background .2s; }
+  .kparty button:hover { background: rgb(255 255 255 / .16); }
+  .kparty button:disabled { opacity: .5; cursor: progress; }
+  .kparty > i { font-size: 1.25rem; color: #64d2ff; }
+  .kparty code { font: inherit; font-weight: 800; letter-spacing: .16em; padding: 5px 12px; border-radius: 10px; background: rgb(255 255 255 / .12); }
+  .kpst { font-size: .84rem; color: rgb(255 255 255 / .55); display: inline-flex; align-items: center; gap: 6px; }
+  .kpst::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ff9f0a; }
+  .kpst.ok::before { background: #30d158; box-shadow: 0 0 8px #30d158; }
+  #kLobby.guest .kqrcard, #kLobby.guest .kaddr, #kLobby.guest .kh2 { display: none; }
+  #kLobby.guest .kdiffs { pointer-events: none; opacity: .75; }   /* la dificultad la elige el anfitrion */
+  .kremote { font-size: 1.25rem; color: #64d2ff; flex: none; }
+  /* anadir canciones desde el PC (quien juega en un PC remoto elige aqui las suyas) */
+  .ksech { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .kadd { position: relative; display: flex; align-items: center; gap: 8px; width: min(320px, 55%); padding: 7px 12px; border-radius: 12px;
+    background: rgb(255 255 255 / .08); border: 1px solid rgb(255 255 255 / .1); text-transform: none; letter-spacing: 0; }
+  .kadd:focus-within { border-color: rgb(255 255 255 / .3); }
+  .kadd > i { font-size: 1rem; color: rgb(255 255 255 / .6); }
+  .kadd input { flex: 1; min-width: 0; border: 0; background: none; color: #fff; font: inherit; font-size: .9rem; font-weight: 500; outline: none; }
+  .kadd input::placeholder { color: rgb(255 255 255 / .45); }
+  .kaddres { position: absolute; top: calc(100% + 6px); right: 0; width: min(420px, 80vw); z-index: 5; padding: 6px; border-radius: 14px;
+    background: rgb(22 22 30 / .96); border: 1px solid rgb(255 255 255 / .1); box-shadow: 0 24px 60px rgb(0 0 0 / .55); }
+  .kaddres[hidden] { display: none; }
+  .kaddres button { display: flex; align-items: center; gap: 11px; width: 100%; border: 0; background: none; color: #fff; text-align: left;
+    padding: 7px; border-radius: 10px; cursor: pointer; font: inherit; }
+  .kaddres button:hover { background: rgb(255 255 255 / .08); }
+  .kaddres img { width: 40px; height: 40px; border-radius: 7px; object-fit: cover; flex: none; }
+  .kaddres span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .kaddres b, .kaddres small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kaddres b { font-size: .9rem; }
+  .kaddres small { font-size: .78rem; color: rgb(255 255 255 / .55); font-weight: 500; }
+  .kaddres button > i { color: rgb(255 255 255 / .6); font-size: 1.1rem; }
+  .kaddres .kempty { padding: 10px; }
   .kplayer { display: flex; align-items: center; gap: 9px; padding: 5px 14px 5px 5px; border-radius: 999px; font-weight: 700;
              background: rgb(255 255 255 / .08); animation: kin .55s cubic-bezier(.2, 1.3, .4, 1); }
   @keyframes kin { from { opacity: 0; transform: scale(.6); } }
@@ -1562,11 +1600,15 @@
         <div class="kh1" data-i18n>Karaoke</div>
         <div class="kh2" data-i18n>Escanea el código con el móvil para unirte y elegir canciones.</div>
         <div class="kaddr"><span data-i18n>O abre</span> <code id="kUrl"></code> <span data-i18n>con el código</span> <code class="kcode" id="kCode"></code></div>
+        <div class="kparty" id="kParty"></div>
         <div class="ksec" data-i18n>Dificultad</div>
         <div class="kdiffs kglass"><button data-d="easy" data-i18n>Fácil</button><button data-d="normal" data-i18n>Normal</button><button data-d="hard" data-i18n>Difícil</button></div>
         <div class="kdtip"></div>
         <div class="ksec" data-i18n>Jugadores</div><div id="kPlayers" class="kplayers"></div>
-        <div class="ksec" data-i18n>En cola</div><div id="kLobQ" class="kq"></div>
+        <div class="ksec ksech"><span data-i18n>En cola</span>
+          <div class="kadd"><i class="ph ph-magnifying-glass"></i><input id="kAddQ" placeholder="Añadir una canción…" data-i18n-ph autocomplete="off" spellcheck="false">
+            <div id="kAddR" class="kaddres" hidden></div></div></div>
+        <div id="kLobQ" class="kq"></div>
         <div id="kEng" class="keng"></div>
       </div>
     </div>
@@ -2166,6 +2208,25 @@ const EN = {
   "Blyatt ya no se abrirá al iniciar Windows": "Blyatt won't open when Windows starts",
   "No se pudo cambiar el ajuste": "Couldn't change the setting",
   "Minimizar": "Minimize", "Maximizar": "Maximize", "Restaurar": "Restore",
+  "Invitar por internet": "Invite over the internet", "Unirse a una fiesta": "Join a party", "Fiesta online · código": "Online party · code",
+  "En la fiesta de": "At the party of", "un amigo": "a friend", "conectada": "connected", "Conectando…": "Connecting…", "Terminar": "End", "Salir": "Leave",
+  "Código de 6 caracteres": "6-character code", "Siguiente": "Next", "¿Cómo te llamas?": "What's your name?", "Tu nombre": "Your name", "Unirme": "Join",
+  "Pídele el código a quien organiza la fiesta: lo ve en su karaoke, en «Invitar por internet».":
+    "Ask the party host for the code: they see it in their karaoke, under “Invite over the internet”.",
+  "Salir de la fiesta": "Leave the party", "Terminar la fiesta online": "End the online party",
+  "Dejarás de ver la cola y el ranking de la fiesta.": "You'll stop seeing the party's queue and leaderboard.",
+  "Los PCs que se unieron por internet saldrán de la fiesta.": "PCs that joined over the internet will leave the party.",
+  "Fiesta online abierta: comparte el código": "Online party open: share the code",
+  "Te uniste a la fiesta. Añade tus canciones y espera tu turno": "You joined the party. Add your songs and wait for your turn",
+  "canta desde su PC": "sings from their PC", "Preparando la pista en su PC…": "Preparing the track on their PC…", "Cantando": "Singing", "puntos": "points",
+  "Añadir una canción…": "Add a song…", "Sin resultados": "No results", "Se canta desde otro PC": "Sung from another PC",
+  "La cola está vacía: busca una canción para cantar": "The queue is empty: search for a song to sing",
+  "La cola está vacía: elige canciones desde el móvil o con el buscador": "The queue is empty: pick songs from your phone or with the search box",
+  "No hay ninguna fiesta con ese código": "There's no party with that code", "El código tiene 6 caracteres": "The code has 6 characters",
+  "La fiesta está llena": "The party is full", "Demasiados intentos: espera unos minutos": "Too many attempts: wait a few minutes",
+  "Este PC ya está en una fiesta": "This PC is already in a party", "La fiesta terminó": "The party ended", "La fiesta online se cerró": "The online party closed",
+  "El anfitrión no responde": "The host isn't responding", "Sin conexión con blyatt.stream": "No connection to blyatt.stream",
+  "Solo el anfitrión ordena la cola": "Only the host can reorder the queue",
   "Reproducción": "Playback", "Fundido entre canciones": "Crossfade", "Cada canción se funde con la siguiente.": "Each song fades into the next one.",
   "Desactivado": "Off", "Normalizar volumen": "Normalize volume", "Todas las canciones suenan igual de fuerte.": "All songs play at the same loudness.",
   "Dispositivos": "Devices", "Nombre de este dispositivo": "This device's name", "Nombre guardado": "Name saved",
@@ -4163,7 +4224,7 @@ function askModal(o) {
     $("askmsg").textContent = t(o.message || ""); $("askmsg").style.whiteSpace = "pre-line";
     $("askmsg").style.display = o.message ? "" : "none";
     const inp = $("askinput");
-    inp.hidden = !o.input; inp.value = ""; inp.placeholder = o.placeholder || "";
+    inp.hidden = !o.input; inp.value = o.value || ""; inp.placeholder = t(o.placeholder || "");
     inp.inputMode = o.numeric ? "numeric" : "text";
     const ok = $("askok");
     ok.textContent = t(o.okLabel || "Aceptar");
@@ -7062,6 +7123,7 @@ function kLive() {   // puntos para los moviles + ancla del reloj de la cancion;
   // al acabar, la pista ya se paro: se manda donde acabo (y que el tiempo siga, para comprobar lo que quede)
   const sing = KS.phase === "sing";
   return kpost("/kara/live", { score: kScoreNow(), rating: KS.rating, pos: sing ? kpPos() : KS.endPos, wall: Date.now() / 1000,
+                               dur: (KS.info && KS.info.dur) || 0,
                                lat: KS.outLat + .03, src: KS.src, run: !sing || (KP.started && !KP.paused && !KP.stalled) }).then(r => {
     if (r && r.verify) for (const [i, c] of Object.entries(r.verify)) KS.lfac[+i] = c;
     if (r && "vok" in r) KS.vok = r.vok;
@@ -7080,6 +7142,7 @@ function kLoop() {
     if (!$("kSet").hidden) $("kMeter").style.width = Math.min(100, KM.rms * 900) + "%";
   }
   if (KS.phase === "intro") return kIntroTick(now);
+  if (KS.phase === "spect") return kSpectPaint();
   if (KS.phase === "results") return kResTick(now);
   if (KS.phase !== "sing") return;
   const pos = kpPos(), info = KS.info;
@@ -7108,6 +7171,116 @@ function kLoop() {
 }
 function kStall(on) { $("kStall").classList.toggle("on", on); }
 
+/* ---------- fiesta online: PCs de otras redes (a traves de blyatt.stream) ----------
+   El anfitrion manda (jugadores, cola, ranking, turnos). Cada cancion la "dirige" el PC de quien canta: pone la
+   pista, mide su voz y manda puntos y nota; los demas PCs miran (quien canta, por donde va, sus puntos) */
+const kParty = () => (KS.st && KS.st.party) || {};
+const kGuest = () => kParty().role === "guest";
+const kMine = (now) => kGuest() ? now.by === kParty().me : !kPl(now.by).remote;
+function kStartSong(now) {
+  kpReset(); kLyrClear(); kStall(false); KS.micGen++;
+  if (kMine(now)) kIntro(now); else kSpect(now);
+}
+function kSpect(now) {   // la canta alguien desde otro PC
+  KS.phase = "spect"; KS.now = now;
+  const big = hiCover(now.cover), p = kPl(now.by);
+  $("kInCov").src = big || ""; $("kInT").textContent = now.title; $("kInA").textContent = now.artist;
+  $("kInBy").innerHTML = `${kAv(p)}<div>${esc(p.name)} <span>${esc(t("canta desde su PC"))}</span></div>`;
+  $("lcover").src = big || ""; lyrBg(big || now.cover);
+  $("kInNum").textContent = "";
+  kScreen("kIntro"); kSpectPaint();
+}
+function kSpectPaint() {   // preparando / cantando (por donde va y sus puntos) / su nota
+  const st = KS.st, n = st && st.now;
+  if (!n || !KS.now || n.qid !== KS.now.qid) return;
+  if (n.phase === "results") return kSpectResult(n);
+  const lv = st.live && st.live.qid === n.qid ? st.live : null, sy = KS.sy && KS.sy.qid === n.qid ? KS.sy : null;
+  const singing = n.phase === "sing" || n.phase === "paused";
+  let txt = n.phase === "count" ? t("¡Prepárate!") : t("Preparando la pista en su PC…"), pr = 0;
+  if (singing) {
+    const pos = sy ? sy.pos + (sy.run && n.phase === "sing" ? (performance.now() - KS.syAt) / 1000 : 0) : 0;
+    pr = sy && sy.dur ? Math.max(.01, Math.min(1, pos / sy.dur)) : .01;
+    txt = (n.phase === "paused" ? t("En pausa") : t("Cantando")) + (lv ? " · " + kNum(lv.score) + " " + t("puntos") : "");
+  }
+  $("kRing").classList.toggle("spin", !singing);
+  $("kRingFg").style.strokeDashoffset = 176 * (1 - (singing ? pr : .25));
+  if ($("kInSt").textContent !== txt) $("kInSt").textContent = txt;
+}
+function kSpectResult(n) {
+  KS.phase = "results"; KS.resScore = n.score == null ? null : n.score; KS.resAt = performance.now();
+  const p = kPl(n.by);
+  $("kResN").textContent = "";
+  $("kResBy").innerHTML = `${kAv(p)}<span>${esc(p.name)}</span><span class="kdiff">${esc(t(kDiff().name))}</span>`;
+  $("kStars").innerHTML = ""; $("kResM").textContent = n.score == null ? t("¡Gracias por cantar!") : "";
+  $("kBoard").innerHTML = ""; $("kResNext").textContent = ""; $("kResBar").style.width = "0";
+  kScreen("kRes"); kPaintBoard(n.by);
+}
+function kPaintParty(st) {
+  const p = st.party || {};
+  const stat = `<span class="kpst${p.ok ? " ok" : ""}">${esc(p.ok ? t("conectada") : t(p.err || "Conectando…"))}</span>`;
+  let h;
+  if (p.role === "host") h = `<i class="ph ph-globe-hemisphere-west"></i><span>${esc(t("Fiesta online · código"))}</span><code>${esc(p.code)}</code>${stat}<button data-op="stop">${esc(t("Terminar"))}</button>`;
+  else if (p.role === "guest") h = `<i class="ph ph-globe-hemisphere-west"></i><span>${esc(t("En la fiesta de"))} <b>${esc(p.host || t("un amigo"))}</b></span><code>${esc(p.code)}</code>${stat}<button data-op="stop">${esc(t("Salir"))}</button>`;
+  else h = `<button data-op="host"><i class="ph ph-globe-hemisphere-west"></i>${esc(t("Invitar por internet"))}</button><button data-op="join"><i class="ph ph-sign-in"></i>${esc(t("Unirse a una fiesta"))}</button>${p.err ? `<span class="kpst">${esc(t(p.err))}</span>` : ""}`;
+  kSetHtml($("kParty"), h);
+  $("kLobby").classList.toggle("guest", p.role === "guest");   // invitado: sin QR (los moviles, en el anfitrion)
+}
+$("kParty").onclick = async (e) => {
+  const b = e.target.closest("button[data-op]"); if (!b) return;
+  const op = b.dataset.op, was = kParty().role;
+  let body = { op };
+  if (op === "host") body.name = ($("uname") && $("uname").textContent.trim()) || "";
+  if (op === "join") {
+    const code = await askModal({ title: "Unirse a una fiesta", icon: "ph-globe-hemisphere-west", input: true, placeholder: "Código de 6 caracteres", okLabel: "Siguiente",
+      message: "Pídele el código a quien organiza la fiesta: lo ve en su karaoke, en «Invitar por internet»." });
+    if (!code) return;
+    const name = await askModal({ title: "¿Cómo te llamas?", icon: "ph-user", input: true, placeholder: "Tu nombre", okLabel: "Unirme", value: kSet.pname || "" });
+    if (!name) return;
+    kSet.pname = name.trim().slice(0, 24); kSave();
+    body = { op, code, name };
+  }
+  if (op === "stop" && !(await askModal({ title: was === "guest" ? "Salir de la fiesta" : "Terminar la fiesta online", icon: "ph-globe-hemisphere-west",
+      message: was === "guest" ? "Dejarás de ver la cola y el ranking de la fiesta." : "Los PCs que se unieron por internet saldrán de la fiesta.", okLabel: was === "guest" ? "Salir" : "Terminar", danger: true }))) return;
+  b.disabled = true;
+  const st = await kpost("/kara/party", body).catch(() => ({ error: "Sin conexión" }));
+  b.disabled = false;
+  if (st.error) { toast(t(st.error)); return; }
+  if (op === "stop" || op === "join") {   // la sala de este PC cambia por completo
+    kpReset(); kLyrClear(); KS.now = null;
+    if (KS.phase !== "lobby") kLobby();
+  }
+  kApply(st);
+  if (op === "host") toast(t("Fiesta online abierta: comparte el código") + " " + st.party.code);
+  if (op === "join") toast(t("Te uniste a la fiesta. Añade tus canciones y espera tu turno"));
+};
+// anadir canciones desde el PC (el que juega en un PC remoto elige aqui las suyas; en el anfitrion, "Invitado")
+let _kAddT = 0;
+$("kAddQ").addEventListener("input", () => { clearTimeout(_kAddT); _kAddT = setTimeout(kAddSearch, 350); });
+$("kAddQ").addEventListener("focus", () => { if ($("kAddR")._items && $("kAddQ").value.trim()) $("kAddR").hidden = false; });
+async function kAddSearch() {
+  const q = $("kAddQ").value.trim(), box = $("kAddR");
+  if (!q) { box.hidden = true; return; }
+  let items = [];
+  try {
+    const r = await jget("/search?q=" + encodeURIComponent(q));
+    items = (r.sections || []).flatMap(x => x.items || []).filter(x => x.id && x.duration && /^[\w-]{11}$/.test(x.id)).slice(0, 6);
+  } catch (e) {}
+  if ($("kAddQ").value.trim() !== q) return;
+  box._items = items;
+  box.innerHTML = items.length ? items.map((x, i) => `<button data-i="${i}"><img src="${esc(x.cover || "")}" alt=""><span><b>${esc(x.title)}</b><small>${esc(x.artist || "")} · ${esc(x.duration)}</small></span><i class="ph ph-plus-circle"></i></button>`).join("")
+    : `<div class="kempty">${esc(t("Sin resultados"))}</div>`;
+  box.hidden = false;
+}
+$("kAddR").onclick = async (e) => {
+  const b = e.target.closest("button[data-i]"); if (!b) return;
+  const x = $("kAddR")._items[+b.dataset.i];
+  const r = await kpost("/kara/add", { song: { id: x.id, title: x.title, artist: x.artist, cover: x.cover, duration: x.duration } }).catch(() => ({ error: "Sin conexión" }));
+  if (r.error) { toast(t(r.error)); return; }
+  toast(t("Añadida a la cola") + ": " + x.title);
+  $("kAddQ").value = ""; $("kAddR").hidden = true;
+};
+document.addEventListener("click", (e) => { if (!e.target.closest(".kadd")) $("kAddR").hidden = true; });
+
 /* ---------- fases: sala -> presentacion -> cantar -> resultados -> siguiente / clasificacion ---------- */
 function kScreen(id) {
   ["kLobby", "kIntro", "kRes", "kBoardS"].forEach(x => $(x).classList.toggle("on", x === id));
@@ -7130,12 +7303,16 @@ function kBoard() {   // sin mas canciones: la clasificacion (y el QR para segui
 }
 async function kNext() {
   if (KS._nexting) return;
+  if (kGuest()) {   // invitado: avanza el anfitrion (llega por el estado); aqui solo se pide si la cancion es de este PC
+    if (KS.now && kMine(KS.now)) kpost("/kara/next", { qid: KS.now.qid }).catch(() => {});
+    return;
+  }
   KS._nexting = true;
   try {
     kpReset(); kLyrClear();
-    const st = await kpost("/kara/next");
+    const st = await kpost("/kara/next", { qid: KS.now ? KS.now.qid : 0 });   // varios PCs pueden pedirlo a la vez
     kApply(st);
-    if (st.now) kIntro(st.now); else if (KS.st.history.length) kBoard(); else kLobby();
+    if (st.now) kStartSong(st.now); else if (KS.st.history.length) kBoard(); else kLobby();
   } catch (e) { toast(t("No se pudo continuar")); } finally { KS._nexting = false; }
 }
 function kIntro(now) {
@@ -7344,8 +7521,9 @@ function kApply(st) {
   kSetHtml($("kPlayers"), pl.length ? pl.map(p => `<span class="kplayer" data-id="${esc(p.id)}">${kAv(p, "sm")}${esc(p.name)}${p.mic ? ' <i class="ph-fill ph-microphone"></i>' : ""}</span>`).join("")
     : `<span class="kempty">${esc(t("Aún no se ha unido nadie"))}</span>`);
   kSetHtml($("kLobQ"), st.queue.length ? st.queue.slice(0, 5).map(q => { const p = kPl(q.by);
-    return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kRing(q)}</div>`; }).join("")
-    : `<span class="kempty">${esc(t("La cola está vacía: elige canciones desde el móvil"))}</span>`);
+    // la de otro PC (fiesta online) se prepara alli: aqui un globo en vez del progreso
+    return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kMine(q) ? kRing(q) : '<i class="ph ph-globe-hemisphere-west kremote" title="' + esc(t("Se canta desde otro PC")) + '"></i>'}</div>`; }).join("")
+    : `<span class="kempty">${esc(t(kGuest() ? "La cola está vacía: busca una canción para cantar" : "La cola está vacía: elige canciones desde el móvil o con el buscador"))}</span>`);
   const e = st.engine || {};
   kSetHtml($("kEng"), e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}`
     : e.status === "download" ? `<i class="ph ph-download-simple"></i>${esc(t("Descargando el motor de voz (solo la primera vez)"))} · ${e.progress}%`
@@ -7360,6 +7538,16 @@ function kApply(st) {
   if (KS.cmdSeen < 0) KS.cmdSeen = st.cmds.reduce((a, c) => Math.max(a, c.id), 0);
   for (const c of st.cmds) if (c.id > KS.cmdSeen) { KS.cmdSeen = c.id; kCmd(c); }
   if (typeof st.guide === "number" && st.guide !== kSet.guide) kGuide(st.guide, false);
+  kPaintParty(st);
+  if (st.sync && (!KS.sy || st.sync.at !== KS.sy.at)) { KS.sy = st.sync; KS.syAt = performance.now(); }
+  // fiesta online: la cancion cambia sin que este PC pida "siguiente" (avanza el anfitrion, o canta otro PC)
+  if (st.party && st.party.role && KS.on && !KS._nexting) {
+    const sn = st.now;
+    if (sn && (!KS.now || sn.qid !== KS.now.qid)) kStartSong(sn);
+    else if (!sn && KS.now && KS.phase !== "lobby" && KS.phase !== "board") { kpReset(); kLyrClear(); st.history.length ? kBoard() : kLobby(); }
+  }
+  if (KS.phase === "spect") kSpectPaint();
+  if (KS.phase === "results" && KS.now) kPaintBoard(KS.now.by);
   if ((KS.phase === "lobby" || KS.phase === "board") && st.queue.length && !KS._nexting)
     setTimeout(() => { if ((KS.phase === "lobby" || KS.phase === "board") && KS.st.queue.length) kNext(); }, 1200);
 }
@@ -7456,7 +7644,7 @@ function kTogglePause() {
   kpost("/kara/phase", { phase: KP.paused ? "paused" : "sing" }).then(() => { if (!KP.paused) return kLive(); }).catch(() => {});
 }
 function kSkip() {
-  if (KS.phase === "sing" || KS.phase === "intro" || KS.phase === "results") kNext();
+  if (KS.phase === "sing" || KS.phase === "intro" || KS.phase === "results" || KS.phase === "spect") kNext();
 }
 function kExitAsk() {
   const t0 = performance.now();

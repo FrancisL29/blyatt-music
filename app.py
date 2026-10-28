@@ -3901,6 +3901,24 @@ def _alexa():
 
 
 class H(BaseHTTPRequestHandler):
+    def _party(self, u, method):
+        # fiesta online del karaoke (party.py): PCs de otras redes; sin cookies ni Cloudflare Access, las llaves
+        # son el codigo de la sala y la clave de cada participante
+        if not SERVER_MODE:
+            return self._json({"error": "?"}, 404)
+        import party
+        d = {}
+        if method == "POST":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 256 * 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+            except ValueError:
+                d = {}
+        ip = self.headers.get("CF-Connecting-IP") or self.client_address[0]
+        return self._json(party.api(u.path, parse_qs(u.query), d if isinstance(d, dict) else {}, ip))
+
     def _alexa(self, u, method):
         # lo usan el Echo y los servidores de Amazon, sin cookies ni Cloudflare Access: la firma de Amazon
         # (peticiones) y la firma HMAC de cada pista (audio) son las llaves
@@ -4056,6 +4074,8 @@ class H(BaseHTTPRequestHandler):
             return self._connect(u, "GET")
         if u.path.startswith("/kara/"):
             return self._kara(u, "GET")
+        if u.path.startswith("/party/"):
+            return self._party(u, "GET")
         if u.path.startswith("/alexa/"):
             return self._alexa(u, "GET")
         if u.path == "/migrate/pull":
@@ -4413,6 +4433,8 @@ class H(BaseHTTPRequestHandler):
                 except OSError as e:
                     return self._json({"error": "No se pudo cambiar: %s" % e})
             return self._json(WINCTL(u.path[5:]))
+        if u.path.startswith("/party/"):
+            return self._party(u, "POST")
         if u.path == "/alexa":
             return self._alexa(u, "POST")
         if u.path == "/auth/alexa/code":   # desde la app (con Cloudflare Access): codigo para vincular Alexa

@@ -101,6 +101,8 @@ def _song(x):
     if arts:
         s["artists"] = arts
     s["title"] = str(s.get("title") or "")[:150]
+    if not s.get("cover"):
+        s["cover"] = "https://i.ytimg.com/vi/%s/hqdefault.jpg" % s["id"]
     s["artist"] = str(s.get("artist") or (arts[0]["name"] if arts else ""))[:150]
     for k in ("n", "days"):
         if isinstance(x.get(k), (int, float)):

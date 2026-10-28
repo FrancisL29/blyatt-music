@@ -527,23 +527,26 @@
   .sdjai .ssel { margin-left: 0; }
 
   /* ---------- DJ SALOME: tarjeta de Inicio, subtitulos de lo que dice y boton del reproductor ---------- */
-  .djcard { display: flex; align-items: center; gap: 16px; width: 100%; margin: 4px 0 24px; padding: 16px 18px;
-    border-radius: 20px; border: 1px solid rgb(255 255 255 / .12); color: var(--text); font: inherit; text-align: left;
-    cursor: pointer; background: radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 62%), var(--glass);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / .12); transition: transform .15s, border-color .3s; }
-  .djcard:hover { border-color: rgb(255 255 255 / .22); }
-  .djcard:active { transform: scale(.985); }
-  .djorb { width: 58px; height: 58px; border-radius: 50%; flex: none; display: grid; place-items: center; position: relative;
-    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, #4dd2ff, var(--accent));
-    box-shadow: 0 0 26px color-mix(in srgb, var(--accent) 50%, transparent); animation: djspin 9s linear infinite; }
-  .djorb::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: rgb(10 10 14 / .55); backdrop-filter: blur(6px); }
-  .djorb i { position: relative; z-index: 1; font-size: 1.55rem; color: #fff; animation: djspin 9s linear infinite reverse; }
-  body.dj-on .djorb { animation-duration: 2.6s; } body.dj-on .djorb i { animation-duration: 2.6s; }
-  .djtx { flex: 1; min-width: 0; }
-  .djt { font-weight: 800; font-size: 1.16rem; letter-spacing: -.01em; }
-  .djs { color: var(--muted); font-size: .84rem; margin-top: 3px; line-height: 1.35; }
-  .djgo { font-size: 2.5rem; color: var(--accent); flex: none; transition: transform .2s; }
-  .djcard.busy .djgo { animation: gspin 1s linear infinite; }
+  .dj-cov { display: grid; place-items: center; border-radius: 50%; position: relative; overflow: hidden;
+    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, #4dd2ff, var(--accent)); animation: djspin 9s linear infinite; }
+  .dj-cov::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: rgb(10 10 14 / .5); }
+  .dj-cov i { position: relative; z-index: 1; color: #fff; font-size: 1.05rem; animation: djspin 9s linear infinite reverse; }
+  body.dj-on .dj-cov, body.dj-on .dj-cov i { animation-duration: 2.6s; }
+  #djLib.busy .dj-cov i { animation: gspin 1s linear infinite; }
+  .djart { width: 100%; aspect-ratio: 1; border-radius: 10px; display: grid; place-items: center; overflow: hidden;
+    background: radial-gradient(circle at 30% 20%, #ff4d9d55, transparent 55%), radial-gradient(circle at 80% 85%, #4dd2ff44, transparent 55%), #15131c; }
+  .djart-orb { width: 58%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; position: relative;
+    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, #4dd2ff, var(--accent)); animation: djspin 9s linear infinite;
+    box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .djart-orb::after { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: rgb(10 10 14 / .55); }
+  .djart-orb i { position: relative; z-index: 1; font-size: 2rem; color: #fff; animation: djspin 9s linear infinite reverse; }
+  body.dj-on .djart-orb, body.dj-on .djart-orb i { animation-duration: 2.6s; }
+  .djlibcard.busy .djart-orb i { animation: gspin 1s linear infinite; }
+  /* osciloscopio: la voz de Lara dibujada en vivo sobre la portada (vista Reproduciendo / pantalla completa) */
+  #djScope { position: absolute; pointer-events: none; z-index: 3; opacity: 0; transition: opacity .35s; border-radius: 10px; }
+  #djScope.on { opacity: 1; }
+  .lside { position: relative; }
+  .djmini { width: 60px; height: 24px; flex: none; margin-top: 3px; }
   @keyframes djspin { to { rotate: 360deg; } }
   #djcap { position: fixed; left: calc(var(--sb-w) + (100vw - var(--sb-w)) / 2); bottom: 150px; z-index: 9;
     width: max-content; max-width: min(560px, calc(100vw - var(--sb-w) - 48px)); display: flex; gap: 11px; align-items: flex-start;
@@ -551,21 +554,14 @@
     backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
     box-shadow: 0 14px 38px rgb(0 0 0 / .55); opacity: 0; translate: -50% 14px; pointer-events: none; transition: opacity .3s, translate .3s; }
   #djcap.show { opacity: 1; translate: -50% 0; }
-  .djav { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; gap: 2px;
-    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, var(--accent)); margin-top: 1px; }
-  .djav span { width: 3px; height: 8px; border-radius: 2px; background: #fff; animation: djeq .9s ease-in-out infinite; }
-  .djav span:nth-child(2) { animation-delay: -.3s; } .djav span:nth-child(3) { animation-delay: -.6s; }
-  @keyframes djeq { 0%, 100% { height: 5px; } 50% { height: 15px; } }
   .djn { font-size: .68rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
   .djl { font-size: .9rem; line-height: 1.4; margin-top: 2px; }
   .djbtn.on { color: var(--accent); }
   .np-src.dj { color: var(--accent); }
   @media (max-width: 820px) {
     #djcap { left: 50%; bottom: calc(58px + var(--sab, 0px) + 96px); max-width: calc(100vw - 32px); }
-    .djcard { margin: 2px 0 20px; padding: 14px; gap: 14px; }
-    .djorb { width: 52px; height: 52px; }
   }
-  body.np-open #djcap { left: 50%; bottom: auto; top: calc(var(--sat, 0px) + 64px); max-width: calc(100vw - 32px); }
+  body.np-open #djcap { left: 50%; bottom: auto; top: calc(var(--sat, 0px) + 64px); max-width: calc(100vw - 32px); z-index: 16; }
 
   /* ---------- PLAYER ---------- */
   #player {
@@ -1571,6 +1567,10 @@
       <span class="lib-cov liked-cov"><i class="ph-fill ph-heart"></i></span>
       <span class="lib-meta"><span class="lt2" data-i18n>Me gusta</span><span class="la2">Playlist fija</span></span>
     </button>
+    <button class="nav-item lib-item" id="djLib">
+      <span class="lib-cov dj-cov"><i class="ph-fill ph-microphone-stage"></i></span>
+      <span class="lib-meta"><span class="lt2">DJ Lara</span><span class="la2" id="djLibS" data-i18n>Tu radio personal</span></span>
+    </button>
     <div id="libList"></div>
   </div>
   <div class="lib-sep"></div>
@@ -2042,7 +2042,7 @@
   </div>
 </div>
 
-<div id="djcap" aria-live="polite"><div class="djav"><span></span><span></span><span></span></div>
+<div id="djcap" aria-live="polite"><canvas class="djmini" width="120" height="48"></canvas>
   <div><div class="djn">Lara</div><div class="djl" id="djcapTxt"></div></div></div>
 
 <audio id="audio"></audio>
@@ -2323,6 +2323,7 @@ const EN = {
   "Dile a tu Echo «Alexa, abre blyatt» y, cuando te lo pida, dile este código. Caduca en 10 minutos. Después podrás decir «Alexa, pídele a blyatt que ponga…» con tus canciones y playlists.":
     "Tell your Echo “Alexa, open blyatt” and say this code when it asks. It expires in 10 minutes. Then you can say “Alexa, ask blyatt to play…” with your songs and playlists.",
   "¿Cómo te llamo?": "What should I call you?", "Lara te saluda por tu nombre.": "Lara greets you by name (she speaks Spanish).",
+  "Tu radio personal": "Your personal radio", "Preparando tu radio…": "Getting your radio ready…", "Sonando ahora": "Playing now",
   "Cuánto habla": "How much she talks", "Poco": "Little", "Normal": "Normal", "Mucho": "A lot", "Groserías": "Swearing",
   "No": "No", "A veces": "Sometimes", "Sin filtro": "Unfiltered", "Guion con IA (Claude)": "AI script (Claude)",
   "Clave de la API de Anthropic": "Anthropic API key", "Modelo": "Model", "Guardado": "Saved", "guardada": "saved",
@@ -3662,6 +3663,7 @@ function openMobileLibrary(push = true) {
   c.querySelector(".a").textContent = getLiked().length + " " + t("canciones");
   c.onclick = () => setView("liked");
   grid.prepend(c);
+  c.after(djLibCard());   // DJ Lara, justo despues de Me gusta
   syncMnav("lib");
 }
 document.querySelectorAll("#mnav button").forEach(b => b.onclick = () => {
@@ -3747,7 +3749,6 @@ function renderHome(force) {
   const seedId = seed ? seed.id : "";
   _homeSeedId = seedId;
   hv.innerHTML = "";
-  hv.appendChild(djCard());   // DJ Lara: la radio personal, arriba del todo
   const recents = getRecents();
   const tiles = matchMedia("(max-width: 820px)").matches ? recentTiles() : null;
   if (tiles && tiles.length) {
@@ -7806,7 +7807,7 @@ const _djS = (s) => {
 function djStat(s) {
   let m; try { m = JSON.parse(localStorage.getItem("lightning.djstats") || "{}"); } catch (e) { m = {}; }
   const now = Date.now(), e = m[s.id] || { n: 0, f: now };
-  e.n++; e.l = now; e.t = s.title; e.a = s.artist; if (s.artists) e.ar = s.artists.slice(0, 2);
+  e.n++; e.l = now; e.t = s.title; e.a = s.artist; if (s.artists) e.ar = s.artists.slice(0, 2); if (s.cover) e.c = s.cover;
   m[s.id] = e;
   const ks = Object.keys(m);
   if (ks.length > 500) ks.sort((a, b) => m[a].l - m[b].l).slice(0, ks.length - 500).forEach(k => delete m[k]);
@@ -7817,7 +7818,8 @@ function djTop() {
   const now = Date.now(), day = 864e5;
   return Object.entries(m).filter(([, e]) => now - e.l < 30 * day && e.n >= 2)
     .sort((a, b) => b[1].n - a[1].n).slice(0, 40)
-    .map(([id, e]) => ({ id, title: e.t, artist: e.a, artists: e.ar, n: e.n, days: Math.min(30, Math.ceil((now - e.f) / day)) }));
+    .map(([id, e]) => ({ id, title: e.t, artist: e.a, artists: e.ar, cover: e.c || (getLiked().find(x => x.id === id) || {}).cover,
+                         n: e.n, days: Math.min(30, Math.ceil((now - e.f) / day)) }));
 }
 function djCtx(vibe) {
   const liked = getLiked(), older = liked.slice(80);
@@ -7904,19 +7906,20 @@ function djSpeak(v) {
     const a = new Audio(v.buf); a.play().catch(() => {});
     DJ.voice = { el: a }; a.onended = () => { if (DJ.voice && DJ.voice.el === a) DJ.voice = null; };
     a.onloadedmetadata = () => djCaption(v.text, a.duration);
-    djCaption(v.text, 8);
+    djCaption(v.text, 8); djScopeStart();
     return;
   }
   const t0 = AC.currentTime + .2, dur = v.buf.duration, g = srcBus.gain;
   const src = AC.createBufferSource(), vg = AC.createGain();
   src.buffer = v.buf; vg.gain.value = 1; src.connect(vg); vg.connect(gainNode);   // tras el volumen del usuario
+  vg.connect(djAn);   // osciloscopio
   g.cancelScheduledValues(AC.currentTime); g.setValueAtTime(g.value, AC.currentTime);
   g.linearRampToValueAtTime(.14, t0 + .15);
   g.setValueAtTime(.14, t0 + dur); g.linearRampToValueAtTime(1, t0 + dur + 1);
   src.start(t0);
   DJ.voice = { src, vg };
   src.onended = () => { if (DJ.voice && DJ.voice.src === src) DJ.voice = null; };
-  djCaption(v.text, dur);
+  djCaption(v.text, dur); djScopeStart();
 }
 function djHush() {   // calla a Lara (pausa, salto, salir) y la musica vuelve a su volumen
   const v = DJ.voice; DJ.voice = null; djCaption(null);
@@ -7930,29 +7933,37 @@ function djHush() {   // calla a Lara (pausa, salto, salir) y la musica vuelve a
 function djPaint() {
   document.body.classList.toggle("dj-on", DJ.on);
   [$("djBtn"), $("npDj")].forEach(b => { if (b) { b.hidden = !DJ.on; b.classList.toggle("on", DJ.on); } });
-  const c = $("djCard");
-  if (c) {
+  const b = $("djLib");   // entrada fija de la biblioteca (bajo Me gusta)
+  b.classList.toggle("busy", DJ.busy);
+  b.querySelector(".dj-cov i").className = "ph-fill " + (DJ.busy ? "ph-circle-notch" : "ph-microphone-stage");
+  $("djLibS").textContent = t(DJ.busy ? "Preparando tu radio…" : DJ.on ? "Sonando ahora" : "Tu radio personal");
+  document.querySelectorAll(".djlibcard").forEach(c => {
     c.classList.toggle("busy", DJ.busy);
-    c.querySelector(".djs").textContent = t(DJ.busy ? "Lara está preparando tu radio…" : DJ.on
-      ? "Sonando ahora. Toca para cambiar de vibra o salir" : "Tu radio personal: tu música, datos curiosos y la hora");
-    c.querySelector(".djgo").className = "ph-fill djgo " + (DJ.busy ? "ph-circle-notch" : DJ.on ? "ph-shuffle-angular" : "ph-play-circle");
-  }
+    c.querySelector(".a").textContent = $("djLibS").textContent;
+    c.querySelector(".djart i").className = $("djLib").querySelector(".dj-cov i").className;
+  });
   try { syncCxUI(); } catch (e) {}
 }
-function djCard() {
-  const b = document.createElement("button");
-  b.className = "djcard"; b.id = "djCard";
-  b.innerHTML = '<div class="djorb"><i class="ph-fill ph-microphone-stage"></i></div><div class="djtx"><div class="djt">DJ Lara</div><div class="djs"></div></div><i class="djgo"></i>';
-  b.onclick = (e) => { if (DJ.on) djMenu(e.currentTarget); else djStart(); };
+function djLibCard() {   // tarjeta de la biblioteca movil (cuadricula)
+  const c = document.createElement("div"); c.className = "ccard djlibcard";
+  c.innerHTML = '<div class="djart"><span class="djart-orb"><i class="ph-fill ph-microphone-stage"></i></span></div><div class="t">DJ Lara</div><div class="a"></div>';
+  c.onclick = () => { if (DJ.on) djOpenView(); else djStart(true); };
   setTimeout(djPaint);
-  return b;
+  return c;
+}
+// como el DJ de Spotify: al entrar se abre la vista de reproduccion (movil) o la pantalla completa (escritorio)
+function djOpenView() {
+  if (!current) return;
+  if (_mqMobile.matches) { openNp(); return; }
+  if (!$("lyricsPanel").classList.contains("show")) $("lyricsBtn").click();
+  lyrFull(true);
 }
 function djMenu(el) {
   const r = el.getBoundingClientRect();
   showMenu([["ph-shuffle-angular", "Cambiar de vibra", djVibe], ["ph-sign-out", "Salir del DJ", () => djStop(true)]],
            Math.min(r.left, innerWidth - 240), r.bottom + 6);
 }
-async function djStart() {
+async function djStart(open) {
   if (DJ.busy) return;
   djLoadStatus().then(() => { if (DJ.st && DJ.st.ai_error) toast(DJ.st.ai_error); });   // p. ej. sin saldo en Anthropic
   if (CX.remote) { toast("Pon la música en este dispositivo para escuchar al DJ"); return; }
@@ -7970,6 +7981,7 @@ async function djStart() {
     await Promise.race([seg.p.catch(() => {}), new Promise(r => setTimeout(r, 12000))]);
     if (!DJ.on) return;
     playSong(queue[0], true);
+    if (open) djOpenView();
     if ($("queue").classList.contains("show")) renderQueue();
   } finally { DJ.busy = false; djPaint(); }
 }
@@ -8052,6 +8064,62 @@ setInterval(() => {
   if (k) djPrepare(n, k, current, new Date(Date.now() + Math.max(0, dur - pos) * 1000));
 }, 1500);
 [$("djBtn"), $("npDj")].forEach(b => b && (b.onclick = (e) => { e.stopPropagation(); djMenu(e.currentTarget); }));
+// (va despues del onclick generico de .nav-item, que lo trataria como una vista)
+$("djLib").onclick = () => { if (DJ.on) djOpenView(); else djStart(true); };
+$("djLib").oncontextmenu = (e) => { if (!DJ.on) return; e.preventDefault(); djMenu($("djLib")); };
+
+/* osciloscopio: la voz de Lara (AnalyserNode) dibujada como una linea viva sobre la portada y en los subtitulos */
+const djAn = AC.createAnalyser(); djAn.fftSize = 2048; djAn.smoothingTimeConstant = 0;
+const _djWave = new Float32Array(djAn.fftSize);
+let _djRaf = 0, _djLvl = 0, _djGain = 4;
+function djScopeHost() {
+  if (npOpen) return [npv.querySelector(".np-art"), $("npCover")];
+  if (document.body.classList.contains("lyr-full")) return [document.querySelector(".lside"), $("lcover")];
+  return null;
+}
+function djScopeStart() { if (!_djRaf) _djRaf = requestAnimationFrame(djScopeDraw); }
+function _djLine(cv, ctx, w, h, amp, glow) {
+  const n = 256, step = _djWave.length / n, mid = h / 2;
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineWidth = Math.max(1.5, h / 70); ctx.lineJoin = ctx.lineCap = "round";
+  ctx.strokeStyle = "#fff"; ctx.shadowColor = getComputedStyle(document.body).getPropertyValue("--accent") || "#2e7dff"; ctx.shadowBlur = glow;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1) * w, env = Math.sin(Math.PI * i / (n - 1));   // bordes en reposo: la linea "sale" del centro
+    const y = mid + Math.max(-1, Math.min(1, _djWave[Math.floor(i * step)] * _djGain)) * amp * env;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+}
+function djScopeDraw() {
+  _djRaf = 0;
+  const talking = !!DJ.voice;
+  if (talking && DJ.voice.src) djAn.getFloatTimeDomainData(_djWave);
+  else if (talking) { const t0 = performance.now() / 1000; for (let i = 0; i < _djWave.length; i++) _djWave[i] = .18 * Math.sin(i / 40 + t0 * 9) * Math.sin(i / 300 + t0 * 2); }   // iPhone: sin analizador
+  else _djWave.fill(0);
+  let pk = 0; for (let i = 0; i < _djWave.length; i += 4) pk = Math.max(pk, Math.abs(_djWave[i]));
+  _djGain += ((pk > .02 ? Math.min(8, .85 / pk) : _djGain) - _djGain) * .08;   // ganancia automatica: la linea siempre se ve
+  _djLvl += ((talking ? 1 : 0) - _djLvl) * .12;
+  // portada (vista Reproduciendo / pantalla completa)
+  let sc = $("djScope"); const host = djScopeHost();
+  if (!sc) { sc = document.createElement("canvas"); sc.id = "djScope"; }
+  if (host && host[1] && _djLvl > .01) {
+    const [box, img] = host;
+    if (sc.parentNode !== box) box.appendChild(sc);
+    const dpr = Math.min(2, devicePixelRatio || 1), w = img.offsetWidth, h = Math.round(w * .5);
+    sc.style.left = img.offsetLeft + "px"; sc.style.top = (img.offsetTop + (img.offsetHeight - h) / 2) + "px";
+    sc.style.width = w + "px"; sc.style.height = h + "px";
+    if (sc.width !== Math.round(w * dpr)) { sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr); }
+    sc.classList.toggle("on", talking);
+    const c = sc.getContext("2d");
+    c.globalAlpha = Math.min(1, _djLvl * 1.2);
+    _djLine(sc, c, sc.width, sc.height, sc.height * .42 * _djLvl, 18 * dpr);
+  } else if (sc.parentNode) sc.classList.remove("on");
+  // subtitulos
+  const mc = document.querySelector(".djmini"), m = mc.getContext("2d");
+  _djLine(mc, m, mc.width, mc.height, mc.height * .45, 6);
+  if (talking || _djLvl > .01) _djRaf = requestAnimationFrame(djScopeDraw);
+}
 
 /* ajustes del DJ (por dispositivo; la clave de la API solo en la app de escritorio, la guarda el server) */
 function djPaintSettings() {

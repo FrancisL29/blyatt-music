@@ -2337,6 +2337,8 @@ const EN = {
   "Pega tu clave de la API de Anthropic para que Lara improvise. Sin clave usa frases ya escritas.": "Paste your Anthropic API key so Lara can improvise. Without it she uses pre-written lines.",
   "Frases ya escritas. El dueño del servidor puede activar la IA.": "Pre-written lines. The server owner can turn on AI.",
   "Falta la voz en el servidor (edge-tts).": "The server is missing the voice (edge-tts).", "IA activada para Lara": "AI turned on for Lara",
+  "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)": "Your Anthropic account has no credit: buy credits at console.anthropic.com (Plans & Billing)",
+  "La clave de Anthropic no es válida": "The Anthropic key isn't valid",
   "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
   "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
@@ -7952,6 +7954,7 @@ function djMenu(el) {
 }
 async function djStart() {
   if (DJ.busy) return;
+  djLoadStatus().then(() => { if (DJ.st && DJ.st.ai_error) toast(DJ.st.ai_error); });   // p. ej. sin saldo en Anthropic
   if (CX.remote) { toast("Pon la música en este dispositivo para escuchar al DJ"); return; }
   if (AC.state === "suspended") AC.resume();   // dentro del toque: luego el audio puede arrancar solo
   DJ.busy = true; djPaint();
@@ -8062,7 +8065,7 @@ function djPaintSettings() {
   s.textContent = t(st.ai ? "Activado: Lara escribe cada intervención con datos del artista y la canción."
     : APPINFO.desktop ? "Pega tu clave de la API de Anthropic para que Lara improvise. Sin clave usa frases ya escritas."
     : "Frases ya escritas. El dueño del servidor puede activar la IA.") +
-    (st.voice ? "" : " " + t("Falta la voz en el servidor (edge-tts)."));
+    (st.voice ? "" : " " + t("Falta la voz en el servidor (edge-tts).")) + (st.ai_error ? " ⚠ " + t(st.ai_error) : "");
   $("setDjModel").value = st.model || "haiku";
   $("setDjKey").placeholder = st.ai ? "•••••••• (" + t("guardada") + ")" : "sk-ant-…";
 }

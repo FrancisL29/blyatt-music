@@ -35,6 +35,7 @@ _MAX_FILES = 400        # frases guardadas en disco (~40 KB c/u)
 _AI_DAY = 150           # intervenciones con IA por cuenta y dia; despues, plantillas
 _UA = "Blyatt/1.0 (radio DJ; https://blyatt.stream)"
 _MEM, _mem_lock = {}, threading.Lock()
+_AI_ERR = {"at": 0, "msg": "", "pause": 0}   # ultimo fallo de la API (se ve en Ajustes); sin saldo se pausa un rato
 
 
 def _dir():
@@ -86,7 +87,8 @@ def status():
         voice = True
     except ImportError:
         voice = False
-    return {"ai": bool(c["key"]), "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE)}
+    err = _AI_ERR["msg"] if c["key"] and time.time() - _AI_ERR["at"] < 3600 else ""
+    return {"ai": bool(c["key"]), "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE), "ai_error": err}
 
 
 # ---------- bloques de canciones ----------
@@ -613,13 +615,22 @@ def say(ctx, acct):
     except Exception:
         fx = {}
     text, ai = "", False
-    if cfg["key"] and m["ai"] < _AI_DAY:
+    if cfg["key"] and m["ai"] < _AI_DAY and time.time() > _AI_ERR["pause"]:
         try:
             text = _clean(_ai(c, fx, list(m["lines"]), cfg))
             ai = bool(text)
             m["ai"] += 1
+            _AI_ERR["msg"] = ""
         except Exception as e:
-            print("[dj] guion con IA fallo: %s" % e)
+            msg = str(e)
+            print("[dj] guion con IA fallo: %s" % msg, flush=True)
+            low = msg.lower()
+            _AI_ERR.update(at=time.time(), msg=(
+                "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)"
+                if "credit" in low else "La clave de Anthropic no es válida" if " 401 " in msg or "authentication" in low
+                else "La IA falló: " + msg[:120]))
+            if "credit" in low or " 401 " in msg:
+                _AI_ERR["pause"] = time.time() + 600   # sin saldo / clave mala: no reintentar en cada cancion
     if not text:
         text = _clean(_tmpl(c, fx))
     m["lines"].append(text)

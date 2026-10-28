@@ -89,8 +89,10 @@ def api(path, qs, d, ip):
                 return {"error": "Escribe tu nombre"}
             if len(r["guests"]) >= 12:
                 return {"error": "La fiesta está llena"}
+            # un movil que entra a traves del PC de un invitado: sigue vivo mientras ese PC lo este
+            parent = g("parent") if g("parent") in r["guests"] else ""
             gkey, pid = secrets.token_hex(16), "r" + secrets.token_hex(4)
-            r["guests"][gkey] = {"pid": pid, "name": name, "seen": now}
+            r["guests"][gkey] = {"pid": pid, "name": name, "seen": now, "parent": parent}
             _cmd(r, {"type": "join", "pid": pid, "name": name})
             return {"gkey": gkey, "pid": pid, "host": r["host"]}
         if not r:
@@ -122,7 +124,8 @@ def api(path, qs, d, ip):
             _wait(lambda: r["cid"] > since or ROOMS.get(code) is not r, 20, touch)
             t = time.time()
             return {"cmds": [c for c in r["cmds"] if c["id"] > since],
-                    "guests": {x["pid"]: round(t - x["seen"], 1) for x in r["guests"].values()}}
+                    "guests": {x["pid"]: round(t - r["guests"].get(x.get("parent"), x)["seen"], 1)
+                               for x in r["guests"].values()}}
         gst = r["guests"].get(g("gkey"))
         if not gst:
             _mark(ip, now)
@@ -133,8 +136,9 @@ def api(path, qs, d, ip):
             if not isinstance(c, dict) or c.get("type") not in _CMDS or len(json.dumps(c)) > 6000:
                 return {"error": "?"}
             _cmd(r, dict(c, pid=gst["pid"]))   # el id lo pone el punto de encuentro, no el invitado
-            if c["type"] == "leave":
-                r["guests"].pop(g("gkey"), None)
+            if c["type"] == "leave":   # con el PC se van sus moviles
+                for k in [k for k, x in r["guests"].items() if k == g("gkey") or x.get("parent") == g("gkey")]:
+                    r["guests"].pop(k, None)
             return {"ok": True}
         if path == "/party/state":
             try:

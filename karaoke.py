@@ -22,7 +22,9 @@ Un solo hilo reparte el trabajo por prioridad: cada cancion es un generador que 
 
 Fiesta online: otros PCs (de cualquier red) se unen con un codigo a traves de blyatt.stream (party.py). Este PC
 sigue siendo el anfitrion (jugadores, cola, ranking y turnos); el PC de quien canta pone la pista, le mide la voz y
-manda sus puntos y su nota; los demas ven quien canta y sus puntos en directo.
+manda sus puntos, su voz (la altura) y su nota. Cada PC prepara tambien las canciones de los demas: mientras
+alguien canta en otro PC, aqui suena la misma pista con la letra y su voz en el carril, un par de segundos detras.
+Los moviles se unen al PC que tienen cerca (anfitrion o invitado): los del invitado entran a la fiesta a traves de el.
 
 Los moviles usan un servidor aparte en la red local que SOLO tiene las rutas del karaoke (nada de la cuenta,
 la biblioteca ni el resto de la app). Hay dos puertas: http (entrar sin avisos) y https con un certificado
@@ -263,6 +265,18 @@ def _model_path(spec):
     return os.path.join(_dir("models"), spec["file"])
 
 
+def _retry(fn, *a):
+    """Renombrar/borrar un fichero recien escrito: en un PC nuevo el antivirus lo tiene abierto unos segundos
+    (WinError 5/32) y a la primera falla."""
+    for i in range(20):
+        try:
+            return fn(*a)
+        except PermissionError:
+            if i == 19:
+                raise
+            time.sleep(.5)
+
+
 def _download(spec, key="progress"):
     """Descarga verificada (sha256) a DATA/models; el progreso se ve en el PC."""
     fp = _model_path(spec)
@@ -284,9 +298,9 @@ def _download(spec, key="progress"):
                 ENG[key] = min(99, got * 100 // spec["size"])
                 _bump(soft=True)
     if h.hexdigest() != spec["sha256"]:
-        os.remove(part)
+        _retry(os.remove, part)
         raise IOError("el modelo descargado no coincide (sha256)")
-    os.replace(part, fp)
+    _retry(os.replace, part, fp)
     return fp
 
 
@@ -301,15 +315,22 @@ def _engine():
         if not os.path.isfile(os.path.join(d, "accompaniment.onnx")):
             ENG.update(status="download", progress=0)
             _bump()
-            tb = _download(SPLEETER)
+            tb, got = _download(SPLEETER), []
             with tarfile.open(tb, "r:bz2") as t:
                 for mem in t.getmembers():
                     name = os.path.basename(mem.name)
                     if mem.isfile() and name in ("vocals.onnx", "accompaniment.onnx"):
                         os.makedirs(d, exist_ok=True)
-                        with t.extractfile(mem) as src, open(os.path.join(d, name), "wb") as dst:
+                        out = os.path.join(d, name)
+                        with t.extractfile(mem) as src, open(out + ".part", "wb") as dst:   # a medias no cuenta
                             shutil.copyfileobj(src, dst)
-            os.remove(tb)
+                        got.append(out)
+            for out in sorted(got, key=lambda x: x.endswith("accompaniment.onnx")):   # el que se mira, el ultimo
+                _retry(os.replace, out + ".part", out)
+            try:
+                os.remove(tb)
+            except OSError:
+                pass
         ENG.update(status="loading", progress=100)
         _bump()
         threading.Thread(target=_w2v_fetch, daemon=True).start()
@@ -317,9 +338,13 @@ def _engine():
         _cpu("spl", (np.zeros((2, (SP_T - 1) * SP_H + SP_N), np.float32), SP_T))
         ENG.update(status="ready", error="", speed=round(SP_T * SP_H / SR / max(.05, time.time() - t), 1))
     except Exception as e:
+        print("[karaoke] motor de voz: %s" % e, flush=True)
         ENG.update(status="error", error=str(e)[:200])
         _bump()
         raise
+    for s in SONGS.values():   # lo que fallo por no tener motor (intentos anteriores) se vuelve a preparar
+        if s["status"] == "error" and s["error"] == _NO_ENG:
+            s.update(status="wait", error="")
     _bump()
 
 
@@ -947,14 +972,19 @@ def _evict():
         total -= sz
 
 
+def _mine(q):
+    """Fiesta online: la cancion se canta en este PC (aqui suena la pista y se mide la voz)."""
+    if PARTY["role"] == "guest":
+        return q.get("by") in PARTY["mine"]
+    return not (S["players"].get(q.get("by")) or {}).get("remote")
+
+
 def _order():
-    """Prioridad: la que suena, luego la cola en orden."""
-    out = []
-    # fiesta online: cada PC prepara solo lo que se canta en el (el invitado lo suyo; el anfitrion, lo que no es remoto)
-    mine = lambda q: q["by"] == PARTY["me"] if PARTY["role"] == "guest" else not (S["players"].get(q["by"]) or {}).get("remote")
-    if S["now"] and mine(S["now"]):
-        out.append(S["now"]["vid"])
-    out += [q["vid"] for q in S["queue"] if mine(q)]
+    """Prioridad: la que suena, luego la cola en orden. En la fiesta online tambien las que se cantan en otro PC
+    (mientras las cantan alli, aqui suenan con su letra), pero despues de las de este PC: un portatil lento no
+    debe hacer esperar a quien canta en el por preparar las de los demas."""
+    out = ([S["now"]["vid"]] if S["now"] else []) + [q["vid"] for q in S["queue"] if _mine(q)] \
+        + [q["vid"] for q in S["queue"] if not _mine(q)]
     seen = set()
     return [v for v in out if not (v in seen or seen.add(v))]
 
@@ -980,7 +1010,11 @@ def _step(table, vid, make):
         return None
 
 
+_NO_ENG = "motor de voz no disponible"
+
+
 def _worker():
+    fails = 0
     # prioridad normal a proposito: con el GIL en la mano, un hilo de baja prioridad sin CPU dejaria esperando a
     # los hilos que atienden a la pantalla y a los moviles (lo pesado va en el proceso de IA, de prioridad baja)
     while True:
@@ -992,12 +1026,17 @@ def _worker():
             time.sleep(1.5)   # que la sala se pinte antes de cargar nada
             try:
                 _engine()
+                fails = 0
             except Exception:
-                for v in _order():   # sin motor no hay pista sin voz: que no se queden esperando
-                    if SONGS.get(v) and SONGS[v]["status"] not in ("ready", "error"):
-                        SONGS[v].update(status="error", error="motor de voz no disponible")
-                _bump()
-                _WAKE.wait(30)
+                # la primera vez en un PC nuevo puede fallar por cosas pasajeras (red, antivirus): se reintenta
+                # enseguida sin tocar las canciones; si sigue sin ir, las que esperan se marcan para no atascarse
+                fails += 1
+                if fails >= 4:
+                    for v in _order():
+                        if SONGS.get(v) and SONGS[v]["status"] not in ("ready", "error"):
+                            SONGS[v].update(status="error", error=_NO_ENG)
+                    _bump()
+                _WAKE.wait(5 if fails < 4 else 30)
                 _WAKE.clear()
                 continue
         try:
@@ -1317,7 +1356,7 @@ def _pub():
             "engine": dict(ENG), "players": pl, "queue": [song(q) for q in S["queue"]], "now": now,
             "live": S["live"], "history": S["history"][-30:], "reacts": S["reacts"][-12:], "diff": S["diff"],
             "lang": S["lang"], "guide": S["guide"], "cmds": S["cmds"][-10:], "t": now_t, "sync": S["sync"],
-            "party": {k: PARTY[k] for k in ("role", "code", "me", "host", "ok", "err")}}
+            "party": dict({k: PARTY[k] for k in ("role", "code", "me", "host", "ok", "err")}, mine=sorted(PARTY["mine"]))}
 
 
 def wait_state(v, timeout=25.0):
@@ -1443,6 +1482,9 @@ def close_session():
 
 
 def _player(key):
+    if key and PARTY["role"] == "guest":   # movil unido a este PC invitado (los jugadores son reflejo del anfitrion)
+        ph = PARTY["phones"].get(key)
+        return (S["players"].get(ph["pid"]) or {"id": ph["pid"], "name": ph["name"]}) if ph else None
     return next((p for p in S["players"].values() if p["key"] == key), None) if key else None
 
 
@@ -1487,8 +1529,7 @@ def add(by, song):
         q["cover"] = ""
     S["queue"].append(q)
     _song(vid, song)
-    if not (S["players"].get(by) or {}).get("remote"):   # la de un PC remoto se baja y prepara alli
-        _prefetch(vid)
+    _prefetch(vid)   # tambien la de un PC remoto: aqui se ve y se oye mientras la cantan alli
     _WAKE.set()
     _bump()
     return {"ok": True, "qid": q["qid"], "pos": len(S["queue"])}
@@ -1626,10 +1667,23 @@ def live(d):
 
 
 def _sync(qid, d):
-    """Por donde va quien canta (para la barra de los que miran desde otro PC)."""
+    """Por donde va quien canta y su voz de los ultimos segundos ([t de la cancion, midi*10]): los que miran desde
+    otro PC ponen la pista ahi y dibujan su voz en el carril."""
     try:
-        S["sync"] = {"qid": qid, "pos": round(float(d.get("pos") or 0), 2), "dur": round(float(d.get("dur") or 0), 1),
-                     "run": d.get("run") is not False, "at": round(time.time(), 2)}
+        pos = round(float(d.get("pos") or 0), 2)
+        old = S["sync"] if S["sync"] and S["sync"]["qid"] == qid else {}
+        sing = [x for x in old.get("sing") or [] if x[0] > pos - 3]
+        last = sing[-1][0] if sing else -1
+        for x in (d.get("sing") if isinstance(d.get("sing"), list) else [])[-200:]:
+            try:
+                t, m = round(float(x[0]), 2), max(0, min(1500, int(x[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+            if t > last:
+                sing.append([t, m])
+                last = t
+        S["sync"] = {"qid": qid, "pos": pos, "dur": round(float(d.get("dur") or 0), 1),
+                     "run": d.get("run") is not False, "at": round(time.time(), 2), "sing": sing[-200:]}
     except (TypeError, ValueError):
         pass
 
@@ -1680,7 +1734,8 @@ def pcm(vid, n):
 
 # ---------------------------------------------------------------- fiesta online (PCs de otras redes)
 PARTY = {"role": "", "code": "", "hkey": "", "gkey": "", "me": "", "host": "", "ok": False, "err": "", "gen": 0,
-         "seen": {}, "out": queue.Queue()}   # out: ordenes del invitado al anfitrion, en orden (fase -> puntos -> nota)
+         "seen": {}, "out": queue.Queue(),   # out: ordenes del invitado al anfitrion, en orden (fase -> puntos -> nota)
+         "mine": set(), "phones": {}}   # invitado: jugadores que cantan en este PC (el y sus moviles); clave del movil -> su plaza
 _MIRROR = ("players", "queue", "now", "history", "live", "reacts", "diff", "sync")
 
 
@@ -1738,7 +1793,8 @@ def party_join(code, name):
     if d.get("error"):
         return d
     PARTY.update(role="guest", code=code, gkey=d["gkey"], me=d["pid"], host=d.get("host") or "", ok=True, err="",
-                 gen=PARTY["gen"] + 1, out=queue.Queue())   # cola propia: un hilo de una fiesta anterior no se la lleva
+                 gen=PARTY["gen"] + 1, out=queue.Queue(),   # cola propia: un hilo de una fiesta anterior no se la lleva
+                 mine={d["pid"]}, phones={})
     S.update(players={}, queue=[], now=None, history=[], live=None, reacts=[], sync=None)   # lo local no cuenta
     threading.Thread(target=_guest_pull, args=(PARTY["gen"],), daemon=True).start()
     threading.Thread(target=_guest_send, args=(PARTY["gen"], PARTY["out"]), daemon=True).start()
@@ -1750,7 +1806,7 @@ def party_stop():
     role, gen = PARTY["role"], PARTY["gen"]
     if not role:
         return {"ok": True}
-    PARTY.update(role="", ok=False, err="", gen=gen + 1)
+    PARTY.update(role="", ok=False, err="", gen=gen + 1, mine=set(), phones={})   # sus moviles salen con el
     code, hkey, gkey = PARTY["code"], PARTY["hkey"], PARTY["gkey"]
 
     def bye():
@@ -1870,7 +1926,7 @@ def _guest_pull(gen):   # invitado: el estado del anfitrion se refleja aqui (la 
         if PARTY["gen"] != gen:
             return
         if d.get("error") or d.get("closed"):
-            PARTY.update(role="", ok=False, err="La fiesta terminó", gen=gen + 1)
+            PARTY.update(role="", ok=False, err="La fiesta terminó", gen=gen + 1, mine=set(), phones={})
             S.update(players={}, queue=[], now=None, history=[], live=None, reacts=[], sync=None)
             _bump()
             return
@@ -1881,8 +1937,8 @@ def _guest_pull(gen):   # invitado: el estado del anfitrion se refleja aqui (la 
                 S[k] = st[k]
         if isinstance(st.get("players"), list):   # en publico van en lista (ordenados); aqui, por id como los locales
             S["players"] = {x["id"]: dict(x, key="") for x in st["players"] if isinstance(x, dict) and x.get("id")}
-        for q in S["queue"] + ([S["now"]] if S["now"] else []):   # lo que cantara este PC: a preparar ya
-            if q.get("by") == PARTY["me"] and re.fullmatch(r"[\w-]{6,20}", str(q.get("vid") or "")):
+        for q in ([S["now"]] if S["now"] else []) + S["queue"]:   # todo a preparar ya (lo de otros PCs, para verlo aqui)
+            if re.fullmatch(r"[\w-]{6,20}", str(q.get("vid") or "")):
                 _song(q["vid"], {"title": q.get("title"), "artist": q.get("artist"), "duration": q.get("dur")})
                 _prefetch(q["vid"])
         PARTY.update(ok=bool(d.get("host_on")), err="" if d.get("host_on") else "El anfitrión no responde")
@@ -1898,25 +1954,76 @@ def _guest_send(gen, out):
             continue
         if PARTY["gen"] != gen:
             return
+        gk = c.pop("_as", None) or PARTY["gkey"]   # lo de un movil de este PC va con su propia clave
         for _ in range(3):
             try:
-                _relay("/party/cmd", {"code": PARTY["code"], "gkey": PARTY["gkey"], "cmd": c}, timeout=15)
+                _relay("/party/cmd", {"code": PARTY["code"], "gkey": gk, "cmd": c}, timeout=15)
                 break
             except Exception:
                 time.sleep(1)
 
 
+def _gkey_of(pid):
+    return next((ph["gkey"] for ph in PARTY["phones"].values() if ph["pid"] == pid), PARTY["gkey"])
+
+
 def _fwd(t, **kw):
     if S["now"]:
         kw.setdefault("qid", S["now"]["qid"])
+        kw["_as"] = _gkey_of(S["now"]["by"])   # en nombre de quien canta (este PC o uno de sus moviles)
     PARTY["out"].put(dict(kw, type=t))
+
+
+def _phone_api(path, d):
+    """Movil unido a un PC invitado: entra en la fiesta del anfitrion a traves de este PC con su propia plaza (su
+    nombre, su cola y su nota); canta aqui, con este PC de escenario."""
+    if path == "/k/join":
+        name = re.sub(r"\s+", " ", (d.get("name") or "").strip())[:24]
+        if not name:
+            return {"error": "Escribe tu nombre"}
+        key = str(d.get("key") or "")
+        ph = PARTY["phones"].get(key)
+        if not ph:
+            if len(PARTY["phones"]) >= 8:
+                return {"error": "La sala está llena"}
+            try:
+                r = _relay("/party/join", {"code": PARTY["code"], "name": name, "parent": PARTY["gkey"]})
+            except Exception as e:
+                return {"error": _relay_err(e)}
+            if r.get("error"):
+                return r
+            key = os.urandom(12).hex()
+            ph = PARTY["phones"][key] = {"pid": r["pid"], "gkey": r["gkey"], "name": name}
+            PARTY["mine"].add(r["pid"])
+            for _ in range(16):   # su color lo pone el anfitrion: llega con el estado en un momento
+                if ph["pid"] in S["players"]:
+                    break
+                time.sleep(.25)
+        p = S["players"].get(ph["pid"]) or {}
+        return {"id": ph["pid"], "key": key, "name": p.get("name") or ph["name"], "color": p.get("color") or "#8e8e93"}
+    ph = PARTY["phones"].get(str(d.get("key") or ""))
+    if not ph:
+        return {"error": "join"}
+    if path == "/k/add":
+        song = d.get("song") or {}
+        if not re.fullmatch(r"[\w-]{6,20}", str(song.get("id") or "")):
+            return {"error": "Canción no válida"}
+        c = {"type": "add", "song": {k: song.get(k) for k in ("id", "title", "artist", "cover", "duration")}}
+    elif path == "/k/remove":
+        c = {"type": "remove", "qid": int(d.get("qid") or 0)}
+    else:
+        if d.get("e") not in EMOJI:
+            return {"error": "?"}
+        c = {"type": "react", "e": d.get("e")}
+    PARTY["out"].put(dict(c, _as=ph["gkey"]))
+    return {"ok": True}
 
 
 def _guest_api(path, d):
     """Invitado: lo de la cola va al anfitrion; lo de la cancion, solo si la canta este PC (y ademas aqui: el
     ancla y la comprobacion de la letra con el micro de este PC son locales)."""
     now = S["now"]
-    mine = bool(now and now["by"] == PARTY["me"])
+    mine = bool(now and now["by"] in PARTY["mine"])
     if path == "/kara/add":
         song = d.get("song") or {}
         if not re.fullmatch(r"[\w-]{6,20}", str(song.get("id") or "")):
@@ -1938,7 +2045,8 @@ def _guest_api(path, d):
     if path == "/kara/live":
         r = live(d)
         if mine:
-            _fwd("live", score=d.get("score"), rating=d.get("rating"), pos=d.get("pos"), dur=d.get("dur"), run=d.get("run"))
+            _fwd("live", score=d.get("score"), rating=d.get("rating"), pos=d.get("pos"), dur=d.get("dur"), run=d.get("run"),
+                 sing=(d.get("sing") if isinstance(d.get("sing"), list) else [])[-150:])
         return r
     if path == "/kara/result":
         if mine:
@@ -2040,8 +2148,9 @@ class _Guest(BaseHTTPRequestHandler):
             d = {}
         if not isinstance(d, dict):
             d = {}
-        if PARTY["role"] == "guest":
-            return self._out({"error": "Este karaoke está unido a una fiesta online: únete desde el anfitrión"}, status=409)
+        if PARTY["role"] == "guest" and u.path in ("/k/join", "/k/add", "/k/remove", "/k/react"):
+            r = _phone_api(u.path, d)
+            return self._out(r, status=401 if r.get("error") == "join" else 200)
         if u.path == "/k/join":
             return self._out(join(d.get("name"), d.get("key")))
         p = _player(d.get("key"))

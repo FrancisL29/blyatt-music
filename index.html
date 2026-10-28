@@ -1426,7 +1426,7 @@
   .kpst { font-size: .84rem; color: rgb(255 255 255 / .55); display: inline-flex; align-items: center; gap: 6px; }
   .kpst::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ff9f0a; }
   .kpst.ok::before { background: #30d158; box-shadow: 0 0 8px #30d158; }
-  #kLobby.guest .kqrcard, #kLobby.guest .kaddr, #kLobby.guest .kh2 { display: none; }
+  body.kara-watch .kctl #kPlay, body.kara-watch #kMicWarn { display: none; }   /* mirando: canta y manda otro PC */
   #kLobby.guest .kdiffs { pointer-events: none; opacity: .75; }   /* la dificultad la elige el anfitrion */
   .kremote { font-size: 1.25rem; color: #64d2ff; flex: none; }
   /* anadir canciones desde el PC (quien juega en un PC remoto elige aqui las suyas) */
@@ -2134,7 +2134,7 @@ const EN = {
   "¡Buen intento!": "Nice try!", "A continuación": "Up next", "Elige otra canción desde el móvil": "Pick another song from your phone",
   "canción": "song", "canciones": "songs", "Aún no se ha unido nadie": "Nobody has joined yet",
   "La cola está vacía: elige canciones desde el móvil": "The queue is empty: pick songs from your phone",
-  "Motor de voz listo": "Vocal engine ready", "El motor de voz no está disponible": "The vocal engine is not available",
+  "Motor de voz listo": "Vocal engine ready", "reintentando…": "retrying…", "El motor de voz no está disponible": "The vocal engine is not available",
   "Preparando el motor de voz…": "Preparing the vocal engine…", "No se pudo abrir el karaoke": "Could not open the karaoke",
   "Pulsa otra vez para salir del karaoke": "Press again to leave the karaoke",
   "Dificultad": "Difficulty", "Fácil": "Easy", "Difícil": "Hard", "Clasificación": "Leaderboard",
@@ -6842,10 +6842,10 @@ function kpSchedule() {   // programa lo descargado hasta ~25 s por delante
 }
 const kpPos = () => KP.started ? Math.max(0, KP.ctx.currentTime - KP.t0) : 0;
 const kpAhead = () => KP.sched * K_STEP / K_SR - kpPos();   // segundos ya programados por delante
-function kpStart() {
+function kpStart(at = 0) {   // `at`: segundo de la cancion por el que empieza (negativo: empieza dentro de un rato)
   const ctx = kpCtx();
   ctx.resume();
-  KP.t0 = ctx.currentTime + .12; KP.started = true;
+  KP.t0 = ctx.currentTime + .12 - at; KP.started = true;
   KS.outLat = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
   KS.lat = KS.outLat + .045;   // + media ventana del analisis del micro y su latencia de entrada
   kpSchedule();
@@ -7231,12 +7231,20 @@ function kLive() {   // puntos para los moviles + ancla del reloj de la cancion;
   // al acabar, la pista ya se paro: se manda donde acabo (y que el tiempo siga, para comprobar lo que quede)
   const sing = KS.phase === "sing";
   return kpost("/kara/live", { score: kScoreNow(), rating: KS.rating, pos: sing ? kpPos() : KS.endPos, wall: Date.now() / 1000,
-                               dur: (KS.info && KS.info.dur) || 0,
+                               dur: (KS.info && KS.info.dur) || 0, sing: kSingOut(),
                                lat: KS.outLat + .03, src: KS.src, run: !sing || (KP.started && !KP.paused && !KP.stalled) }).then(r => {
     if (r && r.verify) for (const [i, c] of Object.entries(r.verify)) KS.lfac[+i] = c;
     if (r && "vok" in r) KS.vok = r.vok;
     return r;
   });
+}
+function kSingOut() {   // fiesta online: la voz medida desde el ultimo envio, [t, midi*10] (0 = silencio)
+  if (!kParty().role) return undefined;
+  const out = [];
+  for (let i = KS.sing.length - 1; i >= 0 && KS.sing[i].t > KS.sent && out.length < 150; i--)
+    out.push([Math.round(KS.sing[i].t * 100) / 100, Math.round((KS.sing[i].m || 0) * 10)]);
+  if (out.length) KS.sent = out[0][0];
+  return out.reverse();
 }
 function kLoop() {
   if (!KS.on) return;
@@ -7251,6 +7259,7 @@ function kLoop() {
   }
   if (KS.phase === "intro") return kIntroTick(now);
   if (KS.phase === "spect") return kSpectPaint();
+  if (KS.phase === "watch") return kWatchTick(now);
   if (KS.phase === "results") return kResTick(now);
   if (KS.phase !== "sing") return;
   const pos = kpPos(), info = KS.info;
@@ -7284,29 +7293,108 @@ function kStall(on) { $("kStall").classList.toggle("on", on); }
    pista, mide su voz y manda puntos y nota; los demas PCs miran (quien canta, por donde va, sus puntos) */
 const kParty = () => (KS.st && KS.st.party) || {};
 const kGuest = () => kParty().role === "guest";
-const kMine = (now) => kGuest() ? now.by === kParty().me : !kPl(now.by).remote;
+// en el invitado cantan aqui el y los moviles que se unieron a este PC
+const kMine = (now) => kGuest() ? (kParty().mine || [kParty().me]).includes(now.by) : !kPl(now.by).remote;
 function kStartSong(now) {
   kpReset(); kLyrClear(); kStall(false); KS.micGen++;
   if (kMine(now)) kIntro(now); else kSpect(now);
 }
-function kSpect(now) {   // la canta alguien desde otro PC
-  KS.phase = "spect"; KS.now = now;
+function kSongReset(now) {   // estado limpio para una cancion (la de este PC o la que se mira)
+  Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0,
+                      fp: null, lit: null, sing: [], shown: 0, rating: "", lineAi: -1, pend: [], heard: 0, raw3: [],
+                      introAt: performance.now(), countAt: 0, lines: [], li: 0, lp: [], lfac: [], p0: 0, vel: 0,
+                      sent: -1, syn: -1, noWatch: false, wRate: "" });
+  KC.y = 0;
+  $("kScore").textContent = "0";
+  KP.vid = now.vid; kpCtx();
   const big = hiCover(now.cover), p = kPl(now.by);
   $("kInCov").src = big || ""; $("kInT").textContent = now.title; $("kInA").textContent = now.artist;
-  $("kInBy").innerHTML = `${kAv(p)}<div>${esc(p.name)} <span>${esc(t("canta desde su PC"))}</span></div>`;
-  $("lcover").src = big || ""; lyrBg(big || now.cover);
+  $("kSinger").innerHTML = `${kAv(p)}<div><div class="ksn">${esc(p.name)}</div><div class="kss">${esc(now.title)} · ${esc(now.artist)}</div></div>`;
+  $("lcover").src = big || ""; $("lsideT").textContent = now.title; $("lsideA").textContent = now.artist;
+  lyrBg(big || now.cover);
   $("kInNum").textContent = "";
-  kScreen("kIntro"); kSpectPaint();
+  return p;
+}
+// la canta alguien desde otro PC: este PC prepara la misma pista y, mientras canta, la pone con la letra y su voz
+// en el carril (K_WATCH s por detras: su voz llega a golpes de ~1 s y asi ya esta aqui cuando toca dibujarla)
+const K_WATCH = 2;
+function kSpect(now) {
+  KS.phase = "spect"; KS.now = now;
+  const p = kSongReset(now);
+  $("kInBy").innerHTML = `${kAv(p)}<div>${esc(p.name)} <span>${esc(t("canta desde su PC"))}</span></div>`;
+  kScreen("kIntro"); kInfoPoll(now.qid); kSpectPaint();
+}
+function kSyPos() {   // por donde va quien canta: lo ultimo que llego + lo que ha pasado desde entonces
+  const n = KS.st && KS.st.now, sy = KS.sy && KS.now && KS.sy.qid === KS.now.qid ? KS.sy : null;
+  return sy ? sy.pos + (sy.run && n && n.phase === "sing" ? (performance.now() - KS.syAt) / 1000 : 0) : null;
+}
+function kCanWatch(at) {   // la pista ya preparada aqui hasta un poco despues de `at` y la letra lista
+  const i = KS.info, L = K_STEP / K_SR;
+  if (!i || !i.nch || !KS.lyr || i.status === "error") return false;
+  if (i.align === "pending" && i.aligned_upto < Math.min(i.dur, at + 20)) return false;
+  return i.status === "ready" || i.chunks * L > at + 15;
+}
+function kWatchStart(at) {   // la pista empieza (kWatchTick) en cuanto llega su primer trozo: sin atascos al entrar
+  kpReset(); KP.vid = KS.now.vid;
+  KP.fetched = KP.sched = Math.max(0, Math.floor(at * K_SR / K_STEP));
+  KS.ev = Math.max(KS.ev, Math.floor(Math.max(0, at) / K_FR));
+  if (KS.phase !== "watch") {
+    KS.phase = "watch"; kScreen(null);
+    if (KS.lyr && !LYR.items.length) kLyrBuild(KS.lyr);
+    requestAnimationFrame(() => { kPitchSize(); lyrMeasure(); });
+  }
+  kpFetch();
+}
+function kWatchStop(fade) {
+  if (fade && KP.started) {
+    const g = KP.inst.gain, t0 = KP.ctx.currentTime, gen = KP.gen;
+    g.setValueAtTime(g.value, t0); g.linearRampToValueAtTime(0, t0 + 1.2);
+    setTimeout(() => { if (KP.gen === gen) kpReset(); }, 1300);
+  } else kpReset();
+  KP.vid = KS.now && KS.now.vid;
+}
+function kWatchTick(now) {
+  const st = KS.st, n = st && st.now, info = KS.info;
+  if (!n || !KS.now || n.qid !== KS.now.qid || !info) return;
+  if (n.phase === "results") { kWatchStop(true); return kSpectResult(n); }
+  if (KS.noWatch) { kWatchStop(false); KS.phase = "spect"; kScreen("kIntro"); return; }   // aqui no se pudo preparar
+  const sp = kSyPos(), run = n.phase === "sing" && KS.sy && KS.sy.run;
+  if (!KP.started) { if (sp != null && KP.bufs.has(KP.sched)) kpStart(sp - K_WATCH); else return; }
+  if (!run !== KP.paused) kpPause(!run);   // pausa y sigue con quien canta
+  if (run && sp != null && !KP.stalled && Math.abs(KP.ctx.currentTime - KP.t0 - (sp - K_WATCH)) > 1.5) {   // se desfaso (red, pausa larga): se recoloca
+    if (kCanWatch(Math.max(0, sp - K_WATCH))) return kWatchStart(sp - K_WATCH);
+    kWatchStop(false); KS.phase = "spect"; kScreen("kIntro"); return;   // aqui va mas lento que alli: vuelve cuando alcance
+  }
+  if (KP.started && !KP.paused && !KP.stalled && KP.sched < info.nch && kpAhead() < .3) { KP.stalled = true; KP.ctx.suspend(); kStall(true); }
+  if (now - (KS._sch || 0) > 500) { KS._sch = now; kpSchedule(); }
+  const refNow = kpPos() - KS.lat;
+  while (KS.sing.length && KS.sing[0].t < refNow - 4) KS.sing.shift();
+  if (KS.ref) while (KS.ev < KS.ref.length && KS.ev * K_FR < refNow - kDiff().w - .1) kEval(KS.ev++);   // notas acertadas
+  const lv = st.live && st.live.qid === n.qid ? st.live : null;   // sus puntos y su valoracion, los de su PC
+  KS.shown += ((lv ? lv.score : 0) - KS.shown) * .12;
+  $("kScore").textContent = kNum(KS.shown);
+  if (lv && lv.rating && lv.rating !== KS.wRate) {
+    const el = $("kRate");
+    el.textContent = lv.rating; el.style.setProperty("--c", kPl(n.by).color);
+    el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+  }
+  KS.wRate = lv ? lv.rating : "";
+  kDraw(now);
 }
 function kSpectPaint() {   // preparando / cantando (por donde va y sus puntos) / su nota
   const st = KS.st, n = st && st.now;
   if (!n || !KS.now || n.qid !== KS.now.qid) return;
+  if (KS.phase === "watch") return;   // eso ya lo lleva kWatchTick
   if (n.phase === "results") return kSpectResult(n);
   const lv = st.live && st.live.qid === n.qid ? st.live : null, sy = KS.sy && KS.sy.qid === n.qid ? KS.sy : null;
   const singing = n.phase === "sing" || n.phase === "paused";
+  if (n.phase === "sing" && sy && sy.run && !KS.noWatch && KP.ctx) {   // a verla y oirla aqui en cuanto este lista
+    const at = kSyPos() - K_WATCH;
+    if (kCanWatch(Math.max(0, at))) return kWatchStart(at);
+  }
   let txt = n.phase === "count" ? t("¡Prepárate!") : t("Preparando la pista en su PC…"), pr = 0;
   if (singing) {
-    const pos = sy ? sy.pos + (sy.run && n.phase === "sing" ? (performance.now() - KS.syAt) / 1000 : 0) : 0;
+    const pos = kSyPos() || 0;
     pr = sy && sy.dur ? Math.max(.01, Math.min(1, pos / sy.dur)) : .01;
     txt = (n.phase === "paused" ? t("En pausa") : t("Cantando")) + (lv ? " · " + kNum(lv.score) + " " + t("puntos") : "");
   }
@@ -7392,7 +7480,8 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".kadd")) $("k
 /* ---------- fases: sala -> presentacion -> cantar -> resultados -> siguiente / clasificacion ---------- */
 function kScreen(id) {
   ["kLobby", "kIntro", "kRes", "kBoardS"].forEach(x => $(x).classList.toggle("on", x === id));
-  document.body.classList.toggle("kara-sing", KS.phase === "sing");
+  document.body.classList.toggle("kara-sing", KS.phase === "sing" || KS.phase === "watch");
+  document.body.classList.toggle("kara-watch", KS.phase === "watch");
   document.body.classList.toggle("kara-int", KS.phase === "intro");
   $("kLobX").hidden = KS.phase === "sing" || KS.phase === "intro";
   $("kPause").classList.toggle("on", KS.phase === "sing" && KP.paused);
@@ -7425,20 +7514,9 @@ async function kNext() {
 }
 function kIntro(now) {
   KS.phase = "intro"; KS.now = now;
-  Object.assign(KS, { info: null, lyr: null, lrev: -1, pitchRaw: [], ref: null, notes: [], voiced: 0, ev: 0,
-                      fp: null, lit: null, sing: [], shown: 0, rating: "", lineAi: -1, pend: [], heard: 0, raw3: [],
-                      introAt: performance.now(), countAt: 0, lines: [], li: 0, lp: [], lfac: [], p0: 0, vel: 0 });
-  KC.y = 0;
-  $("kScore").textContent = "0";
-  KP.vid = now.vid; kpCtx();
-  const big = hiCover(now.cover);
-  $("kInCov").src = big || ""; $("kInT").textContent = now.title; $("kInA").textContent = now.artist;
-  const p = kPl(now.by);
+  const p = kSongReset(now);
   $("kInBy").innerHTML = `${kAv(p)}<div>${esc(p.name)} <span>${esc(t("canta"))}</span></div>`;
-  $("kSinger").innerHTML = `${kAv(p)}<div><div class="ksn">${esc(p.name)}</div><div class="kss">${esc(now.title)} · ${esc(now.artist)}</div></div>`;
-  $("lcover").src = big || ""; $("lsideT").textContent = now.title; $("lsideA").textContent = now.artist;
-  lyrBg(big || now.cover);
-  $("kInNum").textContent = ""; $("kInSt").textContent = t("Preparando la pista…");
+  $("kInSt").textContent = t("Preparando la pista…");
   kScreen("kIntro");
   kInfoPoll(now.qid);
   if (now.by) kPhoneMic(now.by);
@@ -7455,7 +7533,7 @@ async function kInfoPoll(qid) {   // estado del procesado + melodia (incremental
       KS.info = d;
       if (d.lyrics) { const first = !KS.lyr; KS.lyr = d.lyrics; KS.lrev = d.lrev; first ? kLyrBuild(d.lyrics) : kLyrUpdate(d.lyrics); }
       kpFetch();
-      if (d.status === "error") { kSongError(d.error); return; }
+      if (d.status === "error") { if (kMine(KS.now)) kSongError(d.error); else KS.noWatch = true; return; }   // la de otro PC: se mira sin pista
       if (d.status === "ready" && KS.lyr && d.align !== "pending") return;
     }
     await kWait(d && d.status === "ready" ? 1500 : 600);
@@ -7493,6 +7571,7 @@ function kIntroTick(now) {
     let pr = 0, txt = t("Preparando la pista…");
     if (eng && eng.status === "download") { pr = eng.progress / 100; txt = t("Descargando el motor de voz (solo la primera vez)") + " · " + eng.progress + "%"; }
     else if (eng && eng.status === "loading") txt = t("Cargando el motor de voz…");
+    else if (eng && eng.status === "error") txt = t("El motor de voz no está disponible") + " · " + t("reintentando…");
     else if (i && (i.status === "download" || i.status === "wait")) txt = t("Descargando la canción…");
     else if (i && i.status === "sep" && i.chunks < kNeed()) { pr = i.chunks / Math.max(1, kNeed()); txt = t("Quitando la voz…") + " " + Math.round(Math.min(1, pr) * 100) + "%"; }
     else if (i && i.align === "pending" && i.aligned_upto < Math.min(i.dur, 20)) { pr = Math.min(1, i.aligned_upto / 20); txt = t("Sincronizando la letra…"); }
@@ -7524,7 +7603,7 @@ function kSing() {
 function kLyrBuild(d) {
   LYR.clock = {
     time: () => Math.max(0, kpPos() - KS.outLat),
-    paused: () => KS.phase !== "sing" || KP.paused || KP.stalled,
+    paused: () => (KS.phase !== "sing" && KS.phase !== "watch") || KP.paused || KP.stalled,
     dur: () => (KS.info && KS.info.dur) || 0,
   };
   LYR.for = null; lyricsFor = null;
@@ -7537,7 +7616,7 @@ function kLyrBuild(d) {
 function kLyrUpdate(d) {
   const lines = (d.lines || []).filter(l => (l.text || "").replace(/[♪♫♬~\s]/g, ""));
   const items = LYR.items.filter(it => it.kind === "line");
-  if (KS.phase !== "sing" || LYR.isStatic || items.length !== lines.length) return kLyrBuild(d);
+  if ((KS.phase !== "sing" && KS.phase !== "watch") || LYR.isStatic || items.length !== lines.length) return kLyrBuild(d);
   const ahead = (kpPos() + 1.5) * 1000;
   lines.forEach((l, i) => {
     const it = items[i], syl = (l.syllabus || []).filter(sy => sy.text.replace(/\s+$/, ""));
@@ -7629,8 +7708,8 @@ function kApply(st) {
   kSetHtml($("kPlayers"), pl.length ? pl.map(p => `<span class="kplayer" data-id="${esc(p.id)}">${kAv(p, "sm")}${esc(p.name)}${p.mic ? ' <i class="ph-fill ph-microphone"></i>' : ""}</span>`).join("")
     : `<span class="kempty">${esc(t("Aún no se ha unido nadie"))}</span>`);
   kSetHtml($("kLobQ"), st.queue.length ? st.queue.slice(0, 5).map(q => { const p = kPl(q.by);
-    // la de otro PC (fiesta online) se prepara alli: aqui un globo en vez del progreso
-    return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kMine(q) ? kRing(q) : '<i class="ph ph-globe-hemisphere-west kremote" title="' + esc(t("Se canta desde otro PC")) + '"></i>'}</div>`; }).join("")
+    // la de otro PC (fiesta online) se canta alli (un globo) y se prepara tambien aqui, para verla y oirla
+    return `<div class="kqi"><img src="${esc(q.cover)}" alt=""><div class="kqm"><div class="kqt">${esc(q.title)}</div><div class="kqa">${esc(q.artist)}</div></div><span class="kqby">${kAv(p, "sm")}${esc(p.name)}</span>${kMine(q) ? "" : '<i class="ph ph-globe-hemisphere-west kremote" title="' + esc(t("Se canta desde otro PC")) + '"></i>'}${kRing(q)}</div>`; }).join("")
     : `<span class="kempty">${esc(t(kGuest() ? "La cola está vacía: busca una canción para cantar" : "La cola está vacía: elige canciones desde el móvil o con el buscador"))}</span>`);
   const e = st.engine || {};
   kSetHtml($("kEng"), e.status === "ready" ? `<i class="ph ph-check-circle"></i>${esc(t("Motor de voz listo"))}`
@@ -7647,14 +7726,18 @@ function kApply(st) {
   for (const c of st.cmds) if (c.id > KS.cmdSeen) { KS.cmdSeen = c.id; kCmd(c); }
   if (typeof st.guide === "number" && st.guide !== kSet.guide) kGuide(st.guide, false);
   kPaintParty(st);
-  if (st.sync && (!KS.sy || st.sync.at !== KS.sy.at)) { KS.sy = st.sync; KS.syAt = performance.now(); }
+  if (st.sync && (!KS.sy || st.sync.at !== KS.sy.at)) {
+    KS.sy = st.sync; KS.syAt = performance.now();
+    if ((KS.phase === "spect" || KS.phase === "watch") && KS.now && st.sync.qid === KS.now.qid)
+      for (const [tt, m] of st.sync.sing || []) if (tt > KS.syn) { KS.syn = tt; kPush(tt, m / 10); }
+  }
   // fiesta online: la cancion cambia sin que este PC pida "siguiente" (avanza el anfitrion, o canta otro PC)
   if (st.party && st.party.role && KS.on && !KS._nexting) {
     const sn = st.now;
     if (sn && (!KS.now || sn.qid !== KS.now.qid)) kStartSong(sn);
     else if (!sn && KS.now && KS.phase !== "lobby" && KS.phase !== "board") { kpReset(); kLyrClear(); st.history.length ? kBoard() : kLobby(); }
   }
-  if (KS.phase === "spect") kSpectPaint();
+  if (KS.phase === "spect" || KS.phase === "watch") kSpectPaint();
   if (KS.phase === "results" && KS.now) kPaintBoard(KS.now.by);
   if ((KS.phase === "lobby" || KS.phase === "board") && st.queue.length && !KS._nexting)
     setTimeout(() => { if ((KS.phase === "lobby" || KS.phase === "board") && KS.st.queue.length) kNext(); }, 1200);
@@ -7739,7 +7822,7 @@ function karaClose() {
   kpReset(); kMicStop();
   LYR.clock = null; LYR.for = null; lyricsFor = null;
   lyrBuild({ lines: [] }); $("lbody").innerHTML = "";
-  document.body.classList.remove("kara-on", "kara-sing", "kara-int");
+  document.body.classList.remove("kara-on", "kara-sing", "kara-int", "kara-watch");
   $("kara").hidden = true; $("kSet").hidden = true;
   if (KS.prevShow) loadLyrics(); else $("lyricsPanel").classList.remove("show");
   kpost("/kara/close").catch(() => {});
@@ -7752,7 +7835,7 @@ function kTogglePause() {
   kpost("/kara/phase", { phase: KP.paused ? "paused" : "sing" }).then(() => { if (!KP.paused) return kLive(); }).catch(() => {});
 }
 function kSkip() {
-  if (KS.phase === "sing" || KS.phase === "intro" || KS.phase === "results" || KS.phase === "spect") kNext();
+  if (["sing", "intro", "results", "spect", "watch"].includes(KS.phase)) kNext();
 }
 function kExitAsk() {
   const t0 = performance.now();

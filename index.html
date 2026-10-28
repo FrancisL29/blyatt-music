@@ -543,8 +543,11 @@
   body.dj-on .djart-orb, body.dj-on .djart-orb i { animation-duration: 2.6s; }
   .djlibcard.busy .djart-orb i { animation: gspin 1s linear infinite; }
   /* osciloscopio: la voz de Lara dibujada en vivo sobre la portada (vista Reproduciendo / pantalla completa) */
-  #djScope { position: absolute; pointer-events: none; z-index: 3; opacity: 0; transition: opacity .35s; border-radius: 10px; }
-  #djScope.on { opacity: 1; }
+  /* negro sobre la portada mientras habla; al terminar se desvanece despacio y vuelve la portada */
+  #djScope { position: absolute; pointer-events: none; z-index: 3; opacity: 0; border-radius: 10px; background: #000;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06), inset 0 0 60px rgb(0 0 0 / .9);
+    transition: opacity 1.1s cubic-bezier(.4, 0, .2, 1), filter 1.1s; filter: blur(6px); }
+  #djScope.on { opacity: 1; filter: none; transition-duration: .45s; }
   .lside { position: relative; }
   .djmini { width: 60px; height: 24px; flex: none; margin-top: 3px; }
   @keyframes djspin { to { rotate: 360deg; } }
@@ -8068,56 +8071,73 @@ setInterval(() => {
 $("djLib").onclick = () => { if (DJ.on) djOpenView(); else djStart(true); };
 $("djLib").oncontextmenu = (e) => { if (!DJ.on) return; e.preventDefault(); djMenu($("djLib")); };
 
-/* osciloscopio: la voz de Lara (AnalyserNode) dibujada como una linea viva sobre la portada y en los subtitulos */
-const djAn = AC.createAnalyser(); djAn.fftSize = 2048; djAn.smoothingTimeConstant = 0;
+/* osciloscopio: la voz de Lara (AnalyserNode) como una linea de puntos sobre negro que tapa la portada mientras
+   habla; al callarse los puntos se aplanan y el negro se desvanece hasta la portada. Tambien en los subtitulos */
+const djAn = AC.createAnalyser(); djAn.fftSize = 2048; djAn.smoothingTimeConstant = .6;
 const _djWave = new Float32Array(djAn.fftSize);
-let _djRaf = 0, _djLvl = 0, _djGain = 4;
+let _djRaf = 0, _djLvl = 0, _djGain = 6, _djAcc = "#2e7dff", _djAccAt = 0;
 function djScopeHost() {
   if (npOpen) return [npv.querySelector(".np-art"), $("npCover")];
   if (document.body.classList.contains("lyr-full")) return [document.querySelector(".lside"), $("lcover")];
   return null;
 }
 function djScopeStart() { if (!_djRaf) _djRaf = requestAnimationFrame(djScopeDraw); }
-function _djLine(cv, ctx, w, h, amp, glow) {
-  const n = 256, step = _djWave.length / n, mid = h / 2;
-  ctx.clearRect(0, 0, w, h);
-  ctx.lineWidth = Math.max(1.5, h / 70); ctx.lineJoin = ctx.lineCap = "round";
-  ctx.strokeStyle = "#fff"; ctx.shadowColor = getComputedStyle(document.body).getPropertyValue("--accent") || "#2e7dff"; ctx.shadowBlur = glow;
-  ctx.beginPath();
+// n puntos redondos a lo ancho; cada uno sigue la onda (suavizada) y brilla mas cuanto mas se aleja del centro
+const _djSm = { big: new Float32Array(72), mini: new Float32Array(22) };   // posicion suavizada de cada punto
+const _djF = new Uint8Array(djAn.frequencyBinCount);
+let _djL = 0;   // intensidad de la voz (0-1), suavizada
+// n puntos redondos a lo ancho formando una onda fluida: su altura es la intensidad de la voz y su forma sale de
+// las frecuencias (graves en el centro, agudos hacia los bordes); cada punto se desliza hacia su sitio
+function _djDots(ctx, w, h, amp, n, r, glow, trail, st, t) {
+  if (trail) { ctx.fillStyle = "rgba(0,0,0," + trail + ")"; ctx.fillRect(0, 0, w, h); }   // estela tenue de fosforo
+  else ctx.clearRect(0, 0, w, h);
+  const pad = w * .1, span = w - pad * 2, mid = h / 2;
+  ctx.shadowColor = _djAcc; ctx.shadowBlur = glow;
   for (let i = 0; i < n; i++) {
-    const x = i / (n - 1) * w, env = Math.sin(Math.PI * i / (n - 1));   // bordes en reposo: la linea "sale" del centro
-    const y = mid + Math.max(-1, Math.min(1, _djWave[Math.floor(i * step)] * _djGain)) * amp * env;
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    const u = i / (n - 1), c = Math.abs(2 * u - 1), env = Math.pow(Math.cos(c * Math.PI / 2), 1.3);
+    const e = _djF[4 + Math.floor(c * 150)] / 255;   // ~90 Hz en el centro -> ~3.5 kHz en los bordes
+    const wave = Math.sin(u * 6 * Math.PI + t * 5.2) * .75 + Math.sin(u * 13 * Math.PI - t * 8.3) * .25;
+    const target = env * _djL * (.3 + .7 * e) * wave;
+    st[i] += (target - st[i]) * .22;
+    const d = Math.max(-1, Math.min(1, st[i]));
+    const a = .3 + .7 * Math.min(1, Math.abs(d) * 2.4 + env * .25);
+    ctx.fillStyle = "rgba(255,255,255," + a.toFixed(3) + ")";
+    ctx.beginPath(); ctx.arc(pad + u * span, mid + d * amp, r * (.7 + .6 * Math.min(1, Math.abs(d) * 2)), 0, 6.2832); ctx.fill();
   }
-  ctx.stroke();
+  ctx.shadowBlur = 0;
 }
 function djScopeDraw() {
   _djRaf = 0;
-  const talking = !!DJ.voice;
-  if (talking && DJ.voice.src) djAn.getFloatTimeDomainData(_djWave);
-  else if (talking) { const t0 = performance.now() / 1000; for (let i = 0; i < _djWave.length; i++) _djWave[i] = .18 * Math.sin(i / 40 + t0 * 9) * Math.sin(i / 300 + t0 * 2); }   // iPhone: sin analizador
-  else _djWave.fill(0);
-  let pk = 0; for (let i = 0; i < _djWave.length; i += 4) pk = Math.max(pk, Math.abs(_djWave[i]));
-  _djGain += ((pk > .02 ? Math.min(8, .85 / pk) : _djGain) - _djGain) * .08;   // ganancia automatica: la linea siempre se ve
-  _djLvl += ((talking ? 1 : 0) - _djLvl) * .12;
-  // portada (vista Reproduciendo / pantalla completa)
+  const talking = !!DJ.voice, now = performance.now();
+  if (now - _djAccAt > 1000) { _djAccAt = now; _djAcc = (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim() || "#2e7dff"; }
+  const t = now / 1000;
+  let rms = 0;
+  if (talking && DJ.voice.src) {
+    djAn.getFloatTimeDomainData(_djWave); djAn.getByteFrequencyData(_djF);
+    for (let i = 0; i < _djWave.length; i += 2) rms += _djWave[i] * _djWave[i];
+    rms = Math.sqrt(rms / (_djWave.length / 2));
+  } else if (talking) {   // iPhone (<audio>, sin analizador): voz simulada
+    rms = .08 * (.6 + .4 * Math.sin(t * 7) * Math.sin(t * 2.3)); _djF.fill(150);
+  } else _djF.fill(0);
+  if (rms > .01) _djGain += (Math.min(14, .9 / rms) - _djGain) * .02;   // ganancia automatica lenta: voz floja o fuerte se ve igual
+  _djL += (Math.min(1, rms * _djGain) - _djL) * (rms * _djGain > _djL ? .35 : .12);   // sube rapido, baja suave
+  _djLvl += ((talking ? 1 : 0) - _djLvl) * (talking ? .18 : .06);
+  // portada (vista Reproduciendo / pantalla completa): panel negro del tamano exacto de la portada
   let sc = $("djScope"); const host = djScopeHost();
   if (!sc) { sc = document.createElement("canvas"); sc.id = "djScope"; }
-  if (host && host[1] && _djLvl > .01) {
+  if (host && host[1]) {
     const [box, img] = host;
     if (sc.parentNode !== box) box.appendChild(sc);
-    const dpr = Math.min(2, devicePixelRatio || 1), w = img.offsetWidth, h = Math.round(w * .5);
-    sc.style.left = img.offsetLeft + "px"; sc.style.top = (img.offsetTop + (img.offsetHeight - h) / 2) + "px";
-    sc.style.width = w + "px"; sc.style.height = h + "px";
-    if (sc.width !== Math.round(w * dpr)) { sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr); }
+    const dpr = Math.min(2, devicePixelRatio || 1), w = img.offsetWidth, h = img.offsetHeight;
+    sc.style.left = img.offsetLeft + "px"; sc.style.top = img.offsetTop + "px";
+    sc.style.width = w + "px"; sc.style.height = h + "px"; sc.style.borderRadius = getComputedStyle(img).borderRadius;
+    if (sc.width !== Math.round(w * dpr) || sc.height !== Math.round(h * dpr)) { sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr); }
     sc.classList.toggle("on", talking);
-    const c = sc.getContext("2d");
-    c.globalAlpha = Math.min(1, _djLvl * 1.2);
-    _djLine(sc, c, sc.width, sc.height, sc.height * .42 * _djLvl, 18 * dpr);
+    _djDots(sc.getContext("2d"), sc.width, sc.height, sc.height * .3 * _djLvl, 72, Math.max(1.6, sc.width / 190), 10 * dpr, .5, _djSm.big, t);
   } else if (sc.parentNode) sc.classList.remove("on");
   // subtitulos
-  const mc = document.querySelector(".djmini"), m = mc.getContext("2d");
-  _djLine(mc, m, mc.width, mc.height, mc.height * .45, 6);
+  const mc = document.querySelector(".djmini");
+  _djDots(mc.getContext("2d"), mc.width, mc.height, mc.height * .45 * Math.max(.15, _djLvl), 22, 2.2, 5, 0, _djSm.mini, t);
   if (talking || _djLvl > .01) _djRaf = requestAnimationFrame(djScopeDraw);
 }
 

@@ -3962,6 +3962,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(D.plan(d))
             if u.path == "/dj/say":
                 return self._json(D.say(d, _bid_file()))
+            if u.path == "/dj/script":   # solo el guion (la app de escritorio sin clave propia; la voz la hace ella)
+                acct = self.headers.get("X-Blyatt-Acct", "")
+                return self._json(D.script(d, acct if re.fullmatch(r"[0-9a-f]{40}", acct) else _bid_file()))
             if u.path == "/dj/config":   # misma regla que /app/settings: solo la propia app de escritorio
                 if not WINCTL or self.headers.get("X-Blyatt") != "1":
                     return self._json({"error": "Solo en la app de escritorio"}, 403)

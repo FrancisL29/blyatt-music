@@ -27,7 +27,7 @@ from collections import deque
 
 APP = None   # app.py se inyecta aqui (radio, artist, search, viewcounts, cached, DATA, CACHE_DIR...)
 
-VOICE, RATE, PITCH = "es-CO-SalomeNeural", "+12%", "+4Hz"   # voz elegida por el usuario; la DJ se llama Lara
+VOICE, RATE, PITCH = "es-CO-SalomeNeural", "+4%", "+4Hz"   # voz elegida por el usuario; la DJ se llama Lara
 # pausas entre frases: Edge las hace de ~0.85 s; se dejan en ~0.2 s (habla rapida y natural)
 _TRIM = ("silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.1"
          ":stop_threshold=-45dB:stop_silence=0.1")
@@ -101,6 +101,14 @@ def status():
     except ImportError:
         voice = False
     err = _AI_ERR["msg"] if c["provider"] != "none" and time.time() - _AI_ERR["at"] < 3600 else ""
+    if c["provider"] == "none" and not APP.SERVER_MODE and APP._cx_access():   # escritorio: la IA del server
+        def remote():
+            _, d = APP.cx_relay("GET", "/dj/status", None, APP._cx_key() or "0" * 40)
+            return d
+        r = APP.cached("djremote", 600, remote) or {}
+        if r.get("ai"):
+            return {"ai": True, "provider": "remote", "provider_name": "IA del servidor: " + str(r.get("provider_name") or ""),
+                    "key": False, "model": c["model"], "voice": voice, "server": False, "ai_error": ""}
     return {"ai": c["provider"] != "none", "provider": c["provider"], "provider_name": PROVIDERS[c["provider"]], "key": bool(c["key"]),
             "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE), "ai_error": err}
 
@@ -336,13 +344,16 @@ def facts(t):
 
 # ---------- guion ----------
 _SYS = """Eres Lara, la locutora de Blyatt FM: una radio personal que suena para UNA persona y está hecha con sus \
-gustos. Tu estilo es el de los locutores de las radios de GTA: irreverente, sarcástica, rápida, con humor negro, \
-salidas absurdas y cero filtro de corrección política, pero con cariño por quien escucha. Nada de locutora seca ni \
-de presentadora correcta: cada intervención tiene que tener un remate que haga reír o al menos sonreír. Mezclas \
-jerga de Colombia y de Ecuador.
+gustos. Tu estilo es el de los locutores de las radios de GTA: irreverente, cínica, con humor negro de verdad \
+(muerte, funerales, resacas, ex tóxicos, terapia, soledad, vicios, crisis existencial, el trabajo que te chupa el \
+alma), salidas absurdas y cero corrección política, pero con cariño por quien escucha. No todo son chistes: a \
+veces sueltas una reflexión cínica pero tierna sobre el amor, la vida o la música, de esas que suenan a verdad \
+dicha a las 3 de la mañana. Nada de locutora seca ni de presentadora correcta. Mezclas jerga de Colombia y de \
+Ecuador.
 
 Recursos (usa uno por intervención y varíalos; el CONTEXTO te sugiere cuál):
-- Chiste corto con pregunta y remate ("¿Sabes cuál es la diferencia entre...?").
+- Chiste negro corto con pregunta y remate ("¿Sabes cuál es la diferencia entre...?").
+- Reflexión cínica pero tierna sobre el amor, la vida o la música.
 - Anuncio falso de un patrocinador absurdo ("Este bloque te lo trae...").
 - Noticia falsa de última hora, claramente absurda.
 - Pulla cariñosa al gusto del oyente, a la hora que es o a lo que se saltó.
@@ -358,6 +369,11 @@ vida. Seguimos con Queen ñaño."
 - "Son las 2 de la mañana y sigues aquí parce. Yo también pero a mí me pagan. Bueno más o menos. Va Drive de The Weeknd."
 - "Noticia de última hora. Científicos confirman que escuchar a Toto un martes sube la autoestima un trece por \
 ciento. Me lo acabo de inventar pero suena verdad. ¡Súbele!"
+- "Mi terapeuta me dijo que dejara de usar la música pa no pensar en la muerte. Por eso esta va dedicada a él. Que \
+en paz descanse. Suena Drive de The Weeknd."
+- "La vida es corta parce. Lo bueno es que la resaca también. Bueno no tanto. Va Sienna."
+- "Ya va siendo hora de que quieras algo que te quiera de vuelta. Spoiler. No es tu ex. Es esta rola. No te juzga \
+ñaño. Y yo tampoco. Suena No One Noticed de The Marías."
 
 Cómo hablas:
 - Español latino muy informal. Jerga (una a tres por intervención, varía siempre): quiubo, parce, de una, bacán, \
@@ -396,10 +412,12 @@ _SWEAR = {
 }
 _LEN = {"intro": "entre 30 y 55 palabras.", "block": "entre 25 y 55 palabras.", "song": "entre 15 y 40 palabras.",
         "skip": "entre 10 y 25 palabras.", "vibe": "entre 12 y 28 palabras."}
-_BITS = ("un chiste corto con pregunta y remate", "un anuncio falso de un patrocinador absurdo",
-         "una noticia falsa de última hora, claramente absurda", "una pulla cariñosa al oyente",
-         "una confesión absurda de tu vida de locutora", "un dato real del artista o la canción con un comentario sarcástico",
-         "una teoría conspirativa ridícula sobre la canción", "un consejo de vida terrible")
+_BITS = (("un chiste negro corto con pregunta y remate", 4),
+         ("una reflexión cínica pero tierna sobre el amor, la vida o la música, sin chiste", 3),
+         ("un anuncio falso de un patrocinador absurdo y oscuro", 2), ("una noticia falsa de última hora, absurda y macabra", 2),
+         ("una pulla cariñosa y venenosa al oyente", 2), ("una confesión oscura y absurda de tu vida de locutora", 2),
+         ("un dato real del artista o la canción con un comentario sarcástico", 2),
+         ("una teoría conspirativa ridícula sobre la canción", 1), ("un consejo de vida terrible", 1))
 _KIND_ES = {"favoritas": "sus favoritas (lo que más escucha)", "descubrir": "descubrimientos: canciones que no conoce",
             "recuerdos": "recuerdos: canciones de sus me gusta que hace tiempo no pone",
             "mezcla": "mezcla de lo suyo con cosas nuevas parecidas", "vibra": "cambio de vibra que pidió el oyente"}
@@ -465,7 +483,7 @@ def _ai(ctx, fx, prev_lines, cfg):
             "vibe": "El oyente pidió cambiar de vibra: confirma con energía y presenta la siguiente."}[kind]
     lines.append("- Momento: " + what)
     if kind != "skip":
-        lines.append("- Recurso para esta vez: " + random.choice(_BITS))
+        lines.append("- Recurso para esta vez: " + random.choices([b for b, _ in _BITS], [w for _, w in _BITS])[0])
     if p.get("title") and kind != "intro":
         lines.append("- Acaba de sonar: %s de %s%s" % (p["title"], p.get("artist", ""),
                                                      " (se la saltó a los pocos segundos)" if p.get("skipped") else ""))
@@ -706,6 +724,32 @@ def _mem(acct):
 
 
 def say(ctx, acct):
+    r = script(ctx, acct)
+    if "text" not in r:
+        return r
+    text, ai = r["text"], r["ai"]
+    try:
+        h = tts(text)
+    except ImportError:
+        return {"text": text, "ai": ai, "error": "Falta la voz (edge-tts) en el servidor"}
+    except Exception as e:
+        return {"text": text, "ai": ai, "error": "No se pudo generar la voz: %s" % str(e)[:120]}
+    return {"text": text, "ai": ai, "audio": "/dj/a/%s.mp3" % h}
+
+
+def _remote_script(ctx):
+    """App de escritorio sin clave propia: el guion lo escribe la IA del server (blyatt.stream) por el mismo acceso
+    de Cloudflare que usa Blyatt Connect; la voz se sigue haciendo aqui. Sin acceso o si falla: plantillas."""
+    if APP.SERVER_MODE or not APP._cx_access():
+        return ""
+    try:
+        _, d = APP.cx_relay("POST", "/dj/script", json.dumps(ctx).encode(), APP._cx_key() or "0" * 40)
+    except Exception:
+        return ""
+    return _clean(d.get("text") or "") if d.get("ai") else ""
+
+
+def script(ctx, acct):
     kind = ctx.get("kind") if ctx.get("kind") in _LEN else "song"
     t = _song(ctx.get("track"))
     if not t:
@@ -723,6 +767,11 @@ def say(ctx, acct):
          "time": {k: str((ctx.get("time") or {}).get(k) or "")[:20] for k in ("hhmm", "wd", "part")},
          "say_time": bool(ctx.get("say_time")), "swear": ctx.get("swear") if ctx.get("swear") in (0, 1, 2) else 1}
     m, cfg = _mem(acct), config()
+    if cfg["provider"] == "none":
+        rem = _remote_script(ctx)
+        if rem:
+            m["lines"].append(rem)
+            return {"text": rem, "ai": True}
     fx = {}
     try:   # la IA cuenta datos del artista/cancion; las plantillas solo usan las reproducciones (mas rapido)
         if cfg["provider"] != "none" and kind in ("intro", "block", "song"):
@@ -755,10 +804,4 @@ def say(ctx, acct):
     if not text:
         text = _clean(_tmpl(c, fx))
     m["lines"].append(text)
-    try:
-        h = tts(text)
-    except ImportError:
-        return {"text": text, "ai": ai, "error": "Falta la voz (edge-tts) en el servidor"}
-    except Exception as e:
-        return {"text": text, "ai": ai, "error": "No se pudo generar la voz: %s" % str(e)[:120]}
-    return {"text": text, "ai": ai, "audio": "/dj/a/%s.mp3" % h}
+    return {"text": text, "ai": ai}

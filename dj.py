@@ -1,4 +1,4 @@
-"""DJ de radio (estilo DJ de Spotify): Salome pone musica a tu gusto por bloques y habla entre canciones.
+"""DJ de radio (estilo DJ de Spotify): Lara pone musica a tu gusto por bloques y habla entre canciones.
 
 Reparto del trabajo:
   - el dispositivo manda lo que sabe de quien escucha (me gusta, lo que mas escucha, lo que salto, su hora);
@@ -26,7 +26,7 @@ from collections import deque
 
 APP = None   # app.py se inyecta aqui (radio, artist, search, viewcounts, cached, DATA, CACHE_DIR...)
 
-VOICE, RATE, PITCH = "es-CO-SalomeNeural", "+12%", "+4Hz"
+VOICE, RATE, PITCH = "es-CO-SalomeNeural", "+12%", "+4Hz"   # voz elegida por el usuario; la DJ se llama Lara
 # pausas entre frases: Edge las hace de ~0.85 s; se dejan en ~0.2 s (habla rapida y natural)
 _TRIM = ("silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.1"
          ":stop_threshold=-45dB:stop_silence=0.1")
@@ -55,7 +55,7 @@ def config():
     except Exception:
         d = {}
     key = str(d.get("key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-    model = d.get("model") if d.get("model") in MODELS else "opus"
+    model = d.get("model") if d.get("model") in MODELS else "haiku"
     return {"key": key, "model": model}
 
 
@@ -305,7 +305,7 @@ def facts(t):
 
 
 # ---------- guion ----------
-_SYS = """Eres Salomé, la DJ de Blyatt: una radio personal que suena para UNA persona y está hecha con sus gustos. \
+_SYS = """Eres Lara, la DJ de Blyatt: una radio personal que suena para UNA persona y está hecha con sus gustos. \
 Hablas entre canciones como una locutora joven, cercana, divertida y con mucha calle. Mezclas jerga de Colombia y \
 de Ecuador.
 
@@ -459,7 +459,7 @@ def _ai(ctx, fx, prev_lines, cfg):
 _T = {
     "intro": [
         "¡Quiubo {n}! Son {h} y arrancamos tu radio con todo. Primero va {t} de {a}. ¡De una súbele!",
-        "¡Qué fue {n}! Aquí Salomé en tu radio personal. Son {h} así que vamos con algo que te encanta. Suena {t} de {a}.",
+        "¡Qué fue {n}! Aquí Lara en tu radio personal. Son {h} así que vamos con algo que te encanta. Suena {t} de {a}.",
         "¡Hola {n}! Son {h} de este {wd} y ya tengo armada tu música. Arrancamos con {t} de {a}. ¡Dale nomás!",
     ],
     "favoritas": [

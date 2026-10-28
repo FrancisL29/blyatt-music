@@ -35,3 +35,7 @@ karaoke_tls/
 # ajustes de la app de escritorio (en desarrollo DATA es el repo)
 settings.json
 settings.json.tmp
+
+# DJ de radio: clave de la API de Anthropic del dueno (NUNCA commitear)
+dj.json
+dj.json.tmp

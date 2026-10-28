@@ -7,4 +7,6 @@ pyinstaller>=6.16
 numpy
 onnxruntime
 segno
+# DJ de radio: voz de Salome (Edge TTS)
+edge-tts
 cryptography

@@ -3892,6 +3892,14 @@ def _kara():
     return karaoke
 
 
+def _dj():
+    """DJ de radio (dj.py)."""
+    import dj
+    if dj.APP is None:
+        dj.APP = sys.modules[__name__]
+    return dj
+
+
 def _alexa():
     """Skill de Alexa (alexa.py)."""
     import alexa
@@ -3918,6 +3926,49 @@ class H(BaseHTTPRequestHandler):
                 d = {}
         ip = self.headers.get("CF-Connecting-IP") or self.client_address[0]
         return self._json(party.api(u.path, parse_qs(u.query), d if isinstance(d, dict) else {}, ip))
+
+    def _dj(self, u, method):
+        # DJ de radio (dj.py): bloques de canciones, guion y voz de Salome. Cada cuenta con sus gustos (los manda
+        # el dispositivo) y su memoria de frases; la clave de la API solo la pone el dueno (escritorio)
+        D = _dj()
+        m = re.fullmatch(r"/dj/a/([0-9a-f]{20})\.mp3", u.path)
+        if method == "GET" and m:
+            fp = D.audio_path(m.group(1))
+            if not fp:
+                return self._json({"error": "?"}, 404)
+            with open(fp, "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+            return
+        if u.path == "/dj/status":
+            return self._json(D.status())
+        if method != "POST":
+            return self._json({"error": "?"}, 404)
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 512 * 1024:
+            return self._json({"error": "demasiado grande"}, 413)
+        try:
+            d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+        except ValueError:
+            d = {}
+        d = d if isinstance(d, dict) else {}
+        try:
+            if u.path == "/dj/plan":
+                return self._json(D.plan(d))
+            if u.path == "/dj/say":
+                return self._json(D.say(d, _bid_file()))
+            if u.path == "/dj/config":   # misma regla que /app/settings: solo la propia app de escritorio
+                if not WINCTL or self.headers.get("X-Blyatt") != "1":
+                    return self._json({"error": "Solo en la app de escritorio"}, 403)
+                return self._json(D.set_config(d))
+        except Exception as e:
+            return self._json({"error": str(e)[:200]}, 500)
+        return self._json({"error": "?"}, 404)
 
     def _alexa(self, u, method):
         # lo usan el Echo y los servidores de Amazon, sin cookies ni Cloudflare Access: la firma de Amazon
@@ -4076,6 +4127,8 @@ class H(BaseHTTPRequestHandler):
             return self._kara(u, "GET")
         if u.path.startswith("/party/"):
             return self._party(u, "GET")
+        if u.path.startswith("/dj/"):
+            return self._dj(u, "GET")
         if u.path.startswith("/alexa/"):
             return self._alexa(u, "GET")
         if u.path == "/migrate/pull":
@@ -4435,6 +4488,8 @@ class H(BaseHTTPRequestHandler):
             return self._json(WINCTL(u.path[5:]))
         if u.path.startswith("/party/"):
             return self._party(u, "POST")
+        if u.path.startswith("/dj/"):
+            return self._dj(u, "POST")
         if u.path == "/alexa":
             return self._alexa(u, "POST")
         if u.path == "/auth/alexa/code":   # desde la app (con Cloudflare Access): codigo para vincular Alexa

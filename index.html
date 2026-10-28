@@ -519,6 +519,53 @@
     .srng, .sinp, .ssel { margin-left: 34px; }
     .srng, #setmodal .srow .sinp { flex: 1; width: auto; } .srng input { flex: 1; width: auto; }
   }
+  /* DJ: la clave de la API va en su propia linea bajo el texto */
+  .srow:has(.sdjai:not([hidden])) { flex-wrap: wrap; row-gap: 10px; }
+  .sdjai { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; padding-left: 34px; }
+  .sdjai[hidden] { display: none; }
+  #setmodal .sdjai .sinp { flex: 1; width: auto; min-width: 0; margin-left: 0; }
+  .sdjai .ssel { margin-left: 0; }
+
+  /* ---------- DJ SALOME: tarjeta de Inicio, subtitulos de lo que dice y boton del reproductor ---------- */
+  .djcard { display: flex; align-items: center; gap: 16px; width: 100%; margin: 4px 0 24px; padding: 16px 18px;
+    border-radius: 20px; border: 1px solid rgb(255 255 255 / .12); color: var(--text); font: inherit; text-align: left;
+    cursor: pointer; background: radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 62%), var(--glass);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .12); transition: transform .15s, border-color .3s; }
+  .djcard:hover { border-color: rgb(255 255 255 / .22); }
+  .djcard:active { transform: scale(.985); }
+  .djorb { width: 58px; height: 58px; border-radius: 50%; flex: none; display: grid; place-items: center; position: relative;
+    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, #4dd2ff, var(--accent));
+    box-shadow: 0 0 26px color-mix(in srgb, var(--accent) 50%, transparent); animation: djspin 9s linear infinite; }
+  .djorb::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: rgb(10 10 14 / .55); backdrop-filter: blur(6px); }
+  .djorb i { position: relative; z-index: 1; font-size: 1.55rem; color: #fff; animation: djspin 9s linear infinite reverse; }
+  body.dj-on .djorb { animation-duration: 2.6s; } body.dj-on .djorb i { animation-duration: 2.6s; }
+  .djtx { flex: 1; min-width: 0; }
+  .djt { font-weight: 800; font-size: 1.16rem; letter-spacing: -.01em; }
+  .djs { color: var(--muted); font-size: .84rem; margin-top: 3px; line-height: 1.35; }
+  .djgo { font-size: 2.5rem; color: var(--accent); flex: none; transition: transform .2s; }
+  .djcard.busy .djgo { animation: gspin 1s linear infinite; }
+  @keyframes djspin { to { rotate: 360deg; } }
+  #djcap { position: fixed; left: calc(var(--sb-w) + (100vw - var(--sb-w)) / 2); bottom: 150px; z-index: 9;
+    width: max-content; max-width: min(560px, calc(100vw - var(--sb-w) - 48px)); display: flex; gap: 11px; align-items: flex-start;
+    padding: 11px 15px 12px; border-radius: 18px; background: rgb(12 12 16 / .74); border: 1px solid rgb(255 255 255 / .12);
+    backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 14px 38px rgb(0 0 0 / .55); opacity: 0; translate: -50% 14px; pointer-events: none; transition: opacity .3s, translate .3s; }
+  #djcap.show { opacity: 1; translate: -50% 0; }
+  .djav { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; gap: 2px;
+    background: conic-gradient(from 0deg, var(--accent), #ff4d9d, #ffb14d, var(--accent)); margin-top: 1px; }
+  .djav span { width: 3px; height: 8px; border-radius: 2px; background: #fff; animation: djeq .9s ease-in-out infinite; }
+  .djav span:nth-child(2) { animation-delay: -.3s; } .djav span:nth-child(3) { animation-delay: -.6s; }
+  @keyframes djeq { 0%, 100% { height: 5px; } 50% { height: 15px; } }
+  .djn { font-size: .68rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .djl { font-size: .9rem; line-height: 1.4; margin-top: 2px; }
+  .djbtn.on { color: var(--accent); }
+  .np-src.dj { color: var(--accent); }
+  @media (max-width: 820px) {
+    #djcap { left: 50%; bottom: calc(58px + var(--sab, 0px) + 96px); max-width: calc(100vw - 32px); }
+    .djcard { margin: 2px 0 20px; padding: 14px; gap: 14px; }
+    .djorb { width: 52px; height: 52px; }
+  }
+  body.np-open #djcap { left: 50%; bottom: auto; top: calc(var(--sat, 0px) + 64px); max-width: calc(100vw - 32px); }
 
   /* ---------- PLAYER ---------- */
   #player {
@@ -1809,6 +1856,31 @@
         <label class="sw"><input type="checkbox" id="setNorm" aria-label="Normalizar volumen" data-i18n-al><span></span></label>
       </div>
     </div>
+    <div class="sgrp" id="setDj">
+      <div class="sh" data-i18n>DJ Salomé</div>
+      <div class="srow"><i class="ph ph-user-sound"></i>
+        <div class="stx"><div class="stt" data-i18n>¿Cómo te llamo?</div>
+          <div class="sds" data-i18n>Salomé te saluda por tu nombre.</div></div>
+        <input class="sinp" id="setDjName" maxlength="30" autocomplete="off" aria-label="¿Cómo te llamo?" data-i18n-al>
+      </div>
+      <div class="srow"><i class="ph ph-chat-circle-dots"></i>
+        <div class="stx"><div class="stt" data-i18n>Cuánto habla</div></div>
+        <div class="sseg" id="setDjTalk"><button data-v="poco" data-i18n>Poco</button><button data-v="normal" data-i18n>Normal</button><button data-v="mucho" data-i18n>Mucho</button></div>
+      </div>
+      <div class="srow"><i class="ph ph-fire"></i>
+        <div class="stx"><div class="stt" data-i18n>Groserías</div></div>
+        <div class="sseg" id="setDjSwear"><button data-v="0" data-i18n>No</button><button data-v="1" data-i18n>A veces</button><button data-v="2" data-i18n>Sin filtro</button></div>
+      </div>
+      <div class="srow"><i class="ph ph-sparkle"></i>
+        <div class="stx"><div class="stt" data-i18n>Guion con IA (Claude)</div>
+          <div class="sds" id="setDjAiS"></div></div>
+        <div class="sdjai" id="setDjAi" hidden>
+          <input class="sinp" id="setDjKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" aria-label="Clave de la API de Anthropic" data-i18n-al>
+          <select class="ssel" id="setDjModel" aria-label="Modelo" data-i18n-al><option value="opus">Opus 5.5</option><option value="haiku">Haiku 5.5</option></select>
+          <button class="sbtn" id="setDjSave" data-i18n>Guardar</button>
+        </div>
+      </div>
+    </div>
     <div class="sgrp" id="setDev">
       <div class="sh" data-i18n>Dispositivos</div>
       <div class="srow"><i class="ph ph-device-mobile-speaker"></i>
@@ -1885,6 +1957,7 @@
     </div>
     <div class="right">
       <div class="right-icons">
+        <button id="djBtn" class="iconbtn djbtn" aria-label="DJ Salomé" hidden><i class="ph-fill ph-radio"></i></button>
         <button id="like" class="iconbtn like" aria-label="Me gusta"><i class="ph ph-heart"></i></button>
         <button id="addpl" class="iconbtn" aria-label="Añadir a playlist"><i class="ph ph-list-plus"></i></button>
         <button id="devBtn" class="iconbtn" aria-label="Dispositivos"><i class="ph ph-devices"></i></button>
@@ -1960,6 +2033,7 @@
     <button id="npRepeat" class="iconbtn" aria-label="Repetir"><i class="ph ph-repeat"></i></button>
   </div>
   <div class="np-extra np-fade">
+    <button id="npDj" class="iconbtn djbtn" aria-label="DJ Salomé" hidden><i class="ph-fill ph-radio"></i></button>
     <button id="npDev" class="iconbtn" aria-label="Dispositivos"><i class="ph ph-devices"></i></button>
     <button id="npLyrics" class="iconbtn" aria-label="Letra"><i class="ph ph-microphone-stage"></i></button>
     <button id="npAddpl" class="iconbtn" aria-label="Añadir a playlist"><i class="ph ph-list-plus"></i></button>
@@ -1967,6 +2041,9 @@
     <button id="npQueue" class="iconbtn" aria-label="Cola"><i class="ph ph-list-bullets"></i></button>
   </div>
 </div>
+
+<div id="djcap" aria-live="polite"><div class="djav"><span></span><span></span><span></span></div>
+  <div><div class="djn">Salomé</div><div class="djl" id="djcapTxt"></div></div></div>
 
 <audio id="audio"></audio>
 
@@ -2245,6 +2322,22 @@ const EN = {
   "Canciones guardadas en este dispositivo": "Songs saved on this device", "Tamaño máximo": "Maximum size",
   "Dile a tu Echo «Alexa, abre blyatt» y, cuando te lo pida, dile este código. Caduca en 10 minutos. Después podrás decir «Alexa, pídele a blyatt que ponga…» con tus canciones y playlists.":
     "Tell your Echo “Alexa, open blyatt” and say this code when it asks. It expires in 10 minutes. Then you can say “Alexa, ask blyatt to play…” with your songs and playlists.",
+  "¿Cómo te llamo?": "What should I call you?", "Salomé te saluda por tu nombre.": "Salomé greets you by name (she speaks Spanish).",
+  "Cuánto habla": "How much she talks", "Poco": "Little", "Normal": "Normal", "Mucho": "A lot", "Groserías": "Swearing",
+  "No": "No", "A veces": "Sometimes", "Sin filtro": "Unfiltered", "Guion con IA (Claude)": "AI script (Claude)",
+  "Clave de la API de Anthropic": "Anthropic API key", "Modelo": "Model", "Guardado": "Saved", "guardada": "saved",
+  "Salomé está preparando tu radio…": "Salomé is getting your radio ready…",
+  "Sonando ahora. Toca para cambiar de vibra o salir": "Playing now. Tap to change the vibe or leave",
+  "Tu radio personal: tu música, datos curiosos y la hora": "Your personal radio: your music, fun facts and the time",
+  "Cambiar de vibra": "Change the vibe", "Salir del DJ": "Leave the DJ",
+  "Pon la música en este dispositivo para escuchar al DJ": "Play the music on this device to listen to the DJ",
+  "Saliste del DJ: la música sigue normal": "You left the DJ: the music keeps playing", "El DJ no pudo armar tu música": "The DJ couldn't put your music together",
+  "Escucha o dale me gusta a algunas canciones y vuelve: así sé qué ponerte": "Play or like a few songs and come back so I know what to play",
+  "Activado: Salomé escribe cada intervención con datos del artista y la canción.": "On: Salomé writes each break with facts about the artist and the song.",
+  "Pega tu clave de la API de Anthropic para que Salomé improvise. Sin clave usa frases ya escritas.": "Paste your Anthropic API key so Salomé can improvise. Without it she uses pre-written lines.",
+  "Frases ya escritas. El dueño del servidor puede activar la IA.": "Pre-written lines. The server owner can turn on AI.",
+  "Falta la voz en el servidor (edge-tts).": "The server is missing the voice (edge-tts).", "IA activada para Salomé": "AI turned on for Salomé",
+  "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
   "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
   "En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.":
@@ -3652,6 +3745,7 @@ function renderHome(force) {
   const seedId = seed ? seed.id : "";
   _homeSeedId = seedId;
   hv.innerHTML = "";
+  hv.appendChild(djCard());   // DJ Salome: la radio personal, arriba del todo
   const recents = getRecents();
   const tiles = matchMedia("(max-width: 820px)").matches ? recentTiles() : null;
   if (tiles && tiles.length) {
@@ -4992,6 +5086,7 @@ function onPlaybackStarted(s) {
 /* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
 let _recBusy = false;
 async function maybeExtendQueue() {
+  if (DJ && DJ.on) return;   // con el DJ, la cola la arma el (bloques)
   if (repeat !== "off" || _recBusy || !current || !queue.length) return;   // con repeat la cola es un bucle: no extender
   if (queue.length - 1 - qIndex > 5) return;
   _recBusy = true;
@@ -7687,6 +7782,314 @@ if (KARA_OK) {
   addEventListener("resize", () => { if (KS.on) kPitchSize(); });
   addEventListener("beforeunload", () => { if (KS.on) navigator.sendBeacon && navigator.sendBeacon("/kara/close"); });
 }
+/* ====== DJ Salome: radio personal (bloques de canciones + voz entre canciones) ======
+   El server (dj.py) arma cada bloque con los gustos de quien escucha y escribe/locuta cada intervencion.
+   Aqui: que mandarle (me gusta, lo mas escuchado, saltos, la hora), cuando hablar, y la voz ENCIMA de la
+   musica: entra al empezar la cancion y la musica baja (srcBus) mientras habla, como en la radio. */
+var DJ = { on: false, busy: false, kind: "", blk: 0, n: 0, segs: new Map(), voice: null, played: [], skipArts: [],
+           lastTime: 0, cur: null, skip: null, extending: false, st: null };
+const _djLS = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
+const djCfg = () => ({
+  swear: Math.max(0, Math.min(2, +_djLS("lightning.djswear", "1") || 0)),
+  talk: _djLS("lightning.djtalk", "normal"),
+  name: _djLS("lightning.djname", "") || String(_authSt.name || "").trim().split(/\s+/)[0] || "",
+});
+const _djS = (s) => {
+  const o = { id: s.id, title: s.title, artist: s.artist };
+  if (s.artists) o.artists = s.artists.slice(0, 3);
+  ["cover", "duration", "explicit"].forEach(k => { if (s[k]) o[k] = s[k]; });
+  return o;
+};
+// lo que de verdad escuchas (para "la pusiste 12 veces", "tus favoritas"): conteo por cancion en el dispositivo
+function djStat(s) {
+  let m; try { m = JSON.parse(localStorage.getItem("lightning.djstats") || "{}"); } catch (e) { m = {}; }
+  const now = Date.now(), e = m[s.id] || { n: 0, f: now };
+  e.n++; e.l = now; e.t = s.title; e.a = s.artist; if (s.artists) e.ar = s.artists.slice(0, 2);
+  m[s.id] = e;
+  const ks = Object.keys(m);
+  if (ks.length > 500) ks.sort((a, b) => m[a].l - m[b].l).slice(0, ks.length - 500).forEach(k => delete m[k]);
+  try { localStorage.setItem("lightning.djstats", JSON.stringify(m)); } catch (err) {}
+}
+function djTop() {
+  let m; try { m = JSON.parse(localStorage.getItem("lightning.djstats") || "{}"); } catch (e) { m = {}; }
+  const now = Date.now(), day = 864e5;
+  return Object.entries(m).filter(([, e]) => now - e.l < 30 * day && e.n >= 2)
+    .sort((a, b) => b[1].n - a[1].n).slice(0, 40)
+    .map(([id, e]) => ({ id, title: e.t, artist: e.a, artists: e.ar, n: e.n, days: Math.min(30, Math.ceil((now - e.f) / day)) }));
+}
+function djCtx(vibe) {
+  const liked = getLiked(), older = liked.slice(80);
+  for (let i = older.length - 1; i > 0; i--) { const j = _rnd(i + 1); [older[i], older[j]] = [older[j], older[i]]; }
+  // las 80 mas recientes + 120 al azar del resto (la radio "se acuerda" de todo sin mandar miles)
+  const pick = liked.slice(0, 80).concat(older.slice(0, 120));
+  const o = { liked: pick.map(_djS), top: djTop(), recent: getRecents().slice(0, 20).map(_djS), played: DJ.played.slice(-300),
+              skip_artists: DJ.skipArts.slice(-20), last_kind: DJ.kind, cur: current ? _djS(current) : null };
+  if (vibe) o.vibe = 1;
+  return o;
+}
+async function djPlan(vibe) {
+  let d;
+  try { d = await (await fetch("/dj/plan", { method: "POST", body: JSON.stringify(djCtx(vibe)) })).json(); }
+  catch (e) { d = { error: t("Sin conexión") }; }
+  if (!d || d.error || !(d.tracks || []).length) { toast((d && d.error) || "El DJ no pudo armar tu música"); return null; }
+  DJ.kind = d.kind; DJ.blk++;
+  d.tracks.forEach((s, i) => {
+    s._dj = { kind: d.kind, why: s.why || {}, first: i === 0, blk: DJ.blk, vibe: !!vibe && i === 0 };
+    delete s.why;
+    DJ.played.push({ id: s.id, title: s.title, artist: s.artist });
+  });
+  return d;
+}
+function djTime(d) {
+  const p = (n) => String(n).padStart(2, "0"), h = d.getHours();
+  return { hhmm: p(h) + ":" + p(d.getMinutes()), wd: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][d.getDay()],
+           part: h < 6 ? "madrugada" : h < 12 ? "mañana" : h < 19 ? "tarde" : "noche" };
+}
+// cuando habla: siempre al empezar la radio y en cada bloque nuevo; entre medias segun "Cuanto habla"
+function djTalkKind(s) {
+  if (!s || !s._dj) return "";
+  if (!DJ.n) return "intro";
+  if (s._dj.first) return s._dj.vibe ? "vibe" : "block";
+  const talk = djCfg().talk;
+  if (talk === "mucho") return "song";
+  if (talk === "poco") return "";
+  if (s._dj.talk == null) s._dj.talk = Math.random() < .4;   // se decide una vez por cancion
+  return s._dj.talk ? "song" : "";
+}
+async function djVoice(url) {
+  const r = await fetch(url); if (!r.ok) throw new Error("voz");
+  const ab = await r.arrayBuffer();
+  if (IOS_WEB) return URL.createObjectURL(new Blob([ab], { type: "audio/mpeg" }));
+  return await AC.decodeAudioData(ab);
+}
+// prepara (guion + voz) lo que dira al empezar la cancion `s`; `at`: cuando sonara (para decir la hora bien)
+function djPrepare(s, kind, prev, at) {
+  if (!s || !kind || DJ.segs.has(s.id)) return DJ.segs.get(s && s.id);
+  const cfg = djCfg(), when = at || new Date();
+  const sayTime = kind === "intro" || (kind === "block" && Date.now() - DJ.lastTime > 30 * 60e3);
+  const blk = s._dj ? s._dj.blk : 0, i = queue.indexOf(s);
+  const next = i >= 0 ? queue.slice(i + 1).filter(x => x._dj && x._dj.blk === blk).slice(0, 3).map(x => x.title + " de " + x.artist) : [];
+  const body = { kind, track: Object.assign(_djS(s), { why: (s._dj && s._dj.why) || {} }), name: cfg.name, swear: cfg.swear,
+                 say_time: sayTime, time: djTime(when), block: { kind: s._dj ? s._dj.kind : "", next },
+                 prev: prev ? { title: prev.title, artist: prev.artist, skipped: !!prev.skipped } : null };
+  const seg = { kind, done: null };
+  seg.p = fetch("/dj/say", { method: "POST", body: JSON.stringify(body) }).then(r => r.json()).then(async d => {
+    if (!d || !d.text) throw new Error((d && d.error) || "dj");
+    let buf = null;
+    if (d.audio) { try { buf = await djVoice(d.audio); } catch (e) {} }
+    return (seg.done = { text: d.text, buf, sayTime });
+  });
+  seg.p.catch(() => {});   // si falla se queda marcada: no se reintenta en bucle (esa cancion va sin voz)
+  DJ.segs.set(s.id, seg);
+  for (const k of DJ.segs.keys()) { if (DJ.segs.size <= 6) break; DJ.segs.delete(k); }
+  return seg;
+}
+let _djCapT = null;
+function djCaption(text, secs) {
+  const c = $("djcap"); clearTimeout(_djCapT);
+  if (!text) { c.classList.remove("show"); return; }
+  $("djcapTxt").textContent = text; c.classList.add("show");
+  _djCapT = setTimeout(() => c.classList.remove("show"), Math.max(4, secs || 0) * 1000 + 900);
+}
+// la voz entra encima del principio de la cancion; la musica baja mientras habla y vuelve suave al terminar
+function djSpeak(v) {
+  djHush();
+  if (audio.paused || !DJ.on) return;
+  DJ.n++;
+  if (v.sayTime) DJ.lastTime = Date.now();
+  if (!v.buf) { djCaption(v.text, 6); return; }   // sin voz en el server: al menos los subtitulos
+  if (IOS_WEB) {   // iPhone: <audio> aparte (iOS no deja bajar el volumen de la musica por codigo)
+    const a = new Audio(v.buf); a.play().catch(() => {});
+    DJ.voice = { el: a }; a.onended = () => { if (DJ.voice && DJ.voice.el === a) DJ.voice = null; };
+    a.onloadedmetadata = () => djCaption(v.text, a.duration);
+    djCaption(v.text, 8);
+    return;
+  }
+  const t0 = AC.currentTime + .2, dur = v.buf.duration, g = srcBus.gain;
+  const src = AC.createBufferSource(), vg = AC.createGain();
+  src.buffer = v.buf; vg.gain.value = 1; src.connect(vg); vg.connect(gainNode);   // tras el volumen del usuario
+  g.cancelScheduledValues(AC.currentTime); g.setValueAtTime(g.value, AC.currentTime);
+  g.linearRampToValueAtTime(.24, t0 + .15);
+  g.setValueAtTime(.24, t0 + dur); g.linearRampToValueAtTime(1, t0 + dur + 1);
+  src.start(t0);
+  DJ.voice = { src, vg };
+  src.onended = () => { if (DJ.voice && DJ.voice.src === src) DJ.voice = null; };
+  djCaption(v.text, dur);
+}
+function djHush() {   // calla a Salome (pausa, salto, salir) y la musica vuelve a su volumen
+  const v = DJ.voice; DJ.voice = null; djCaption(null);
+  if (v && v.el) { try { v.el.pause(); } catch (e) {} }
+  if (v && v.src) {
+    const t = AC.currentTime;
+    v.vg.gain.setTargetAtTime(0, t, .05); try { v.src.stop(t + .25); } catch (e) {}
+  }
+  if (!IOS_WEB) { const g = srcBus.gain, t = AC.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(1, t + .35); }
+}
+function djPaint() {
+  document.body.classList.toggle("dj-on", DJ.on);
+  [$("djBtn"), $("npDj")].forEach(b => { if (b) { b.hidden = !DJ.on; b.classList.toggle("on", DJ.on); } });
+  const c = $("djCard");
+  if (c) {
+    c.classList.toggle("busy", DJ.busy);
+    c.querySelector(".djs").textContent = t(DJ.busy ? "Salomé está preparando tu radio…" : DJ.on
+      ? "Sonando ahora. Toca para cambiar de vibra o salir" : "Tu radio personal: tu música, datos curiosos y la hora");
+    c.querySelector(".djgo").className = "ph-fill djgo " + (DJ.busy ? "ph-circle-notch" : DJ.on ? "ph-shuffle-angular" : "ph-play-circle");
+  }
+  try { syncCxUI(); } catch (e) {}
+}
+function djCard() {
+  const b = document.createElement("button");
+  b.className = "djcard"; b.id = "djCard";
+  b.innerHTML = '<div class="djorb"><i class="ph-fill ph-microphone-stage"></i></div><div class="djtx"><div class="djt">DJ Salomé</div><div class="djs"></div></div><i class="djgo"></i>';
+  b.onclick = (e) => { if (DJ.on) djMenu(e.currentTarget); else djStart(); };
+  setTimeout(djPaint);
+  return b;
+}
+function djMenu(el) {
+  const r = el.getBoundingClientRect();
+  showMenu([["ph-shuffle-angular", "Cambiar de vibra", djVibe], ["ph-sign-out", "Salir del DJ", () => djStop(true)]],
+           Math.min(r.left, innerWidth - 240), r.bottom + 6);
+}
+async function djStart() {
+  if (DJ.busy) return;
+  if (CX.remote) { toast("Pon la música en este dispositivo para escuchar al DJ"); return; }
+  if (AC.state === "suspended") AC.resume();   // dentro del toque: luego el audio puede arrancar solo
+  DJ.busy = true; djPaint();
+  try {
+    DJ.played = []; DJ.kind = ""; DJ.n = 0; DJ.lastTime = 0; DJ.skipArts = []; DJ.segs.clear(); DJ.skip = null;
+    const b = await djPlan();
+    if (!b) return;
+    if (shuffle) setShuffle(false);   // la radio va en su orden (bloques)
+    if (repeat !== "off") setRepeat("off");
+    DJ.on = true; queue = b.tracks.slice(); qIndex = 0; queueOrig = null;
+    const seg = djPrepare(queue[0], "intro", null);
+    // como la radio de verdad: un momento para que Salome tenga lista la entrada (como mucho 12 s)
+    await Promise.race([seg.p.catch(() => {}), new Promise(r => setTimeout(r, 12000))]);
+    if (!DJ.on) return;
+    playSong(queue[0], true);
+    if ($("queue").classList.contains("show")) renderQueue();
+  } finally { DJ.busy = false; djPaint(); }
+}
+function djStop(say) {
+  if (!DJ.on) return;
+  DJ.on = false; djHush(); DJ.segs.clear();
+  queue.forEach(s => { delete s._dj; });
+  djPaint();
+  if (say) toast("Saliste del DJ: la música sigue normal");
+  maybeExtendQueue();
+}
+async function djVibe() {
+  if (!DJ.on || DJ.busy) return;
+  DJ.busy = true; djPaint();
+  try {
+    const b = await djPlan(true);
+    if (!b || !DJ.on) return;
+    queue.splice(qIndex + 1, queue.length, ...b.tracks);
+    DJ.segs.clear(); djHush();
+    const seg = djPrepare(b.tracks[0], "vibe", current);
+    await Promise.race([seg.p.catch(() => {}), new Promise(r => setTimeout(r, 8000))]);
+    if (!DJ.on) return;
+    qIndex = queue.indexOf(b.tracks[0]); playSong(b.tracks[0], true);
+    if ($("queue").classList.contains("show")) renderQueue();
+  } finally { DJ.busy = false; djPaint(); }
+}
+async function djExtend() {
+  if (!DJ.on || DJ.extending || queue.length - 1 - qIndex > 1) return;
+  DJ.extending = true;
+  try {
+    const b = await djPlan();
+    if (b && DJ.on) {
+      queue.push(...b.tracks); scheduleGaplessNext();
+      if ($("queue").classList.contains("show")) renderQueue();
+    }
+  } finally { DJ.extending = false; }
+}
+// cada cancion que empieza: cuenta para "lo que mas escuchas" y, en el DJ, Salome habla si le toca
+function djOnTrack(s) {
+  if (s && s.id) djStat(s);
+  if (!DJ.on) return;
+  if (!s || !s._dj) { djStop(false); return; }   // pusiste otra musica: la radio se apaga sola
+  djHush();
+  const prev = DJ.cur, skipped = DJ.skip; DJ.cur = s; DJ.skip = null;
+  let seg = DJ.segs.get(s.id);
+  if (!seg && skipped && prev && prev._dj && Math.random() < .6) seg = djPrepare(s, "skip", Object.assign({ skipped: true }, skipped));
+  if (seg) {
+    const go = (v) => { if (DJ.on && DJ.cur === s && !audio.paused && audio.currentTime < 25) djSpeak(v); };
+    if (seg.done) go(seg.done); else seg.p.then(go).catch(() => {});
+  }
+  djExtend();
+}
+const _djOpb = onPlaybackStarted;
+onPlaybackStarted = function (s) { _djOpb(s); djOnTrack(s); };
+const _djNext = playNext;
+playNext = function (auto) {   // salto a mano en los primeros 30 s: Salome lo comenta y evita a ese artista
+  if (DJ.on && !auto && current && !CX.remote && audio.currentTime < 30) {
+    DJ.skip = { title: current.title, artist: current.artist };
+    const a = String(current.artist || "").split(",")[0].trim().toLowerCase();
+    if (a) DJ.skipArts.push(a);
+  }
+  return _djNext(auto);
+};
+const _djOst = eng.onState;
+eng.onState = () => { _djOst(); if (audio.paused && DJ.voice) djHush(); };
+const _djCx = syncCxUI;
+syncCxUI = function () {
+  _djCx();
+  const src = npv.querySelector(".np-src");
+  if (DJ.on && !CX.remote) { src.textContent = "DJ Salomé"; src.classList.add("dj"); } else src.classList.remove("dj");
+};
+// mientras suena: prepara a tiempo lo que dira al empezar la siguiente (guion + voz tardan unos segundos)
+setInterval(() => {
+  if (!DJ.on) return;
+  if (CX.remote) { djStop(false); return; }   // la musica se fue a otro dispositivo
+  if (!current || audio.paused || DJ.busy) return;
+  const n = queue[qIndex + 1], pos = audio.currentTime, dur = audio.duration || 0;
+  if (!n || !n._dj || DJ.segs.has(n.id) || !(pos > Math.min(40, dur * .4) || dur - pos < 50)) return;
+  const k = djTalkKind(n);
+  if (k) djPrepare(n, k, current, new Date(Date.now() + Math.max(0, dur - pos) * 1000));
+}, 1500);
+[$("djBtn"), $("npDj")].forEach(b => b && (b.onclick = (e) => { e.stopPropagation(); djMenu(e.currentTarget); }));
+
+/* ajustes del DJ (por dispositivo; la clave de la API solo en la app de escritorio, la guarda el server) */
+function djPaintSettings() {
+  const c = djCfg();
+  $("setDjName").value = _djLS("lightning.djname", ""); $("setDjName").placeholder = c.name || t("Tu nombre");
+  document.querySelectorAll("#setDjTalk button").forEach(b => b.classList.toggle("on", b.dataset.v === c.talk));
+  document.querySelectorAll("#setDjSwear button").forEach(b => b.classList.toggle("on", +b.dataset.v === c.swear));
+  const st = DJ.st, s = $("setDjAiS"), box = $("setDjAi");
+  box.hidden = !APPINFO.desktop;
+  if (!st) { s.textContent = "…"; return; }
+  s.textContent = t(st.ai ? "Activado: Salomé escribe cada intervención con datos del artista y la canción."
+    : APPINFO.desktop ? "Pega tu clave de la API de Anthropic para que Salomé improvise. Sin clave usa frases ya escritas."
+    : "Frases ya escritas. El dueño del servidor puede activar la IA.") +
+    (st.voice ? "" : " " + t("Falta la voz en el servidor (edge-tts)."));
+  $("setDjModel").value = st.model || "opus";
+  $("setDjKey").placeholder = st.ai ? "•••••••• (" + t("guardada") + ")" : "sk-ant-…";
+}
+async function djLoadStatus() { try { DJ.st = await jget("/dj/status"); } catch (e) {} }
+const _djOpenSet = openSettings;
+openSettings = async function () { await _djOpenSet(); djPaintSettings(); await djLoadStatus(); djPaintSettings(); };
+$("setDjName").onchange = () => {
+  const v = $("setDjName").value.trim().slice(0, 30);
+  try { if (v) localStorage.setItem("lightning.djname", v); else localStorage.removeItem("lightning.djname"); } catch (e) {}
+  DJ.segs.clear(); djPaintSettings(); toast("Nombre guardado");
+};
+$("setDjTalk").onclick = (e) => { const b = e.target.closest("button[data-v]"); if (!b) return;
+  try { localStorage.setItem("lightning.djtalk", b.dataset.v); } catch (err) {} djPaintSettings(); };
+$("setDjSwear").onclick = (e) => { const b = e.target.closest("button[data-v]"); if (!b) return;
+  try { localStorage.setItem("lightning.djswear", b.dataset.v); } catch (err) {} DJ.segs.clear(); djPaintSettings(); };
+$("setDjSave").onclick = async () => {
+  const k = $("setDjKey").value.trim(), body = { model: $("setDjModel").value };
+  if (k) body.key = k;
+  $("setDjSave").disabled = true;
+  try {
+    const r = await apost("/dj/config", body);
+    if (r.error) throw new Error(r.error);
+    DJ.st = r; $("setDjKey").value = ""; toast(r.ai ? "IA activada para Salomé" : "Guardado");
+  } catch (err) { toast(err.message || "No se pudo cambiar el ajuste"); }
+  $("setDjSave").disabled = false; djPaintSettings();
+};
+djPaint();
 </script>
 </body>
 </html>

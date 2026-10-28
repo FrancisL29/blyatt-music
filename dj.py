@@ -34,18 +34,21 @@ _TRIM = ("silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:st
 MODELS = {"opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"}
 # quien escribe el guion: Gemini o Groq (gratis con una clave de su web) o Claude (de pago); sin clave, plantillas.
 # La clave dice el proveedor: AIza... Gemini, gsk_... Groq, sk-ant-... Claude
-PROVIDERS = {"none": "Frases ya escritas", "gemini": "Gemini (Google, gratis)", "groq": "Groq (gratis)", "claude": "Claude (Anthropic)"}
-_KEY_RE = r"(sk-ant-[\w-]{20,200}|AIza[\w-]{30,60}|AQ\.[\w.-]{20,300}|gsk_\w{30,80})"   # AQ.: formato nuevo de Google
+PROVIDERS = {"none": "Frases ya escritas", "mistral": "Mistral (gratis)", "groq": "Groq (gratis)",
+             "gemini": "Gemini (Google, gratis)", "claude": "Claude (Anthropic)"}
+# con varias claves se usa la primera de esta lista que funcione: las mas atrevidas con el humor negro primero
+_ORDER = ("mistral", "groq", "gemini", "claude")
+_KEY_RE = r"(sk-ant-[\w-]{20,200}|AIza[\w-]{30,60}|AQ\.[\w.-]{20,300}|gsk_\w{30,80}|[A-Za-z0-9]{32})"   # AQ.: Google nuevo
 
 
 def _provider_of(key):
     return ("claude" if key.startswith("sk-ant-") else "gemini" if key.startswith(("AIza", "AQ."))
-            else "groq" if key.startswith("gsk_") else "none")
+            else "groq" if key.startswith("gsk_") else "mistral" if re.fullmatch(r"[A-Za-z0-9]{32}", key) else "none")
 _MAX_FILES = 400        # frases guardadas en disco (~40 KB c/u)
 _AI_DAY = 150           # intervenciones con IA por cuenta y dia; despues, plantillas
 _UA = "Blyatt/1.0 (radio DJ; https://blyatt.stream)"
 _MEM, _mem_lock = {}, threading.Lock()
-_AI_ERR = {"at": 0, "msg": "", "pause": 0}   # ultimo fallo de la API (se ve en Ajustes); sin saldo se pausa un rato
+_AI_ERR = {"at": 0, "msg": "", "pause": {}}   # ultimo fallo de la API (se ve en Ajustes); pausa por proveedor
 
 
 def _dir():
@@ -65,11 +68,16 @@ def config():
             d = json.load(f)
     except Exception:
         d = {}
-    key = str(d.get("key") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY")
-              or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    keys = {k: v for k, v in (d.get("keys") or {}).items() if k in _ORDER and v}
+    for k in [str(d.get("key") or "")] + [os.environ.get(e, "") for e in
+              ("MISTRAL_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY")]:
+        k = k.strip()   # "key" (formato viejo de dj.json) y variables de entorno
+        if k and _provider_of(k) != "none":
+            keys.setdefault(_provider_of(k), k)
+    order = [p for p in _ORDER if keys.get(p)]
     model = d.get("model") if d.get("model") in MODELS else "haiku"
-    prov = d.get("provider") if d.get("provider") in PROVIDERS else _provider_of(key)
-    return {"key": key, "model": model, "provider": prov}
+    prov = order[0] if order else "none"
+    return {"keys": keys, "order": order, "key": keys.get(prov, ""), "model": model, "provider": prov}
 
 
 def set_config(d):
@@ -78,12 +86,16 @@ def set_config(d):
             raw = json.load(f)
     except Exception:
         raw = {}
-    if "key" in d:
+    if "key" in d:   # una clave nueva se suma a las que ya hay (la de su proveedor se reemplaza); vacia = borrar todas
         k = str(d.get("key") or "").strip()
         if k and not re.fullmatch(_KEY_RE, k):
-            return {"error": "Esa clave no parece de Gemini (AQ.… o AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)"}
-        raw["key"] = k
-        raw.pop("provider", None)   # la clave nueva manda
+            return {"error": "Esa clave no parece de Mistral, Groq (gsk_…), Gemini (AQ.… o AIza…) ni Anthropic (sk-ant-…)"}
+        keys = config()["keys"] if k else {}
+        if k:
+            keys[_provider_of(k)] = k
+        raw["keys"] = keys
+        raw.pop("key", None)
+        raw.pop("provider", None)
     if d.get("model") in MODELS:
         raw["model"] = d["model"]
     tmp = _cfg_file() + ".tmp"
@@ -101,6 +113,7 @@ def status():
     except ImportError:
         voice = False
     err = _AI_ERR["msg"] if c["provider"] != "none" and time.time() - _AI_ERR["at"] < 3600 else ""
+    names = " → ".join(PROVIDERS[p].split(" (")[0] for p in c["order"])
     if c["provider"] == "none" and not APP.SERVER_MODE and APP._cx_access():   # escritorio: la IA del server
         def remote():
             _, d = APP.cx_relay("GET", "/dj/status", None, APP._cx_key() or "0" * 40)
@@ -109,7 +122,8 @@ def status():
         if r.get("ai"):
             return {"ai": True, "provider": "remote", "provider_name": "IA del servidor: " + str(r.get("provider_name") or ""),
                     "key": False, "model": c["model"], "voice": voice, "server": False, "ai_error": ""}
-    return {"ai": c["provider"] != "none", "provider": c["provider"], "provider_name": PROVIDERS[c["provider"]], "key": bool(c["key"]),
+    return {"ai": c["provider"] != "none", "provider": c["provider"],
+            "provider_name": names if len(c["order"]) > 1 else PROVIDERS[c["provider"]], "key": bool(c["key"]),
             "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE), "ai_error": err}
 
 
@@ -594,7 +608,28 @@ def _groq(system, user, cfg):
     return ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 
 
-_LLM = {"claude": _claude, "gemini": _gemini, "groq": _groq}
+_MISTRAL_PREF = ("mistral-medium-latest", "mistral-small-latest", "open-mistral-nemo")
+
+
+def _mistral(system, user, cfg):
+    def pick():
+        try:
+            req = urllib.request.Request("https://api.mistral.ai/v1/models",
+                                         headers={"Authorization": "Bearer " + cfg["key"], "User-Agent": _UA})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                have = {x.get("id") for x in json.loads(r.read().decode("utf8")).get("data", [])}
+            return next((m for m in _MISTRAL_PREF if m in have), _MISTRAL_PREF[1])
+        except Exception:
+            return _MISTRAL_PREF[1]
+    m = APP.cached("djmis:" + hashlib.sha1(cfg["key"].encode()).hexdigest()[:8], 86400, pick)
+    d = _post("https://api.mistral.ai/v1/chat/completions",
+              {"model": m, "temperature": 1.0, "max_tokens": 600, "safe_prompt": False,
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
+              {"Authorization": "Bearer " + cfg["key"]}, 30)
+    return ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+
+
+_LLM = {"claude": _claude, "gemini": _gemini, "groq": _groq, "mistral": _mistral}
 
 
 # plantillas (sin clave de la API o si la API falla): mismo estilo, datos sencillos
@@ -772,6 +807,8 @@ def script(ctx, acct):
          "time": {k: str((ctx.get("time") or {}).get(k) or "")[:20] for k in ("hhmm", "wd", "part")},
          "say_time": bool(ctx.get("say_time")), "swear": ctx.get("swear") if ctx.get("swear") in (0, 1, 2) else 1}
     m, cfg = _mem(acct), config()
+    if ctx.get("prov") in cfg["order"]:   # prueba de una IA concreta (script de la clave en el telefono)
+        cfg["order"] = [ctx["prov"]]
     if cfg["provider"] == "none":
         rem = _remote_script(ctx)
         if rem:
@@ -786,15 +823,14 @@ def script(ctx, acct):
     except Exception:
         fx = {}
     text, ai = "", False
-    if cfg["provider"] != "none" and m["ai"] < _AI_DAY and time.time() > _AI_ERR["pause"]:
+    for prov in cfg["order"] if m["ai"] < _AI_DAY else ():
+        if time.time() < _AI_ERR["pause"].get(prov, 0):
+            continue
         try:
-            text = _clean(_ai(c, fx, list(m["lines"]), cfg))
-            ai = bool(text)
-            m["ai"] += 1
-            _AI_ERR["msg"] = ""
+            text = _clean(_ai(c, fx, list(m["lines"]), dict(cfg, provider=prov, key=cfg["keys"][prov])))
         except Exception as e:
             msg = str(e)
-            print("[dj] guion con IA fallo: %s" % msg, flush=True)
+            print("[dj] guion con %s fallo: %s" % (prov, msg), flush=True)
             low = msg.lower()
             bad_key = re.search(r"API (401|403) ", msg) or "authentication" in low or "api key" in low
             _AI_ERR.update(at=time.time(), msg=(
@@ -802,10 +838,17 @@ def script(ctx, acct):
                 if "credit" in low else "La clave de la IA no es válida" if bad_key
                 else "La IA llegó a su límite gratuito: vuelve en un rato" if "API 429" in msg
                 else "La IA falló: " + msg[:120]))
+            # sin saldo / clave mala: esa IA descansa 10 min; con el cupo lleno, un rato (mientras, la siguiente)
             if "credit" in low or bad_key:
-                _AI_ERR["pause"] = time.time() + 600   # sin saldo / clave mala: no reintentar en cada cancion
+                _AI_ERR["pause"][prov] = time.time() + 600
             elif "API 429" in msg:
-                _AI_ERR["pause"] = time.time() + 90
+                _AI_ERR["pause"][prov] = time.time() + 90
+            continue
+        if text:
+            ai = True
+            m["ai"] += 1
+            _AI_ERR["msg"] = ""
+            break
     if not text:
         text = _clean(_tmpl(c, fx))
     m["lines"].append(text)

@@ -19,6 +19,7 @@ import re
 import subprocess
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -143,9 +144,17 @@ def _radio(seed_id):
 
 
 def plan(ctx):
-    """Siguiente bloque (3-5 canciones del mismo rollo) y por que suena cada una."""
+    """Siguiente bloque (3-5 canciones del mismo rollo) y por que suena cada una. Primero evitando tambien lo que
+    el DJ puso en los ultimos dias (history); si con eso no alcanza, solo lo de esta sesion."""
+    out = _plan(ctx, True)
+    return out if not out.get("error") else _plan(ctx, False)
+
+
+def _plan(ctx, use_hist):
     liked, top, recent = _list(ctx.get("liked"), 300), _list(ctx.get("top"), 60), _list(ctx.get("recent"), 40)
     played_l = [x for x in (ctx.get("played") or [])[:600] if isinstance(x, dict)]
+    if use_hist:
+        played_l += [x for x in (ctx.get("history") or [])[:500] if isinstance(x, dict)]
     played = {str(x.get("id")) for x in played_l} | {_key(x) for x in played_l if x.get("title")}
     skip_art = {str(a).lower() for a in (ctx.get("skip_artists") or [])[:50]}
     last = str(ctx.get("last_kind") or "")
@@ -169,21 +178,20 @@ def plan(ctx):
         pool = [s for s in pool if _main_artist(s) not in skip_art]
         return rng.choice(pool[:25]) if pool else None
 
-    fav_pool = sorted(top, key=lambda s: -s.get("n", 0)) + liked[:40]
+    fav_pool = top + rng.sample(liked[:200], min(60, len(liked[:200])))   # lo mas escuchado + me gusta al azar
     old_liked = liked[len(liked) // 3:] if len(liked) > 12 else []
     if ctx.get("vibe"):
         kinds = ["vibra"]
-    elif not last:
-        kinds = ["favoritas", "mezcla"]   # se arranca con lo conocido
-    else:   # sorteo con pesos sin repetir el bloque anterior: mas mezclas y descubrimientos que recuerdos
-        weights = {k: w for k, w in (("mezcla", 3), ("descubrir", 3), ("favoritas", 2), ("recuerdos", 1)) if k != last}
+    else:   # sorteo con pesos sin repetir el bloque anterior (al arrancar, mas peso a lo conocido)
+        base = (("favoritas", 3), ("mezcla", 3), ("recuerdos", 2), ("descubrir", 1)) if not last else \
+               (("mezcla", 3), ("descubrir", 3), ("favoritas", 2), ("recuerdos", 1))
+        weights = {k: w for k, w in base if k != last}
         kinds = sorted(weights, key=lambda k: -rng.random() ** (1 / weights[k]))
     for kind in kinds + ["mezcla", "descubrir"]:
         tracks, seed = [], None
         if kind == "favoritas":
-            pool = fav_pool[:]
-            rng.shuffle(pool)
-            pool.sort(key=lambda s: -min(s.get("n", 0), 6))   # las mas escuchadas primero, con algo de azar
+            pool = fav_pool[:]   # sorteo ponderado: las mas escuchadas salen mas, pero nunca siempre las mismas
+            pool.sort(key=lambda s: -(min(s.get("n", 0), 6) + rng.random() * 6))
             tracks = fresh(pool, 4, lambda s: {"t": "top", "n": s.get("n", 0), "days": s.get("days", 0)}
                            if s.get("n", 0) >= 2 else {"t": "liked"})
         elif kind == "recuerdos":
@@ -226,8 +234,9 @@ def _get(url, timeout=6):
         return json.loads(r.read().decode("utf8", "replace"))
 
 
-def _norm(t):
-    t = re.sub(r"\(.*?\)|\[.*?\]|-.*$", "", (t or "").lower())
+def _norm(t):   # sin acentos ni versiones: "Acaríciame (Remastered)" == "Acariciame"
+    t = unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode()
+    t = re.sub(r"\(.*?\)|\[.*?\]|-.*$", "", t.lower())
     return re.sub(r"[^\w]+", " ", t).strip()
 
 
@@ -294,6 +303,10 @@ def _plays(n):
     return str(n)
 
 
+def _plays_txt(x):   # "3 millones" -> "3 millones de reproducciones"; "850 mil" -> "850 mil reproducciones"
+    return x + (" de" if x.endswith("millones") else "") + " reproducciones" if x else ""
+
+
 def facts(t):
     aid = ((t.get("artists") or [{}])[0].get("id") or "") if t.get("artists") else ""
     name = ((t.get("artists") or [{}])[0].get("name") if t.get("artists") else "") or re.split(r",| y |&", t.get("artist") or "")[0]
@@ -322,34 +335,54 @@ def facts(t):
 
 
 # ---------- guion ----------
-_SYS = """Eres Lara, la DJ de Blyatt: una radio personal que suena para UNA persona y está hecha con sus gustos. \
-Hablas entre canciones como una locutora joven, cercana, divertida y con mucha calle. Mezclas jerga de Colombia y \
-de Ecuador.
+_SYS = """Eres Lara, la locutora de Blyatt FM: una radio personal que suena para UNA persona y está hecha con sus \
+gustos. Tu estilo es el de los locutores de las radios de GTA: irreverente, sarcástica, rápida, con humor negro, \
+salidas absurdas y cero filtro de corrección política, pero con cariño por quien escucha. Nada de locutora seca ni \
+de presentadora correcta: cada intervención tiene que tener un remate que haga reír o al menos sonreír. Mezclas \
+jerga de Colombia y de Ecuador.
+
+Recursos (usa uno por intervención y varíalos; el CONTEXTO te sugiere cuál):
+- Chiste corto con pregunta y remate ("¿Sabes cuál es la diferencia entre...?").
+- Anuncio falso de un patrocinador absurdo ("Este bloque te lo trae...").
+- Noticia falsa de última hora, claramente absurda.
+- Pulla cariñosa al gusto del oyente, a la hora que es o a lo que se saltó.
+- Confesión absurda de tu vida de locutora.
+- Dato real del artista o la canción con un comentario sarcástico.
+- Teoría conspirativa ridícula sobre la canción.
+- Consejo de vida terrible.
+
+Ejemplos del tono (no los copies, inventa siempre nuevos):
+- "¿Sabes cuál es la diferencia entre tu ex y esta rola? Que esta sí vale la pena repetirla. Va Sienna de The Marías."
+- "Este bloque te lo trae Chuchaqui Plus. La pastilla que no cura nada pero te hace sentir que hiciste algo con tu \
+vida. Seguimos con Queen ñaño."
+- "Son las 2 de la mañana y sigues aquí parce. Yo también pero a mí me pagan. Bueno más o menos. Va Drive de The Weeknd."
+- "Noticia de última hora. Científicos confirman que escuchar a Toto un martes sube la autoestima un trece por \
+ciento. Me lo acabo de inventar pero suena verdad. ¡Súbele!"
 
 Cómo hablas:
-- Español latino muy informal y natural. Jerga que puedes usar (una a tres por intervención, varía siempre): \
-quiubo, parce, de una, bacán, bacano, chimba, qué fue, ñaño, ñaña, pana, full, de ley, farra, chuchaqui, camello, \
-chuta, chucha, qué bestia, mijo, mija, rola, temazo, súbele.
-- Nunca digas "qué más pues" ni "¿ah?". Nada de tono de presentador formal ("Buenas noches, fulano...").
+- Español latino muy informal. Jerga (una a tres por intervención, varía siempre): quiubo, parce, de una, bacán, \
+bacano, chimba, qué fue, ñaño, ñaña, pana, full, de ley, farra, chuchaqui, camello, chuta, chucha, qué bestia, \
+mijo, mija, rola, temazo, súbele.
+- Nunca digas "qué más pues" ni "¿ah?". Nunca empieces con "Buenas noches" ni suenes a noticiero.
 - Groserías: {swear}
+- Humor negro sí, pero nunca chistes sobre abuso sexual, violación o menores, ni burlas por raza, religión, \
+orientación sexual o discapacidad.
 - Lo que escribes lo lee una voz sintética. Por eso: frases cortas; signos ¡! y ¿? para dar entonación; coma SOLO \
 donde de verdad hay una pausa al hablar. Nada de coma antes de un vocativo (ñaño, mijo, parce, pana, el nombre del \
 oyente) ni antes de "o qué?" o "sí o qué?", ni entre frases que se dicen de corrido ("¡Súbele todo que hoy no hay \
-chuchaqui que nos pare!"). Ejemplos buenos: "Ya es tarde mijo." "¡Chucha, qué temazo el de The Marías!" \
-"¿Te saltaste esa? ¡Qué falta de respeto parce! Bueno, de una vamos con otra."
+chuchaqui que nos pare!").
 - Nunca uses puntos suspensivos, comillas, paréntesis, guiones, emojis, hashtags, asteriscos ni abreviaturas. \
-Escribe "pa" (sin apóstrofo). La hora en palabras de radio: "las 9 y 40", "las 10 en punto", "la 1 y media".
+Escribe "pa" (sin apóstrofo). Los números en palabras si son cortos. La hora como en la radio: "las 9 y 40", \
+"las 10 en punto", "la 1 y media".
 - Di el nombre del oyente a veces, no en cada intervención.
 
-Qué cuentas:
-- Presenta la canción que viene (título y artista, el título tal cual) de forma natural, como en la radio.
-- Cuando haya DATOS, aprovéchalos para contar algo interesante o curioso del artista o de la canción, contado con \
-tus palabras y con gracia, no leído.
-- Usa solo datos que vengan en DATOS o que sepas con total seguridad de artistas muy conocidos. Si dudas, no lo \
-digas. Nunca inventes cifras, fechas, premios, colaboraciones ni anécdotas. Mejor una opinión con gracia que un \
-dato falso.
+Reglas de contenido:
+- Siempre presenta la canción que viene (título tal cual y artista), normalmente al final, como en la radio.
+- Los datos reales solo de DATOS o de lo que sepas con total seguridad de artistas muy conocidos. Nunca inventes \
+cifras, fechas, premios ni anécdotas haciéndolos pasar por reales. Lo inventado (anuncios, noticias, teorías) tiene \
+que ser tan absurdo que se note que es broma.
 - Lo personal sale del CONTEXTO (lo que más escucha, si se saltó una, la hora, el día). No inventes cosas de su vida.
-- No repitas aperturas, muletillas ni chistes de tus frases anteriores.
+- No repitas aperturas, muletillas, recursos ni chistes de tus intervenciones anteriores.
 - Largo: {length}
 
 Responde SOLO con lo que vas a decir, en un párrafo, sin nada más."""
@@ -361,8 +394,12 @@ _SWEAR = {
        "exclamación de emoción. Nunca insultes al oyente ni a nadie y nada ofensivo hacia ningún grupo (no uses "
        "marica).",
 }
-_LEN = {"intro": "entre 25 y 45 palabras.", "block": "entre 20 y 40 palabras.", "song": "entre 12 y 32 palabras.",
-        "skip": "entre 8 y 20 palabras.", "vibe": "entre 10 y 22 palabras."}
+_LEN = {"intro": "entre 30 y 55 palabras.", "block": "entre 25 y 55 palabras.", "song": "entre 15 y 40 palabras.",
+        "skip": "entre 10 y 25 palabras.", "vibe": "entre 12 y 28 palabras."}
+_BITS = ("un chiste corto con pregunta y remate", "un anuncio falso de un patrocinador absurdo",
+         "una noticia falsa de última hora, claramente absurda", "una pulla cariñosa al oyente",
+         "una confesión absurda de tu vida de locutora", "un dato real del artista o la canción con un comentario sarcástico",
+         "una teoría conspirativa ridícula sobre la canción", "un consejo de vida terrible")
 _KIND_ES = {"favoritas": "sus favoritas (lo que más escucha)", "descubrir": "descubrimientos: canciones que no conoce",
             "recuerdos": "recuerdos: canciones de sus me gusta que hace tiempo no pone",
             "mezcla": "mezcla de lo suyo con cosas nuevas parecidas", "vibra": "cambio de vibra que pidió el oyente"}
@@ -427,6 +464,8 @@ def _ai(ctx, fx, prev_lines, cfg):
             "skip": "El oyente se acaba de saltar una canción: reacciona con gracia y presenta la siguiente.",
             "vibe": "El oyente pidió cambiar de vibra: confirma con energía y presenta la siguiente."}[kind]
     lines.append("- Momento: " + what)
+    if kind != "skip":
+        lines.append("- Recurso para esta vez: " + random.choice(_BITS))
     if p.get("title") and kind != "intro":
         lines.append("- Acaba de sonar: %s de %s%s" % (p["title"], p.get("artist", ""),
                                                      " (se la saltó a los pocos segundos)" if p.get("skipped") else ""))
@@ -445,7 +484,7 @@ def _ai(ctx, fx, prev_lines, cfg):
         if fx.get("cancion"):
             lines.append("- Sobre la canción: " + fx["cancion"])
         if fx.get("reproducciones"):
-            lines.append("- La canción lleva %s de reproducciones en YouTube" % fx["reproducciones"])
+            lines.append("- La canción lleva %s en YouTube" % _plays_txt(fx["reproducciones"]))
     if prev_lines:
         lines.append("\nTUS ÚLTIMAS INTERVENCIONES (no repitas aperturas ni muletillas)")
         lines += ["- " + x for x in prev_lines[-6:]]
@@ -505,7 +544,7 @@ def _gemini(system, user, cfg):
     m = _gemini_model(cfg["key"])
     d = _post("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % m,
               {"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": user}]}],
-               "generationConfig": {"temperature": 1.0, "maxOutputTokens": 1500}}, {"x-goog-api-key": cfg["key"]}, 30)
+               "generationConfig": {"temperature": 1.2, "maxOutputTokens": 1500}}, {"x-goog-api-key": cfg["key"]}, 30)
     parts = (((d.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
     return "".join(p.get("text", "") for p in parts if not p.get("thought"))
 
@@ -526,7 +565,7 @@ def _groq(system, user, cfg):
             return _GROQ_PREF[0]
     m = APP.cached("djgroq:" + hashlib.sha1(cfg["key"].encode()).hexdigest()[:8], 86400, pick)
     d = _post("https://api.groq.com/openai/v1/chat/completions",
-              {"model": m, "temperature": .9, "max_tokens": 600,
+              {"model": m, "temperature": 1.05, "max_tokens": 600,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
               {"Authorization": "Bearer " + cfg["key"]}, 30)
     return ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
@@ -565,7 +604,7 @@ _T = {
                  "Otra de tus favoritas. {t} de {a}. ¡Súbele!"],
     "song_new": ["Esta todavía no la conoces. Es {t} de {a}. Dale una oportunidad.",
                  "Va una nueva pa ti. {t} de {a}. ¡De ley te va a gustar!"],
-    "song_plays": ["{t} de {a} ya pasa de {pl} reproducciones. ¡Qué bestia!"],
+    "song_plays": ["{t} de {a} ya pasa de {pl}. ¡Qué bestia!"],
     "song": ["Sigue {a} con {t}. ¡Súbele pa que suene!", "Ahora va {t} de {a}. ¡Qué chévere esta!"],
     "skip": ["¿Te saltaste esa? ¡Qué falta de respeto parce! Bueno, de una vamos con {t}.",
              "Ya ya entendí que esa no era. Mejor {t} de {a}."],
@@ -590,7 +629,7 @@ def _tmpl(ctx, fx):
     line = line.format(n=ctx.get("name") or "", t=t["title"], a=t.get("artist", ""), p=p.get("title", ""),
                        h=_hora((ctx.get("time") or {}).get("hhmm")) or "la hora de la música",
                        wd=(ctx.get("time") or {}).get("wd", ""), s=seed.get("artist", ""),
-                       nn=w.get("n", 0), pl=fx.get("reproducciones", ""))
+                       nn=w.get("n", 0), pl=_plays_txt(fx.get("reproducciones", "")))
     if ctx["swear"] and kind != "intro" and random.random() < (.3 if ctx["swear"] == 1 else .55):
         line = random.choice(_EXCL[ctx["swear"]]) + " " + line
     elif ctx.get("say_time") and kind in ("block", "song") and (ctx.get("time") or {}).get("hhmm") and "{h}" not in line:

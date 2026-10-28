@@ -7836,7 +7836,9 @@ function djCtx(vibe) {
   for (let i = older.length - 1; i > 0; i--) { const j = _rnd(i + 1); [older[i], older[j]] = [older[j], older[i]]; }
   // las 80 mas recientes + 120 al azar del resto (la radio "se acuerda" de todo sin mandar miles)
   const pick = liked.slice(0, 80).concat(older.slice(0, 120));
+  let hist = []; try { hist = JSON.parse(localStorage.getItem("lightning.djhist") || "[]").filter(x => Date.now() - x.ts < 4 * 864e5); } catch (e) {}
   const o = { liked: pick.map(_djS), top: djTop(), recent: getRecents().slice(0, 20).map(_djS), played: DJ.played.slice(-300),
+              history: hist.slice(-400).map(x => ({ id: x.id, title: x.title, artist: x.artist })),
               skip_artists: DJ.skipArts.slice(-20), last_kind: DJ.kind, cur: current ? _djS(current) : null };
   if (vibe) o.vibe = 1;
   return o;
@@ -7852,6 +7854,11 @@ async function djPlan(vibe) {
     delete s.why;
     DJ.played.push({ id: s.id, title: s.title, artist: s.artist });
   });
+  try {
+    const now = Date.now(), h = JSON.parse(localStorage.getItem("lightning.djhist") || "[]").filter(x => now - x.ts < 4 * 864e5);
+    d.tracks.forEach(s => h.push({ id: s.id, title: s.title, artist: s.artist, ts: now }));
+    localStorage.setItem("lightning.djhist", JSON.stringify(h.slice(-400)));
+  } catch (e) {}
   return d;
 }
 function djTime(d) {
@@ -7906,9 +7913,11 @@ function djCaption(text, secs) {
   _djCapT = setTimeout(() => c.classList.remove("show"), Math.max(4, secs || 0) * 1000 + 900);
 }
 // la voz entra encima del principio de la cancion; la musica baja mientras habla y vuelve suave al terminar
-function djSpeak(v) {
+// `at`: momento (reloj de audio) en que entra la voz; sin el, ya. `forId`: la cancion que presenta (transicion)
+function djSpeak(v, at, forId) {
   djHush();
   if (audio.paused || !DJ.on) return;
+  v.spoken = true;
   DJ.n++;
   if (v.sayTime) DJ.lastTime = Date.now();
   if (!v.buf) { djCaption(v.text, 6); return; }   // sin voz en el server: al menos los subtitulos
@@ -7919,20 +7928,42 @@ function djSpeak(v) {
     djCaption(v.text, 8); djScopeStart();
     return;
   }
-  const t0 = AC.currentTime + .2, dur = v.buf.duration, g = srcBus.gain;
+  const now = AC.currentTime, t0 = Math.max(now + .2, at || 0), dur = v.buf.duration, g = srcBus.gain;
   const src = AC.createBufferSource(), vg = AC.createGain();
   src.buffer = v.buf; vg.gain.value = 1; src.connect(vg); vg.connect(gainNode);   // tras el volumen del usuario
   vg.connect(djAn);   // osciloscopio
-  g.cancelScheduledValues(AC.currentTime); g.setValueAtTime(g.value, AC.currentTime);
-  g.linearRampToValueAtTime(.14, t0 + .15);
+  // todo en el reloj de audio (exacto aunque el movil este con la pantalla apagada): la musica sigue normal hasta
+  // justo antes, baja mientras habla (tambien la cancion nueva si entra en medio) y vuelve sola al terminar
+  g.cancelScheduledValues(now); g.setValueAtTime(g.value, now);
+  if (t0 - .6 > now) g.setValueAtTime(1, t0 - .6);
+  g.linearRampToValueAtTime(.14, t0 + .1);
   g.setValueAtTime(.14, t0 + dur); g.linearRampToValueAtTime(1, t0 + dur + 1);
   src.start(t0);
-  DJ.voice = { src, vg };
+  DJ.voice = { src, vg, v, t0, end: t0 + dur, forId: forId || null };
   src.onended = () => { if (DJ.voice && DJ.voice.src === src) DJ.voice = null; };
-  djCaption(v.text, dur); djScopeStart();
+  clearTimeout(DJ.capT);
+  DJ.capT = setTimeout(() => { if (DJ.voice && DJ.voice.src === src) { djCaption(v.text, dur); djScopeStart(); } },
+                       Math.max(0, (t0 - now) * 1000));
+}
+// la voz de la siguiente cancion entra sobre el final de la actual y sigue mientras empieza la otra: Lara hace de
+// transicion. Se programa en cuanto esta lista (y se recoloca si mueves la barra antes de que empiece)
+function djArm() {
+  if (!DJ.on || IOS_WEB || CX.remote || audio.paused || !eng.playing || DJ.busy) return;
+  const n = queue[qIndex + 1];
+  if (!n || !n._dj) return;
+  const seg = DJ.segs.get(n.id), v = seg && seg.done;
+  if (!v || !v.buf) return;
+  const at = _boundaryAt() - Math.min(v.buf.duration * .6, 8), cur = DJ.voice;
+  if (cur && cur.forId === n.id) {
+    if (AC.currentTime < cur.t0 - .1 && Math.abs(cur.t0 - Math.max(at, AC.currentTime + .2)) > .4) djSpeak(v, at, n.id);
+    return;
+  }
+  if (v.spoken || cur) return;   // ya dicha, o Lara aun esta hablando de otra
+  djSpeak(v, at, n.id);
 }
 function djHush() {   // calla a Lara (pausa, salto, salir) y la musica vuelve a su volumen
-  const v = DJ.voice; DJ.voice = null; djCaption(null);
+  const v = DJ.voice; DJ.voice = null; djCaption(null); clearTimeout(DJ.capT);
+  if (v && v.v && v.t0 && AC.currentTime < v.t0) v.v.spoken = false;   // aun no habia empezado: se puede reprogramar
   if (v && v.el) { try { v.el.pause(); } catch (e) {} }
   if (v && v.src) {
     const t = AC.currentTime;
@@ -8034,12 +8065,16 @@ function djOnTrack(s) {
   if (s && s.id) djStat(s);
   if (!DJ.on) return;
   if (!s || !s._dj) { djStop(false); return; }   // pusiste otra musica: la radio se apaga sola
+  const prev = DJ.cur, skipped = DJ.skip, vo = DJ.voice; DJ.cur = s; DJ.skip = null;
+  if (vo && vo.forId === s.id) {   // la transicion ya suena sobre el cambio: sigue
+    if (AC.currentTime < vo.t0 - .1) djSpeak(vo.v, 0, s.id);   // saltaste antes de que entrara: ya
+    djExtend(); return;
+  }
   djHush();
-  const prev = DJ.cur, skipped = DJ.skip; DJ.cur = s; DJ.skip = null;
   let seg = DJ.segs.get(s.id);
   if (!seg && skipped && prev && prev._dj && Math.random() < .6) seg = djPrepare(s, "skip", Object.assign({ skipped: true }, skipped));
   if (seg) {
-    const go = (v) => { if (DJ.on && DJ.cur === s && !audio.paused && audio.currentTime < 25) djSpeak(v); };
+    const go = (v) => { if (DJ.on && DJ.cur === s && !v.spoken && !audio.paused && audio.currentTime < 25) djSpeak(v, 0, s.id); };
     if (seg.done) go(seg.done); else seg.p.then(go).catch(() => {});
   }
   djExtend();
@@ -8069,10 +8104,11 @@ setInterval(() => {
   if (CX.remote) { djStop(false); return; }   // la musica se fue a otro dispositivo
   if (!current || audio.paused || DJ.busy) return;
   const n = queue[qIndex + 1], pos = audio.currentTime, dur = audio.duration || 0;
-  if (!n || !n._dj || DJ.segs.has(n.id) || !(pos > Math.min(40, dur * .4) || dur - pos < 50)) return;
+  if (!n || !n._dj || DJ.segs.has(n.id) || !(pos > Math.min(30, dur * .3) || dur - pos < 60)) return;
   const k = djTalkKind(n);
-  if (k) djPrepare(n, k, current, new Date(Date.now() + Math.max(0, dur - pos) * 1000));
+  if (k) djPrepare(n, k, current, new Date(Date.now() + Math.max(0, dur - pos) * 1000)).p.then(djArm).catch(() => {});
 }, 1500);
+setInterval(djArm, 1000);   // por si la barra se movio o la voz llego tarde
 [$("djBtn"), $("npDj")].forEach(b => b && (b.onclick = (e) => { e.stopPropagation(); djMenu(e.currentTarget); }));
 // (va despues del onclick generico de .nav-item, que lo trataria como una vista)
 $("djLib").onclick = () => { if (DJ.on) djOpenView(); else djStart(true); };
@@ -8116,11 +8152,11 @@ function _djDots(ctx, w, h, amp, n, r, glow, trail, st, t) {
 }
 function djScopeDraw() {
   _djRaf = 0;
-  const talking = !!DJ.voice, now = performance.now();
+  const vo = DJ.voice, talking = !!vo && (!vo.t0 || AC.currentTime >= vo.t0 - .05), now = performance.now();
   if (now - _djAccAt > 1000) { _djAccAt = now; _djAcc = (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim() || "#2e7dff"; }
   const t = now / 1000;
   let rms = 0;
-  if (talking && DJ.voice.src) {
+  if (talking && vo.src) {
     djAn.getFloatTimeDomainData(_djWave); djAn.getByteFrequencyData(_djF);
     for (let i = 0; i < _djWave.length; i += 2) rms += _djWave[i] * _djWave[i];
     rms = Math.sqrt(rms / (_djWave.length / 2));

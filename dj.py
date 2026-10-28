@@ -31,6 +31,15 @@ VOICE, RATE, PITCH = "es-CO-SalomeNeural", "+12%", "+4Hz"   # voz elegida por el
 _TRIM = ("silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.1"
          ":stop_threshold=-45dB:stop_silence=0.1")
 MODELS = {"opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"}
+# quien escribe el guion: Gemini o Groq (gratis con una clave de su web) o Claude (de pago); sin clave, plantillas.
+# La clave dice el proveedor: AIza... Gemini, gsk_... Groq, sk-ant-... Claude
+PROVIDERS = {"none": "Frases ya escritas", "gemini": "Gemini (Google, gratis)", "groq": "Groq (gratis)", "claude": "Claude (Anthropic)"}
+_KEY_RE = r"(sk-ant-[\w-]{20,200}|AIza[\w-]{30,60}|gsk_\w{30,80})"
+
+
+def _provider_of(key):
+    return ("claude" if key.startswith("sk-ant-") else "gemini" if key.startswith("AIza")
+            else "groq" if key.startswith("gsk_") else "none")
 _MAX_FILES = 400        # frases guardadas en disco (~40 KB c/u)
 _AI_DAY = 150           # intervenciones con IA por cuenta y dia; despues, plantillas
 _UA = "Blyatt/1.0 (radio DJ; https://blyatt.stream)"
@@ -55,9 +64,11 @@ def config():
             d = json.load(f)
     except Exception:
         d = {}
-    key = str(d.get("key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    key = str(d.get("key") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY")
+              or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     model = d.get("model") if d.get("model") in MODELS else "haiku"
-    return {"key": key, "model": model}
+    prov = d.get("provider") if d.get("provider") in PROVIDERS else _provider_of(key)
+    return {"key": key, "model": model, "provider": prov}
 
 
 def set_config(d):
@@ -68,9 +79,10 @@ def set_config(d):
         raw = {}
     if "key" in d:
         k = str(d.get("key") or "").strip()
-        if k and not re.fullmatch(r"sk-ant-[\w-]{20,200}", k):
-            return {"error": "Esa clave no parece de Anthropic (empieza por sk-ant-)"}
+        if k and not re.fullmatch(_KEY_RE, k):
+            return {"error": "Esa clave no parece de Gemini (AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)"}
         raw["key"] = k
+        raw.pop("provider", None)   # la clave nueva manda
     if d.get("model") in MODELS:
         raw["model"] = d["model"]
     tmp = _cfg_file() + ".tmp"
@@ -87,8 +99,9 @@ def status():
         voice = True
     except ImportError:
         voice = False
-    err = _AI_ERR["msg"] if c["key"] and time.time() - _AI_ERR["at"] < 3600 else ""
-    return {"ai": bool(c["key"]), "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE), "ai_error": err}
+    err = _AI_ERR["msg"] if c["provider"] != "none" and time.time() - _AI_ERR["at"] < 3600 else ""
+    return {"ai": c["provider"] != "none", "provider": c["provider"], "provider_name": PROVIDERS[c["provider"]], "key": bool(c["key"]),
+            "model": c["model"], "voice": voice, "server": bool(APP.SERVER_MODE), "ai_error": err}
 
 
 # ---------- bloques de canciones ----------
@@ -437,26 +450,89 @@ def _ai(ctx, fx, prev_lines, cfg):
         lines.append("\nTUS ÚLTIMAS INTERVENCIONES (no repitas aperturas ni muletillas)")
         lines += ["- " + x for x in prev_lines[-6:]]
     system = _SYS.format(swear=_SWEAR[ctx["swear"]], length=_LEN[kind])
-    model = MODELS[cfg["model"]]
-    body = {"model": model, "max_tokens": 2000, "system": system, "output_config": {"effort": "low"},
-            "messages": [{"role": "user", "content": "\n".join(lines)}]}
-    hdr = {"Content-Type": "application/json", "x-api-key": cfg["key"], "anthropic-version": "2026-10-21"}
-    if cfg["model"] == "opus":   # si un filtro de seguridad rechaza (groserias...), reintenta en otro modelo
-        body["fallbacks"] = "default"
-        hdr["anthropic-beta"] = "server-side-fallback-2026-07-01"
-    req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(), headers=hdr)
+    return _LLM[cfg["provider"]](system, "\n".join(lines), cfg)
+
+
+def _post(url, body, hdr, timeout=40):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers=dict({"Content-Type": "application/json", "User-Agent": _UA}, **hdr))
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
-            d = json.loads(r.read().decode("utf8"))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf8"))
     except urllib.error.HTTPError as e:
         try:
-            msg = json.loads(e.read().decode("utf8")).get("error", {}).get("message", "")
+            err = json.loads(e.read().decode("utf8")).get("error", {})
+            msg = err.get("message", "") if isinstance(err, dict) else str(err)
         except Exception:
             msg = ""
         raise RuntimeError("API %s %s" % (e.code, msg[:160]))
+
+
+def _claude(system, user, cfg):
+    body = {"model": MODELS[cfg["model"]], "max_tokens": 2000, "system": system, "output_config": {"effort": "low"},
+            "messages": [{"role": "user", "content": user}]}
+    hdr = {"x-api-key": cfg["key"], "anthropic-version": "2026-10-21"}
+    if cfg["model"] == "opus":   # si un filtro de seguridad rechaza (groserias...), reintenta en otro modelo
+        body["fallbacks"] = "default"
+        hdr["anthropic-beta"] = "server-side-fallback-2026-07-01"
+    d = _post("https://api.anthropic.com/v1/messages", body, hdr, 45)
     if d.get("stop_reason") == "refusal":
         raise RuntimeError("rechazado")
     return "".join(c.get("text", "") for c in d.get("content", []) if c.get("type") == "text")
+
+
+def _gemini_model(key):
+    """El Flash-Lite mas nuevo de la cuenta (Google los renueva y retira a menudo)."""
+    def pick():
+        try:
+            req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models?pageSize=300",
+                                         headers={"x-goog-api-key": key, "User-Agent": _UA})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                ms = json.loads(r.read().decode("utf8")).get("models", [])
+        except Exception:
+            return "gemini-flash-lite-latest"
+        best = []
+        for m in ms:
+            n = m.get("name", "").split("/")[-1]
+            v = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash-lite", n)
+            if v and "generateContent" in (m.get("supportedGenerationMethods") or []):
+                best.append((float(v.group(1)), n))
+        return max(best)[1] if best else "gemini-flash-lite-latest"
+    return APP.cached("djgem:" + hashlib.sha1(key.encode()).hexdigest()[:8], 86400, pick)
+
+
+def _gemini(system, user, cfg):
+    m = _gemini_model(cfg["key"])
+    d = _post("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % m,
+              {"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": user}]}],
+               "generationConfig": {"temperature": 1.0, "maxOutputTokens": 1500}}, {"x-goog-api-key": cfg["key"]}, 30)
+    parts = (((d.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
+    return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+
+
+_GROQ_PREF = ("llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b",
+              "llama-3.1-8b-instant")
+
+
+def _groq(system, user, cfg):
+    def pick():
+        try:
+            req = urllib.request.Request("https://api.groq.com/openai/v1/models",
+                                         headers={"Authorization": "Bearer " + cfg["key"], "User-Agent": _UA})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                have = {x.get("id") for x in json.loads(r.read().decode("utf8")).get("data", [])}
+            return next((m for m in _GROQ_PREF if m in have), _GROQ_PREF[0])
+        except Exception:
+            return _GROQ_PREF[0]
+    m = APP.cached("djgroq:" + hashlib.sha1(cfg["key"].encode()).hexdigest()[:8], 86400, pick)
+    d = _post("https://api.groq.com/openai/v1/chat/completions",
+              {"model": m, "temperature": .9, "max_tokens": 600,
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
+              {"Authorization": "Bearer " + cfg["key"]}, 30)
+    return ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+
+
+_LLM = {"claude": _claude, "gemini": _gemini, "groq": _groq}
 
 
 # plantillas (sin clave de la API o si la API falla): mismo estilo, datos sencillos
@@ -610,14 +686,14 @@ def say(ctx, acct):
     m, cfg = _mem(acct), config()
     fx = {}
     try:   # la IA cuenta datos del artista/cancion; las plantillas solo usan las reproducciones (mas rapido)
-        if cfg["key"] and kind in ("intro", "block", "song"):
+        if cfg["provider"] != "none" and kind in ("intro", "block", "song"):
             fx = facts(t)
         elif kind == "song":
             fx = {"reproducciones": _plays((APP.viewcounts([t["id"]]) or {}).get(t["id"]))}
     except Exception:
         fx = {}
     text, ai = "", False
-    if cfg["key"] and m["ai"] < _AI_DAY and time.time() > _AI_ERR["pause"]:
+    if cfg["provider"] != "none" and m["ai"] < _AI_DAY and time.time() > _AI_ERR["pause"]:
         try:
             text = _clean(_ai(c, fx, list(m["lines"]), cfg))
             ai = bool(text)
@@ -627,12 +703,16 @@ def say(ctx, acct):
             msg = str(e)
             print("[dj] guion con IA fallo: %s" % msg, flush=True)
             low = msg.lower()
+            bad_key = re.search(r"API (401|403) ", msg) or "authentication" in low or "api key" in low
             _AI_ERR.update(at=time.time(), msg=(
                 "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)"
-                if "credit" in low else "La clave de Anthropic no es válida" if " 401 " in msg or "authentication" in low
+                if "credit" in low else "La clave de la IA no es válida" if bad_key
+                else "La IA llegó a su límite gratuito: vuelve en un rato" if "API 429" in msg
                 else "La IA falló: " + msg[:120]))
-            if "credit" in low or " 401 " in msg:
+            if "credit" in low or bad_key:
                 _AI_ERR["pause"] = time.time() + 600   # sin saldo / clave mala: no reintentar en cada cancion
+            elif "API 429" in msg:
+                _AI_ERR["pause"] = time.time() + 90
     if not text:
         text = _clean(_tmpl(c, fx))
     m["lines"].append(text)

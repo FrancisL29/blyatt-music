@@ -1875,10 +1875,10 @@
         <div class="sseg" id="setDjSwear"><button data-v="0" data-i18n>No</button><button data-v="1" data-i18n>A veces</button><button data-v="2" data-i18n>Sin filtro</button></div>
       </div>
       <div class="srow"><i class="ph ph-sparkle"></i>
-        <div class="stx"><div class="stt" data-i18n>Guion con IA (Claude)</div>
+        <div class="stx"><div class="stt" data-i18n>Guion con IA</div>
           <div class="sds" id="setDjAiS"></div></div>
         <div class="sdjai" id="setDjAi" hidden>
-          <input class="sinp" id="setDjKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" aria-label="Clave de la API de Anthropic" data-i18n-al>
+          <input class="sinp" id="setDjKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… / gsk_… / sk-ant-…" aria-label="Clave de la IA" data-i18n-al>
           <select class="ssel" id="setDjModel" aria-label="Modelo" data-i18n-al><option value="haiku">Haiku 5.5</option><option value="opus">Opus 5.5</option></select>
           <button class="sbtn" id="setDjSave" data-i18n>Guardar</button>
         </div>
@@ -2341,6 +2341,13 @@ const EN = {
   "Pega tu clave de la API de Anthropic para que Lara improvise. Sin clave usa frases ya escritas.": "Paste your Anthropic API key so Lara can improvise. Without it she uses pre-written lines.",
   "Frases ya escritas. El dueño del servidor puede activar la IA.": "Pre-written lines. The server owner can turn on AI.",
   "Falta la voz en el servidor (edge-tts).": "The server is missing the voice (edge-tts).", "IA activada para Lara": "AI turned on for Lara",
+  "Guion con IA": "AI script", "Clave de la IA": "AI key", "Activado con": "On with",
+  "Lara escribe cada intervención con datos del artista y la canción.": "Lara writes each break with facts about the artist and the song.",
+  "Pega una clave gratuita de Gemini (aistudio.google.com) o Groq para que Lara improvise. Sin clave usa frases ya escritas.":
+    "Paste a free Gemini (aistudio.google.com) or Groq key so Lara can improvise. Without one she uses pre-written lines.",
+  "Gemini (Google, gratis)": "Gemini (Google, free)", "Groq (gratis)": "Groq (free)", "Frases ya escritas": "Pre-written lines",
+  "La clave de la IA no es válida": "The AI key isn't valid", "La IA llegó a su límite gratuito: vuelve en un rato": "The AI hit its free limit: try again in a bit",
+  "Esa clave no parece de Gemini (AIza…), Groq (gsk_…) ni Anthropic (sk-ant-…)": "That doesn't look like a Gemini (AIza…), Groq (gsk_…) or Anthropic (sk-ant-…) key",
   "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)": "Your Anthropic account has no credit: buy credits at console.anthropic.com (Plans & Billing)",
   "La clave de Anthropic no es válida": "The Anthropic key isn't valid",
   "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
@@ -8073,7 +8080,7 @@ $("djLib").oncontextmenu = (e) => { if (!DJ.on) return; e.preventDefault(); djMe
 
 /* osciloscopio: la voz de Lara (AnalyserNode) como una linea de puntos sobre negro que tapa la portada mientras
    habla; al callarse los puntos se aplanan y el negro se desvanece hasta la portada. Tambien en los subtitulos */
-const djAn = AC.createAnalyser(); djAn.fftSize = 2048; djAn.smoothingTimeConstant = .6;
+const djAn = AC.createAnalyser(); djAn.fftSize = 1024; djAn.smoothingTimeConstant = .25;   // ventana corta: reacciona a cada silaba
 const _djWave = new Float32Array(djAn.fftSize);
 let _djRaf = 0, _djLvl = 0, _djGain = 6, _djAcc = "#2e7dff", _djAccAt = 0;
 function djScopeHost() {
@@ -8083,7 +8090,7 @@ function djScopeHost() {
 }
 function djScopeStart() { if (!_djRaf) _djRaf = requestAnimationFrame(djScopeDraw); }
 // n puntos redondos a lo ancho; cada uno sigue la onda (suavizada) y brilla mas cuanto mas se aleja del centro
-const _djSm = { big: new Float32Array(72), mini: new Float32Array(22) };   // posicion suavizada de cada punto
+const _djSm = { big: new Float32Array(120), mini: new Float32Array(30) };   // posicion suavizada de cada punto
 const _djF = new Uint8Array(djAn.frequencyBinCount);
 let _djL = 0;   // intensidad de la voz (0-1), suavizada
 // n puntos redondos a lo ancho formando una onda fluida: su altura es la intensidad de la voz y su forma sale de
@@ -8092,19 +8099,20 @@ function _djDots(ctx, w, h, amp, n, r, glow, trail, st, t) {
   if (trail) { ctx.fillStyle = "rgba(0,0,0," + trail + ")"; ctx.fillRect(0, 0, w, h); }   // estela tenue de fosforo
   else ctx.clearRect(0, 0, w, h);
   const pad = w * .1, span = w - pad * 2, mid = h / 2;
-  ctx.shadowColor = _djAcc; ctx.shadowBlur = glow;
+  // todos los puntos en UN trazado: un solo relleno (y un solo brillo) por fotograma, ligero en moviles modestos
+  ctx.beginPath();
   for (let i = 0; i < n; i++) {
     const u = i / (n - 1), c = Math.abs(2 * u - 1), env = Math.pow(Math.cos(c * Math.PI / 2), 1.3);
-    const e = _djF[4 + Math.floor(c * 150)] / 255;   // ~90 Hz en el centro -> ~3.5 kHz en los bordes
-    const wave = Math.sin(u * 6 * Math.PI + t * 5.2) * .75 + Math.sin(u * 13 * Math.PI - t * 8.3) * .25;
-    const target = env * _djL * (.3 + .7 * e) * wave;
-    st[i] += (target - st[i]) * .22;
-    const d = Math.max(-1, Math.min(1, st[i]));
-    const a = .3 + .7 * Math.min(1, Math.abs(d) * 2.4 + env * .25);
-    ctx.fillStyle = "rgba(255,255,255," + a.toFixed(3) + ")";
-    ctx.beginPath(); ctx.arc(pad + u * span, mid + d * amp, r * (.7 + .6 * Math.min(1, Math.abs(d) * 2)), 0, 6.2832); ctx.fill();
+    const e = _djF[2 + Math.floor(c * 75)] / 255;   // ~90 Hz en el centro -> ~3.5 kHz en los bordes
+    const wave = Math.sin(u * 6 * Math.PI + t * 9) * .7 + Math.sin(u * 14 * Math.PI - t * 14) * .3;
+    const target = env * _djL * (.25 + .75 * e) * wave;
+    st[i] += (target - st[i]) * .6;   // casi al instante: responde a la voz sin temblar
+    const d = Math.max(-1, Math.min(1, st[i])), x = pad + u * span, y = mid + d * amp;
+    const rr = r * (.75 + .5 * Math.min(1, Math.abs(d) * 2));
+    ctx.moveTo(x + rr, y); ctx.arc(x, y, rr, 0, 6.2832);
   }
-  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#fff"; ctx.shadowColor = _djAcc; ctx.shadowBlur = glow;
+  ctx.fill(); ctx.shadowBlur = 0;
 }
 function djScopeDraw() {
   _djRaf = 0;
@@ -8119,8 +8127,8 @@ function djScopeDraw() {
   } else if (talking) {   // iPhone (<audio>, sin analizador): voz simulada
     rms = .08 * (.6 + .4 * Math.sin(t * 7) * Math.sin(t * 2.3)); _djF.fill(150);
   } else _djF.fill(0);
-  if (rms > .01) _djGain += (Math.min(14, .9 / rms) - _djGain) * .02;   // ganancia automatica lenta: voz floja o fuerte se ve igual
-  _djL += (Math.min(1, rms * _djGain) - _djL) * (rms * _djGain > _djL ? .35 : .12);   // sube rapido, baja suave
+  if (rms > .01) _djGain += (Math.min(14, .9 / rms) - _djGain) * .03;   // ganancia automatica: voz floja o fuerte se ve igual
+  _djL += (Math.min(1, rms * _djGain) - _djL) * (rms * _djGain > _djL ? .75 : .35);   // ataque inmediato, caida rapida
   _djLvl += ((talking ? 1 : 0) - _djLvl) * (talking ? .18 : .06);
   // portada (vista Reproduciendo / pantalla completa): panel negro del tamano exacto de la portada
   let sc = $("djScope"); const host = djScopeHost();
@@ -8133,11 +8141,11 @@ function djScopeDraw() {
     sc.style.width = w + "px"; sc.style.height = h + "px"; sc.style.borderRadius = getComputedStyle(img).borderRadius;
     if (sc.width !== Math.round(w * dpr) || sc.height !== Math.round(h * dpr)) { sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr); }
     sc.classList.toggle("on", talking);
-    _djDots(sc.getContext("2d"), sc.width, sc.height, sc.height * .3 * _djLvl, 72, Math.max(1.6, sc.width / 190), 10 * dpr, .5, _djSm.big, t);
+    _djDots(sc.getContext("2d"), sc.width, sc.height, sc.height * .32 * _djLvl, 120, Math.max(1.5, sc.width / 230), 9 * dpr, .8, _djSm.big, t);
   } else if (sc.parentNode) sc.classList.remove("on");
   // subtitulos
   const mc = document.querySelector(".djmini");
-  _djDots(mc.getContext("2d"), mc.width, mc.height, mc.height * .45 * Math.max(.15, _djLvl), 22, 2.2, 5, 0, _djSm.mini, t);
+  _djDots(mc.getContext("2d"), mc.width, mc.height, mc.height * .45 * Math.max(.15, _djLvl), 30, 2, 5, 0, _djSm.mini, t);
   if (talking || _djLvl > .01) _djRaf = requestAnimationFrame(djScopeDraw);
 }
 
@@ -8150,12 +8158,13 @@ function djPaintSettings() {
   const st = DJ.st, s = $("setDjAiS"), box = $("setDjAi");
   box.hidden = !APPINFO.desktop;
   if (!st) { s.textContent = "…"; return; }
-  s.textContent = t(st.ai ? "Activado: Lara escribe cada intervención con datos del artista y la canción."
-    : APPINFO.desktop ? "Pega tu clave de la API de Anthropic para que Lara improvise. Sin clave usa frases ya escritas."
-    : "Frases ya escritas. El dueño del servidor puede activar la IA.") +
+  s.textContent = (st.ai ? t("Activado con") + " " + t(st.provider_name) + ": " + t("Lara escribe cada intervención con datos del artista y la canción.")
+    : t(APPINFO.desktop ? "Pega una clave gratuita de Gemini (aistudio.google.com) o Groq para que Lara improvise. Sin clave usa frases ya escritas."
+    : "Frases ya escritas. El dueño del servidor puede activar la IA.")) +
     (st.voice ? "" : " " + t("Falta la voz en el servidor (edge-tts).")) + (st.ai_error ? " ⚠ " + t(st.ai_error) : "");
   $("setDjModel").value = st.model || "haiku";
-  $("setDjKey").placeholder = st.ai ? "•••••••• (" + t("guardada") + ")" : "sk-ant-…";
+  $("setDjModel").hidden = st.provider !== "claude";   // el modelo solo se elige con Claude
+  $("setDjKey").placeholder = st.key ? "•••••••• (" + t("guardada") + ")" : "AIza… / gsk_… / sk-ant-…";
 }
 async function djLoadStatus() { try { DJ.st = await jget("/dj/status"); } catch (e) {} }
 const _djOpenSet = openSettings;
@@ -8176,7 +8185,7 @@ $("setDjSave").onclick = async () => {
   try {
     const r = await apost("/dj/config", body);
     if (r.error) throw new Error(r.error);
-    DJ.st = r; $("setDjKey").value = ""; toast(r.ai ? "IA activada para Lara" : "Guardado");
+    DJ.st = r; $("setDjKey").value = ""; toast(r.ai ? t("IA activada para Lara") + ": " + t(r.provider_name) : "Guardado");
   } catch (err) { toast(err.message || "No se pudo cambiar el ajuste"); }
   $("setDjSave").disabled = false; djPaintSettings();
 };

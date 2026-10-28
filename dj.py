@@ -398,7 +398,7 @@ Reglas de contenido:
 cifras, fechas, premios ni anécdotas haciéndolos pasar por reales. Lo inventado (anuncios, noticias, teorías) tiene \
 que ser tan absurdo que se note que es broma.
 - Lo personal sale del CONTEXTO (lo que más escucha, si se saltó una, la hora, el día). No inventes cosas de su vida.
-- No repitas aperturas, muletillas, recursos ni chistes de tus intervenciones anteriores.
+- No repitas aperturas, muletillas, recursos, temas ni chistes de tus intervenciones anteriores (no metas al ex en todo). No empieces siempre con "¿Sabes cuál es la diferencia".
 - Largo: {length} Es estricto: si te pasas, recorta y deja el remate.
 
 Responde SOLO con lo que vas a decir, en un párrafo, sin nada más."""
@@ -412,6 +412,10 @@ _SWEAR = {
 }
 _LEN = {"intro": "entre 30 y 55 palabras.", "block": "entre 25 y 55 palabras.", "song": "entre 15 y 40 palabras.",
         "skip": "entre 10 y 25 palabras.", "vibe": "entre 12 y 28 palabras."}
+_DARK = ("la muerte", "tu propio funeral", "la resaca de mañana", "la terapia que no pagas", "las deudas",
+         "la soledad de un domingo", "el trabajo que te chupa el alma", "el fin del mundo", "envejecer",
+         "los vicios", "el horóscopo y la mala suerte", "la crisis existencial", "los grupos de WhatsApp de la familia",
+         "el insomnio", "la dieta que nunca empiezas", "los fantasmas", "tu ex")
 _BITS = (("un chiste negro corto con pregunta y remate", 4),
          ("una reflexión cínica pero tierna sobre el amor, la vida o la música, sin chiste", 3),
          ("un anuncio falso de un patrocinador absurdo y oscuro", 2), ("una noticia falsa de última hora, absurda y macabra", 2),
@@ -484,6 +488,7 @@ def _ai(ctx, fx, prev_lines, cfg):
     lines.append("- Momento: " + what)
     if kind != "skip":
         lines.append("- Recurso para esta vez: " + random.choices([b for b, _ in _BITS], [w for _, w in _BITS])[0])
+        lines.append("- Tema oscuro para esta vez (si encaja): " + random.choice(_DARK))
     if p.get("title") and kind != "intro":
         lines.append("- Acaba de sonar: %s de %s%s" % (p["title"], p.get("artist", ""),
                                                      " (se la saltó a los pocos segundos)" if p.get("skipped") else ""))

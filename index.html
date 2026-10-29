@@ -2351,6 +2351,11 @@ const EN = {
   "Tu cuenta de Anthropic no tiene saldo: compra créditos en console.anthropic.com (Plans & Billing)": "Your Anthropic account has no credit: buy credits at console.anthropic.com (Plans & Billing)",
   "La clave de Anthropic no es válida": "The Anthropic key isn't valid",
   "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
+  "Generando código…": "Creating code…", "Inicia sesión con Google en esta PC primero": "Sign in with Google on this PC first",
+  "Para crear el código, conecta esta PC con Blyatt una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo».":
+    "To create the code, connect this PC with Blyatt once: you'll get a code by email. Then tap “Link device” again.",
+  "YouTube no reconoce la sesión de esta PC: vuelve a iniciar sesión con Google": "YouTube doesn't recognize this PC's session: sign in with Google again",
+  "Demasiados códigos pendientes. Espera unos minutos.": "Too many pending codes. Wait a few minutes.",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
   "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
   "En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.":
@@ -4030,8 +4035,15 @@ async function toggleGoogleSession() {
 /* vincular dispositivo: un iPhone (Safari) no puede iniciar sesion con Google; otro dispositivo con sesion
    genera un codigo de 6 cifras (10 min, un solo uso) y el iPhone recibe una copia de esa sesion */
 async function linkShow() {
+  toast(t("Generando código…"));
   let r; try { r = await (await fetch("/auth/link/new", { method: "POST" })).json(); } catch (e) { r = { error: t("Sin conexión") }; }
-  if (!r.code) { toast(r.error || t("No se pudo generar el código")); return; }
+  if (r.error === "need_access") {   // escritorio sin el pase de Cloudflare: el codigo se crea en blyatt.stream
+    const ok = await askModal({ title: "Vincular dispositivo", icon: "ph-link", okLabel: "Conectar",
+      message: "Para crear el código, conecta esta PC con Blyatt una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo»." });
+    if (ok) cxLogin();
+    return;
+  }
+  if (!r.code) { toast(r.error && !/^hub/.test(r.error) ? r.error : t("No se pudo generar el código")); return; }
   askModal({ title: "Vincular dispositivo", icon: "ph-link", okLabel: "Listo",
     message: t("Código") + ": " + r.code.slice(0, 3) + " " + r.code.slice(3) + "\n\n" +
       t("En el iPhone abre blyatt.stream en Safari, pulsa «Vincular con un código» e introdúcelo. Caduca en 10 minutos y sirve una sola vez. El otro dispositivo usará tu cuenta de YouTube Music.") });
@@ -4109,8 +4121,9 @@ function openUserMenu(btn) {
     ["ph-github-logo", "Más información", () => window.open("https://github.com/FrancisL29/blyatt-music", "_blank")],
     ...(_upd && _upd.enabled ? [["ph-arrow-circle-up", _upd.ready ? "Instalar actualización" : "Buscar actualizaciones",
                                  _upd.ready ? updApply : updCheck]] : []),
+    ...(_authSt.logged_in && _authSt.own !== false ? [["ph-link", "Vincular dispositivo", linkShow]] : []),
     ...(_authSt.logged_in && _authSt.own !== false && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
-      ? [["ph-link", "Vincular dispositivo", linkShow], ["ph-speaker-hifi", "Conectar Alexa", alexaShow]] : []),
+      ? [["ph-speaker-hifi", "Conectar Alexa", alexaShow]] : []),
     [(_authSt.logged_in && _authSt.own !== false) ? "ph-sign-out" : "ph-google-logo",
      (_authSt.logged_in && _authSt.own !== false) ? "Cerrar sesión" : "Iniciar sesión con Google",
      toggleGoogleSession],

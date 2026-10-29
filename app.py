@@ -2618,20 +2618,67 @@ def connect_set_access(cf):
 _LINKS, _link_lock, _link_fails = {}, threading.Lock(), []
 
 
-def link_new():
-    src = _bid_file()
-    if not SERVER_MODE or not os.path.isfile(src) or src == BROWSER_FILE:
-        return {"error": "Este dispositivo no tiene una sesión propia que compartir"}
+def _link_add(src):
     import secrets
     now = time.time()
     with _link_lock:
         for c in [c for c, v in _LINKS.items() if v[0] < now or v[1] == src]:   # caducados + el anterior de este
-            _LINKS.pop(c, None)
+            _link_drop(_LINKS.pop(c))
         code = "%06d" % secrets.randbelow(10 ** 6)
         while code in _LINKS:
             code = "%06d" % secrets.randbelow(10 ** 6)
         _LINKS[code] = (now + 600, src)
     return {"code": code, "expires": 600}
+
+
+def _link_drop(v):
+    if os.path.basename(v[1]).startswith("link_"):   # copia que subio una PC: solo existe para este codigo
+        try:
+            os.remove(v[1])
+        except OSError:
+            pass
+
+
+def link_new():
+    if not SERVER_MODE:   # escritorio: el iPhone entra en blyatt.stream, asi que el codigo se crea alli
+        try:
+            with open(BROWSER_FILE, encoding="utf8") as f:
+                h = json.load(f)
+        except Exception:
+            h = {}
+        if "SAPISID" not in h.get("cookie", ""):
+            return {"error": "Inicia sesión con Google en esta PC primero"}
+        code, d = cx_relay("POST", "/auth/link/push",
+                           json.dumps({"cookie": h["cookie"], "ua": h.get("user-agent")}).encode(), _cx_key() or "0" * 40)
+        return d
+    src = _bid_file()
+    if not os.path.isfile(src) or src == BROWSER_FILE:
+        return {"error": "Este dispositivo no tiene una sesión propia que compartir"}
+    return _link_add(src)
+
+
+def link_push(d):
+    """La sesion de una PC (relay de link_new) queda en un archivo propio hasta que un iPhone use el codigo."""
+    ck, ua = str(d.get("cookie") or ""), str(d.get("ua") or "") or None
+    if not SERVER_MODE or "SAPISID=" not in ck:
+        return {"error": "No disponible"}
+    with _link_lock:
+        if len(_LINKS) >= 30:
+            return {"error": "Demasiados códigos pendientes. Espera unos minutos."}
+    import glob
+    for f in glob.glob(os.path.join(AUTH_DIR, "link_*.json")):   # huerfanos de un reinicio del server
+        try:
+            if time.time() - os.path.getmtime(f) > 900:
+                os.remove(f)
+        except OSError:
+            pass
+    logged, visitor = _probe_session(ck, ua or "Mozilla/5.0")
+    if not logged:
+        return {"error": "YouTube no reconoce la sesión de esta PC: vuelve a iniciar sesión con Google"}
+    src = os.path.join(AUTH_DIR, "link_%s.json" % os.urandom(8).hex())
+    _write_session(src, ck, ua or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/126.0.0.0 Safari/537.36", visitor)
+    return _link_add(src)
 
 
 def link_use(code):
@@ -2646,6 +2693,8 @@ def link_use(code):
         v = _LINKS.pop(code, None) if len(code) == 6 else None
         if not v or v[0] < now or not os.path.isfile(v[1]):
             _link_fails.append(now)
+            if v:
+                _link_drop(v)
             return {"error": "Código inválido o caducado"}
     tgt = _bid_path(b)
     if os.path.abspath(tgt) != os.path.abspath(v[1]):
@@ -2653,6 +2702,7 @@ def link_use(code):
         shutil.copyfile(v[1], tgt)
         _ytm_by.pop(tgt, None)
         _purge_session(tgt)
+    _link_drop(v)
     return {"ok": True}
 
 
@@ -2669,6 +2719,14 @@ def save_browser_cookie(cookie_header, user_agent=None, target=None):
         time.sleep(1.5)
     if not logged:
         return False
+    tgt = target or BROWSER_FILE
+    _write_session(tgt, cookie_header, ua, visitor)
+    _ytm_by.pop(tgt, None)
+    _purge_session(tgt)   # puede ser OTRA cuenta en el mismo archivo: nada de la anterior debe sobrevivir
+    return _session_alive()
+
+
+def _write_session(tgt, cookie_header, ua, visitor):
     os.makedirs(AUTH_DIR, exist_ok=True)
     hdrs = {
         # "authorization" DEBE existir: ytmusicapi.is_browser exige {authorization, cookie} o trata
@@ -2685,12 +2743,8 @@ def save_browser_cookie(cookie_header, user_agent=None, target=None):
     }
     if visitor:
         hdrs["x-goog-visitor-id"] = visitor
-    tgt = target or BROWSER_FILE
     with open(tgt, "w", encoding="utf8") as f:
         json.dump(hdrs, f, indent=1)
-    _ytm_by.pop(tgt, None)
-    _purge_session(tgt)   # puede ser OTRA cuenta en el mismo archivo: nada de la anterior debe sobrevivir
-    return _session_alive()
 
 
 def ytm():
@@ -4518,6 +4572,15 @@ class H(BaseHTTPRequestHandler):
             return self._json(auth_set_headers(raw))
         if u.path == "/auth/link/new":
             return self._json(link_new())
+        if u.path == "/auth/link/push":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 64 * 1024:
+                return self._json({"error": "demasiado grande"}, 413)
+            try:
+                d = json.loads(self.rfile.read(n).decode("utf-8", "replace") or "{}")
+            except Exception:
+                d = {}
+            return self._json(link_push(d))
         if u.path == "/auth/link/use":
             n = int(self.headers.get("Content-Length") or 0)
             if n > 1024:

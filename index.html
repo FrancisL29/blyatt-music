@@ -24,6 +24,8 @@
     --muted: #8b8c95;
     --line: rgb(255 255 255 / .07);
     --glass: linear-gradient(150deg, rgb(255 255 255 / .09), rgb(255 255 255 / .02));
+    /* cristal con grano: capa de ruido encima del tinte de cada panel glass (tile de 160 px, sin coste por frame) */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.13'/%3E%3C/svg%3E");
     --sb-w: 260px;   /* columna = tarjeta (240 interior) + 10px de margen por lado */
     --lyrics-w: min(560px, 42%);
   }
@@ -56,11 +58,11 @@
 
   /* ---------- SIDEBAR ---------- */
   /* tarjeta flotante: margen 10px por lado ya compensado en --sb-w (interior identico al layout previo) */
-  aside { position: relative; z-index: 2; background: rgb(11 11 15 / .62); margin: 10px; border-radius: 16px;
+  aside { position: relative; z-index: 2; background: var(--grain), rgb(11 11 15 / .62); margin: 10px; border-radius: 16px;
           backdrop-filter: blur(28px) saturate(140%); -webkit-backdrop-filter: blur(28px) saturate(140%);
           border: 1px solid var(--line); box-shadow: 0 10px 34px rgb(0 0 0 / .35);
           display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; overflow: hidden; }
-  @media (prefers-reduced-transparency: reduce) { aside { background: var(--sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+  @media (prefers-reduced-transparency: reduce) { aside { background: var(--grain), var(--sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; } }
   .lib-sep { margin-top: auto; height: 1px; flex: none; background: rgb(255 255 255 / .08); }
   .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border: none; background: none;
     cursor: pointer; width: 100%; text-align: left; color: var(--text); white-space: nowrap;
@@ -144,7 +146,7 @@
   .topbar.hidden { transform: translateY(-140%); opacity: 0; pointer-events: none; }
   form { display: flex; align-items: center; gap: 10px; max-width: 460px; padding: 10px 16px; border-radius: 12px;
          border: 1px solid rgb(255 255 255 / .12);
-         background: linear-gradient(150deg, rgb(255 255 255 / .10), rgb(255 255 255 / .03));
+         background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .10), rgb(255 255 255 / .03));
          backdrop-filter: blur(22px) saturate(170%); -webkit-backdrop-filter: blur(22px) saturate(170%);
          box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 12px 34px rgb(0 0 0 / .4); }
   form:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -152,13 +154,13 @@
   /* boton volver: glass flotante a la izquierda de la busqueda, aparece con animacion en vistas detalle */
   .back-fab { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     border: 1px solid rgb(255 255 255 / .12); color: var(--text); cursor: pointer; font-size: 1.25rem;
-    background: linear-gradient(150deg, rgb(255 255 255 / .12), rgb(255 255 255 / .03));
+    background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .12), rgb(255 255 255 / .03));
     backdrop-filter: blur(20px) saturate(170%); -webkit-backdrop-filter: blur(20px) saturate(170%);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 8px 24px rgb(0 0 0 / .4);
     max-width: 0; opacity: 0; transform: translateX(-10px) scale(.85); margin-right: 0; padding: 0; overflow: hidden;
     transition: max-width .32s cubic-bezier(.16,1,.3,1), opacity .32s, transform .32s, margin-right .32s; }
   .back-fab.show { max-width: 44px; opacity: 1; transform: none; margin-right: 12px; }
-  .back-fab:hover { color: #fff; background: linear-gradient(150deg, rgb(255 255 255 / .18), rgb(255 255 255 / .06)); }
+  .back-fab:hover { color: #fff; background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .18), rgb(255 255 255 / .06)); }
   .back-fab:active { transform: scale(.9); }
   form i.search { color: var(--muted); font-size: 1.15rem; }
   input#q { flex: 1; border: none; background: transparent; color: var(--text); font-size: .95rem; outline: none; }
@@ -327,7 +329,7 @@
   .lib-head .libadd:hover { color: var(--text); background: rgb(255 255 255 / .07); }
   body.sb-collapsed .lib-head .libadd { display: none; }
   .gbox { position: relative; width: min(460px, 92vw); padding: 26px 28px; border-radius: 18px;
-          background: rgb(20 20 28 / .92); border: 1px solid rgb(255 255 255 / .09);
+          background: var(--grain), rgb(20 20 28 / .92); border: 1px solid rgb(255 255 255 / .09);
           box-shadow: 0 24px 70px rgb(0 0 0 / .6); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); }
   .gbox h3 { margin: 0 0 14px; display: flex; gap: 10px; align-items: center; font-size: 1.05rem; }
   .ghint { color: var(--muted); font-size: .88rem; line-height: 1.55; }
@@ -382,12 +384,12 @@
   .tabs { display: flex; gap: 8px; margin: 14px 0 2px; flex-wrap: wrap; }
   .tab { cursor: pointer; color: var(--muted); font-size: .85rem; font-weight: 600; padding: 8px 16px; border-radius: 999px;
          border: 1px solid rgb(255 255 255 / .12);
-         background: linear-gradient(150deg, rgb(255 255 255 / .09), rgb(255 255 255 / .02));
+         background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .09), rgb(255 255 255 / .02));
          backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%);
          box-shadow: inset 0 1px 0 rgb(255 255 255 / .12), 0 6px 18px rgb(0 0 0 / .3);
          transition: color .15s, background .15s, border-color .15s; }
   .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent-ink, #fff); background: var(--accent); border-color: transparent; }
+  .tab.active { color: var(--accent-ink, #fff); background: var(--grain), var(--accent); border-color: transparent; }
 
   /* cuadricula para artistas / albumes / playlists / perfiles (caratula grande) */
   ul#r.grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; align-items: start; }
@@ -406,7 +408,7 @@
   .versions { position: absolute; left: calc(100% - 4px); top: 0; z-index: 9;
     width: max-content; max-width: min(440px, 50vw); max-height: 72vh; overflow-y: auto;
     padding: 12px; border-radius: 14px;
-    background: linear-gradient(150deg, rgb(28 28 34 / .97), rgb(18 18 22 / .97));
+    background: var(--grain), linear-gradient(150deg, rgb(28 28 34 / .97), rgb(18 18 22 / .97));
     border: 1px solid rgb(255 255 255 / .1);
     box-shadow: 0 12px 36px rgb(0 0 0 / .5); backdrop-filter: blur(14px);
     opacity: 0; transform: translateX(-10px); pointer-events: none;
@@ -553,7 +555,7 @@
   @keyframes djspin { to { rotate: 360deg; } }
   #djcap { position: fixed; left: calc(var(--sb-w) + (100vw - var(--sb-w)) / 2); bottom: 150px; z-index: 9;
     width: max-content; max-width: min(560px, calc(100vw - var(--sb-w) - 48px)); display: flex; gap: 11px; align-items: flex-start;
-    padding: 11px 15px 12px; border-radius: 18px; background: rgb(12 12 16 / .74); border: 1px solid rgb(255 255 255 / .12);
+    padding: 11px 15px 12px; border-radius: 18px; background: var(--grain), rgb(12 12 16 / .74); border: 1px solid rgb(255 255 255 / .12);
     backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
     box-shadow: 0 14px 38px rgb(0 0 0 / .55); opacity: 0; translate: -50% 14px; pointer-events: none; transition: opacity .3s, translate .3s; }
   #djcap.show { opacity: 1; translate: -50% 0; }
@@ -570,7 +572,7 @@
   #player {
     position: fixed; left: calc(var(--sb-w) + 22px); right: 22px; bottom: 18px; z-index: 8;
     padding: 14px 22px 12px; border-radius: 18px;
-    border: 1px solid rgb(255 255 255 / .12); background: var(--glass);
+    border: 1px solid rgb(255 255 255 / .12); background: var(--grain), var(--glass);
     backdrop-filter: blur(28px) saturate(170%); -webkit-backdrop-filter: blur(28px) saturate(170%);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 20px 55px rgb(0 0 0 / .6);
     opacity: 0; translate: 0 30px; pointer-events: none; transition: opacity .35s, translate .35s, left .22s ease;
@@ -633,7 +635,7 @@
     position: fixed; top: 0; bottom: 0; right: 0; width: var(--lyrics-w); z-index: 6;
     display: flex; flex-direction: column;
     border-left: 1px solid rgb(255 255 255 / .08);
-    background: linear-gradient(160deg, rgb(18 18 26 / .86), rgb(8 8 12 / .94));
+    background: var(--grain), linear-gradient(160deg, rgb(18 18 26 / .86), rgb(8 8 12 / .94));
     backdrop-filter: blur(38px) saturate(150%); -webkit-backdrop-filter: blur(38px) saturate(150%);
     box-shadow: -24px 0 70px rgb(0 0 0 / .55);
     transform: translateX(100%); transition: transform .42s cubic-bezier(.16,1,.3,1); will-change: transform;
@@ -851,9 +853,9 @@
   .artist-hero2 .bio:hover { color: rgb(255 255 255 / .95); }
   .artist-hero2 .bio.expanded { -webkit-line-clamp: unset; overflow: visible; max-width: 80ch; }
   .hero-back { position: absolute; top: 84px; left: 40px; z-index: 2; width: 38px; height: 38px; padding: 0; gap: 0;
-               border-radius: 50%; background: rgb(0 0 0 / .45); color: #fff; display: grid; place-items: center;
+               border-radius: 50%; background: var(--grain), rgb(0 0 0 / .45); color: #fff; display: grid; place-items: center;
                backdrop-filter: blur(8px); font-size: 1.2rem; }
-  .hero-back:hover { background: rgb(0 0 0 / .65); color: #fff; }
+  .hero-back:hover { background: var(--grain), rgb(0 0 0 / .65); color: #fff; }
   .ashelf { margin-bottom: 34px; }
   .ashelf h3 { display: inline-flex; align-items: center; gap: 6px; font-size: 1.25rem; font-weight: 700;
                letter-spacing: -.01em; margin: 0 0 14px; cursor: pointer; transition: color .15s; }
@@ -878,6 +880,55 @@
   .ccard .a { font-size: .8rem; color: var(--muted); margin-top: 2px; }
   #gridView { display: none; }
   #homeView { display: none; }
+  /* ---------- INICIO (escritorio): saludo grande + carrusel de fondo con los artistas escuchados hace poco ----------
+     las fotos viven en #hbg (fixed, toda la ventana: tambien detras del sidebar glass) y se funden hacia abajo */
+  #hbg { position: fixed; left: 0; right: 0; top: 0; height: 88vh; z-index: 0; pointer-events: none; opacity: 0;
+         transition: opacity .7s; -webkit-mask-image: linear-gradient(to bottom, #000 42%, transparent);
+         mask-image: linear-gradient(to bottom, #000 42%, transparent); }
+  body[data-mv="home"] #hbg.on { opacity: var(--hfade, 1); }
+  #hbg .hs { position: absolute; inset: 0; background-size: cover; background-position: center 24%; opacity: 0;
+             transition: opacity 1.8s ease; will-change: opacity, transform; }
+  #hbg .hs.on { opacity: 1; }
+  /* zoom lento (Ken Burns); la que se va conserva la animacion mientras se funde (mismo nombre = no reinicia) */
+  #hbg .hs.on, #hbg .hs.prev { animation: hkb 10s cubic-bezier(.2,.6,.3,1) both; }
+  @keyframes hkb { from { transform: scale(1.14) translate3d(1.2%, .8%, 0); } to { transform: scale(1.03); } }
+  #hbg::after { content: ""; position: absolute; inset: 0;
+    background: var(--grain), radial-gradient(110% 80% at 12% 92%, rgb(6 6 8 / .82), transparent 62%),
+                linear-gradient(to bottom, rgb(6 6 8 / .45), rgb(6 6 8 / .08) 38%, rgb(6 6 8 / .5)); }
+  .hhero { position: relative; min-height: max(360px, 56vh); display: flex; flex-direction: column; justify-content: flex-end;
+           padding: 0 6px 34px; margin-bottom: 14px; }
+  .hhero.has { cursor: pointer; }
+  .hhero h1 { margin: 0; font-size: clamp(2.8rem, 5.4vw, 5.6rem); font-weight: 800; letter-spacing: -.05em; line-height: .96;
+              text-wrap: balance; text-shadow: 0 6px 50px rgb(0 0 0 / .35); animation: hin .9s cubic-bezier(.16,1,.3,1) both; }
+  .hhero h1 .hn { display: inline-block; padding-right: .06em;
+    background: linear-gradient(100deg, #fff 15%, color-mix(in srgb, var(--accent) 55%, #fff) 95%);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hhero .hsub { margin: 14px 0 0; font-size: 1.12rem; color: rgb(255 255 255 / .72); letter-spacing: -.01em;
+                 animation: hin .9s .12s cubic-bezier(.16,1,.3,1) both; }
+  @keyframes hin { from { opacity: 0; transform: translateY(14px); } }
+  .hart { display: flex; align-items: center; gap: 18px; margin-top: 30px; animation: hin .9s .24s cubic-bezier(.16,1,.3,1) both; }
+  .hart[hidden] { display: none; }
+  .hchip { display: inline-flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; border-radius: 999px;
+    border: 1px solid rgb(255 255 255 / .14); color: #fff;
+    background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .12), rgb(255 255 255 / .03));
+    backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .16), 0 10px 30px rgb(0 0 0 / .35); transition: background .2s, transform .2s; }
+  .hhero.has:hover .hchip { background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .2), rgb(255 255 255 / .06)); }
+  .hchip .hlbl { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgb(255 255 255 / .6); }
+  .hchip .hname { font-weight: 700; font-size: .98rem; }
+  .hchip i { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #fff; color: #0b0b10;
+             font-size: .95rem; transition: transform .25s; }
+  .hhero.has:hover .hchip i { transform: rotate(45deg); }
+  .hdots { display: flex; gap: 6px; }
+  .hdots[hidden] { display: none; }
+  .hdots button { position: relative; width: 16px; height: 4px; padding: 0; border: 0; border-radius: 999px; overflow: hidden;
+                  background: rgb(255 255 255 / .28); cursor: pointer; transition: width .4s cubic-bezier(.16,1,.3,1); }
+  .hdots button.on { width: 38px; }
+  .hdots button.on::after { content: ""; position: absolute; inset: 0; background: #fff; transform-origin: left;
+                            animation: hprog var(--hdur, 7s) linear both; }
+  @keyframes hprog { from { transform: scaleX(0); } }
+  @media (max-width: 820px) { #hbg, .hhero { display: none; } }
+  @media (prefers-reduced-motion: reduce) { #hbg .hs.on, #hbg .hs.prev { animation: none; } }
   .home-sec { margin: 6px 0 20px; }
   .home-sec h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; margin: 0 0 12px; }
   /* fila unica responsiva (mismo patron que .arow): solo caben tarjetas enteras, sin scroll horizontal */
@@ -893,10 +944,10 @@
   .savebtn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px;
     cursor: pointer; color: var(--text); font-size: .85rem; font-weight: 600;
     border: 1px solid rgb(255 255 255 / .16);
-    background: linear-gradient(150deg, rgb(255 255 255 / .1), rgb(255 255 255 / .03));
+    background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .1), rgb(255 255 255 / .03));
     backdrop-filter: blur(14px); transition: background .15s, color .15s, border-color .15s; }
   .savebtn i { font-size: 1.15rem; }
-  .savebtn:hover { background: linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .06)); }
+  .savebtn:hover { background: var(--grain), linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .06)); }
   .savebtn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .morebtn { padding: 8px 12px; }
   .shufbtn { position: relative; }
@@ -943,7 +994,7 @@
   /* menu contextual de cancion */
   #ctxmenu, #ctxsub { position: fixed; z-index: 20; min-width: 190px; padding: 6px; border-radius: 12px; display: none;
              border: 1px solid rgb(255 255 255 / .12);
-             background: linear-gradient(150deg, rgb(28 28 36 / .98), rgb(16 16 22 / .98));
+             background: var(--grain), linear-gradient(150deg, rgb(28 28 36 / .98), rgb(16 16 22 / .98));
              backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
              box-shadow: 0 18px 50px rgb(0 0 0 / .6); }
   #ctxsub { z-index: 21; min-width: 150px; }
@@ -1112,12 +1163,12 @@
     /* iPhone instalado: sin boton ni gesto de "atras" del sistema -> boton flotante propio */
     #iosBack.on { display: flex; align-items: center; justify-content: center; position: fixed;
                   top: calc(22px + var(--sat)); left: 14px; z-index: 6; width: 38px; height: 38px; padding: 0;
-                  border-radius: 50%; border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--text);
+                  border-radius: 50%; border: 1px solid var(--line); background: var(--grain), rgb(11 11 15 / .7); color: var(--text);
                   font-size: 1.2rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     #mUser { display: flex; align-items: center; justify-content: center; position: fixed;
              top: 22px; left: 14px; z-index: 5; width: 38px; height: 38px; padding: 0; box-sizing: border-box;
              aspect-ratio: 1; border-radius: 50%;
-             border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--muted);
+             border: 1px solid var(--line); background: var(--grain), rgb(11 11 15 / .7); color: var(--muted);
              font-size: 1.25rem; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     #mUser img { width: 100%; height: 100%; aspect-ratio: 1; border-radius: 50%; object-fit: cover; display: block; }
     #mUser img[hidden] { display: none; }   /* el display:block de arriba pisaba [hidden] y echaba al icono fuera del circulo */
@@ -1125,7 +1176,7 @@
     /* (+) de la biblioteca: mismo estilo que el avatar, arriba a la derecha, solo en la vista Biblioteca */
     body[data-mv="lib"] #mAdd { display: flex; align-items: center; justify-content: center; position: fixed;
              top: 22px; right: 14px; z-index: 5; width: 38px; height: 38px; padding: 0; box-sizing: border-box; border-radius: 50%;
-             border: 1px solid var(--line); background: rgb(11 11 15 / .7); color: var(--text); font-size: 1.3rem;
+             border: 1px solid var(--line); background: var(--grain), rgb(11 11 15 / .7); color: var(--text); font-size: 1.3rem;
              backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); cursor: pointer; }
     body[data-mv="lib"] .topbar form { margin-right: 46px; }
     /* avatar y (+) se esconden y vuelven JUNTO con la barra de busqueda (misma animacion) */
@@ -1265,29 +1316,22 @@
     #seek { height: 2px; }
   }
   @media (prefers-reduced-transparency: reduce) {
-    form, #player, .sidepanel, .tab, .back-fab, #ctxmenu { background: #14141b; backdrop-filter: none; -webkit-backdrop-filter: none; }
+    form, #player, .sidepanel, .tab, .back-fab, #ctxmenu { background: var(--grain), #14141b; backdrop-filter: none; -webkit-backdrop-filter: none; }
     #bg { display: none; }
   }
   /* RENDIMIENTO movil: backdrop-filter encima de listas que hacen scroll obliga a re-difuminar lo de debajo en
      cada frame (lo que mas tironea en Android): los botones flotantes pequenos van casi opacos. La barra de
-     reproduccion y la de busqueda SI llevan cristal ("liquid glass"): base translucida tintada con el color de la
-     portada, desenfoque con saturacion, brillo en el borde superior y un reflejo diagonal suave */
+     reproduccion y la de busqueda SI llevan cristal con grano */
   @media (max-width: 820px) {
     .back-fab, #mUser, body[data-mv="lib"] #mAdd, #iosBack.on {
       backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-    #mUser, body[data-mv="lib"] #mAdd, #iosBack.on { background: rgb(24 24 30 / .94); }
-    /* como el Liquid Glass de iPhone: transparente (sin tinte ni color de la portada), poco desenfoque y mucha
-       saturacion (lo de detras se ve nitido y vivo), borde especular arriba, brillo interior y un reflejo diagonal */
+    #mUser, body[data-mv="lib"] #mAdd, #iosBack.on { background: var(--grain), rgb(24 24 30 / .94); }
+    /* cristal esmerilado con grano (como el resto de paneles): base translucida, desenfoque medio, borde claro arriba */
     form, #player {
-      isolation: isolate; border: 1px solid rgb(255 255 255 / .13);
-      background: linear-gradient(180deg, rgb(255 255 255 / .09), rgb(255 255 255 / .03));
-      backdrop-filter: blur(10px) saturate(200%) brightness(1.08); -webkit-backdrop-filter: blur(10px) saturate(200%) brightness(1.08);
-      box-shadow: inset 0 1px .5px rgb(255 255 255 / .5), inset 0 -1px .5px rgb(255 255 255 / .14),
-                  inset 1px 0 .5px rgb(255 255 255 / .1), inset -1px 0 .5px rgb(255 255 255 / .1),
-                  inset 0 0 20px rgb(255 255 255 / .05), 0 10px 30px rgb(0 0 0 / .3); }
-    form { position: relative; }
-    form::before, #player::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
-      background: linear-gradient(115deg, rgb(255 255 255 / .16) 0%, rgb(255 255 255 / 0) 32%, rgb(255 255 255 / 0) 68%, rgb(255 255 255 / .07) 100%); }
+      border: 1px solid rgb(255 255 255 / .13);
+      background: var(--grain), linear-gradient(180deg, rgb(255 255 255 / .09), rgb(255 255 255 / .03));
+      backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), 0 10px 30px rgb(0 0 0 / .3); }
     #player .meta, input#q { text-shadow: 0 1px 3px rgb(0 0 0 / .45); }   /* se lee sobre cualquier fondo */
     input#q::placeholder { color: rgb(255 255 255 / .62); }
   }
@@ -1317,7 +1361,7 @@
          box-shadow: 0 8px 22px rgb(0 0 0 / .35), inset 0 0 0 2px rgb(255 255 255 / .22); }
   .kav.sm { width: 26px; height: 26px; font-size: .72rem; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .22); }
   .kav.lg { width: 76px; height: 76px; font-size: 1.9rem; }
-  .kglass { background: rgb(255 255 255 / .07); border: 1px solid rgb(255 255 255 / .08);
+  .kglass { background: var(--grain), rgb(255 255 255 / .07); border: 1px solid rgb(255 255 255 / .08);
             backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); }
   /* barra superior: cantante + puntuacion + como unirse */
   .ktop { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 24px 36px;
@@ -1551,6 +1595,7 @@
 <body>
 <div id="bg"><canvas width="48" height="48"></canvas><canvas width="48" height="48"></canvas></div>
 <div id="abg"><div class="lo"></div><div class="hi"></div></div>
+<div id="hbg"></div>
 
 <aside>
   <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
@@ -2356,6 +2401,9 @@ const EN = {
     "To create the code, connect this PC with Blyatt once: you'll get a code by email. Then tap “Link device” again.",
   "YouTube no reconoce la sesión de esta PC: vuelve a iniciar sesión con Google": "YouTube doesn't recognize this PC's session: sign in with Google again",
   "Demasiados códigos pendientes. Espera unos minutos.": "Too many pending codes. Wait a few minutes.",
+  "Buenos días": "Good morning", "Buenas tardes": "Good afternoon", "Buenas noches": "Good evening",
+  "Empieza el día con buena música.": "Start the day with good music.", "Ponle ritmo a la tarde.": "Give your afternoon a beat.",
+  "La noche suena mejor con tu música.": "The night sounds better with your music.", "Escuchado hace poco": "Recently played",
   "Sesión vinculada": "Account linked", "No se pudo vincular": "Couldn't link", "Sin conexión": "No connection",
   "No se pudo generar el código": "Couldn't create the code", "Toca reproducir para empezar": "Tap play to start",
   "En un dispositivo donde ya iniciaste sesión, abre tu menú de usuario → Vincular dispositivo.":
@@ -2845,7 +2893,9 @@ function toggleLike(s) {
 }
 function pushRecent(s) {
   let list = getRecents().filter(x => x.id !== s.id);
-  list.unshift({ id: s.id, title: s.title, artist: s.artist, cover: s.cover });
+  const e = { id: s.id, title: s.title, artist: s.artist, cover: s.cover };
+  if (s.artists && s.artists.length) e.artists = s.artists.map(a => ({ name: a.name, id: a.id }));   // Inicio: fotos de artistas
+  list.unshift(e);
   localStorage.setItem("lightning.recents", JSON.stringify(list.slice(0, 30)));
 }
 
@@ -3757,6 +3807,114 @@ function refreshRecentGrid() {
   if (!g || document.querySelector("#homeView > .lempty")) { renderHome(true); return; }
   g.innerHTML = ""; tiles.forEach(e => g.appendChild(recentTile(e)));
 }
+/* ---------- Inicio (escritorio): saludo + carrusel con las fotos de los artistas escuchados hace poco ---------- */
+const HERO = { list: [], i: 0, timer: 0, dur: 7000 };
+function heroArtists() {   // [[browseId, nombre]] por orden de escucha, sin repetir (sin id: el server lo busca)
+  const out = [], seen = new Set();
+  const add = (id, name) => {
+    const k = (name || id || "").toLowerCase();
+    if (k && !seen.has(k) && out.length < 8) { seen.add(k); out.push([id || "", name || ""]); }
+  };
+  getRecents().forEach(s => {
+    const a = (s.artists || []).find(a => a && a.name);
+    if (a) add(a.id, a.name); else if (s.artist) add("", splitArtists(s.artist)[0]);
+  });
+  getRecentCtx().forEach(e => { if (e.kind === "artist") add(e.id, e.title); });
+  return out;
+}
+function heroTitle() {
+  const h = document.querySelector(".hhero");
+  if (!h) return;
+  const hr = new Date().getHours();
+  const [g, sub] = hr >= 5 && hr < 12 ? ["Buenos días", "Empieza el día con buena música."]
+    : hr >= 12 && hr < 19 ? ["Buenas tardes", "Ponle ritmo a la tarde."]
+    : ["Buenas noches", "La noche suena mejor con tu música."];
+  const name = ((_authSt.logged_in && _authSt.name) || "").trim().split(/\s+/)[0];
+  const h1 = h.querySelector("h1");
+  h1.textContent = t(g) + (name ? "," : "");
+  if (name) {
+    const n = document.createElement("span"); n.className = "hn"; n.textContent = name;
+    h1.append(document.createElement("br"), n);
+  }
+  h.querySelector(".hsub").textContent = t(sub);
+}
+function heroBuild(hv) {
+  const h = document.createElement("section"); h.className = "hhero";
+  h.innerHTML = '<h1></h1><p class="hsub"></p><div class="hart" hidden><span class="hchip"><span class="hlbl"></span>' +
+    '<span class="hname"></span><i class="ph ph-arrow-up-right"></i></span><div class="hdots"></div></div>';
+  h.querySelector(".hlbl").textContent = t("Escuchado hace poco");
+  hv.appendChild(h);
+  heroTitle();
+  h.onclick = (e) => {
+    const a = HERO.list[HERO.i];
+    if (a && !e.target.closest(".hdots")) openArtist(a.id, true, { title: a.name, cover: a.image });
+  };
+  let last = [];
+  try { last = JSON.parse(localStorage.getItem("lightning.heroArts") || "[]"); } catch (e) {}
+  heroSet(Array.isArray(last) ? last : []);   // lo de la ultima vez al instante; luego se pone al dia
+  const want = heroArtists();
+  if (!want.length) return;
+  fetch("/homeartists?a=" + encodeURIComponent(JSON.stringify(want))).then(r => r.json()).then(d => {
+    if (!Array.isArray(d)) return;
+    try { localStorage.setItem("lightning.heroArts", JSON.stringify(d)); } catch (e) {}
+    if (d.map(x => x.id).join() !== HERO.list.map(x => x.id).join()) heroSet(d);
+  }).catch(() => {});
+}
+function heroSet(list) {
+  clearTimeout(HERO.timer);
+  HERO.list = list.filter(a => a && a.id && a.image).slice(0, 8); HERO.i = -1;
+  const bgEl = $("hbg"), h = document.querySelector(".hhero");
+  bgEl.innerHTML = "";
+  HERO.list.forEach(() => { const d = document.createElement("div"); d.className = "hs"; bgEl.appendChild(d); });
+  bgEl.classList.toggle("on", !!HERO.list.length);
+  if (!h) return;
+  h.classList.toggle("has", !!HERO.list.length);
+  h.querySelector(".hart").hidden = !HERO.list.length;
+  const dots = h.querySelector(".hdots"); dots.innerHTML = "";
+  dots.style.setProperty("--hdur", HERO.dur + "ms");
+  HERO.list.forEach((a, i) => {
+    const b = document.createElement("button"); b.setAttribute("aria-label", a.name);
+    b.onclick = (e) => { e.stopPropagation(); heroGo(i); };
+    dots.appendChild(b);
+  });
+  dots.hidden = HERO.list.length < 2;
+  if (HERO.list.length) heroGo(0);
+}
+function heroGo(i) {
+  const n = HERO.list.length;
+  if (!n) return;
+  clearTimeout(HERO.timer);
+  const to = (i + n) % n, a = HERO.list[to], sl = $("hbg").children[to];
+  const show = () => {
+    if (HERO.list[to] !== a) return;   // la lista cambio mientras cargaba la foto
+    [...$("hbg").children].forEach((s, k) => {
+      s.classList.toggle("prev", k === HERO.i && k !== to);
+      s.classList.toggle("on", k === to);
+      if (k !== to && k !== HERO.i) s.classList.remove("prev");
+    });
+    HERO.i = to;
+    const h = document.querySelector(".hhero");
+    if (h) {
+      const nm = h.querySelector(".hname"); nm.textContent = a.name;
+      nm.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 500, easing: "ease-out" });
+      [...h.querySelectorAll(".hdots button")].forEach((b, k) => b.classList.toggle("on", k === to));
+    }
+    if (n > 1) HERO.timer = setTimeout(heroNext, HERO.dur);
+  };
+  if (sl.style.backgroundImage) { show(); return; }
+  const im = new Image();   // se cambia cuando la foto ya esta descargada: el fundido nunca muestra un hueco
+  im.onload = () => { sl.style.backgroundImage = `url("${String(a.image).replace(/"/g, "%22")}")`; show(); };
+  im.onerror = () => { HERO.timer = setTimeout(() => heroGo(to + 1), 300); };
+  im.src = a.image;
+}
+function heroNext() {
+  if (document.hidden || document.body.dataset.mv !== "home") { HERO.timer = setTimeout(heroNext, 1500); return; }
+  heroGo(HERO.i + 1);
+}
+// al bajar por Inicio el carrusel se desvanece (las secciones pasan por encima legibles)
+document.querySelector("main").addEventListener("scroll", (e) => {
+  if (view === "home") $("hbg").style.setProperty("--hfade", Math.max(0, 1 - e.target.scrollTop / (innerHeight * .6)).toFixed(3));
+}, { passive: true });
 function renderHome(force) {
   const hv = $("homeView");
   if (!force && hv.children.length) return;   // solo pinta al entrar a la app o refresco manual (Inicio x2)
@@ -3766,6 +3924,7 @@ function renderHome(force) {
   hv.innerHTML = "";
   const recents = getRecents();
   const tiles = matchMedia("(max-width: 820px)").matches ? recentTiles() : null;
+  if (!tiles) heroBuild(hv);
   if (tiles && tiles.length) {
     const sec = document.createElement("section"); sec.className = "home-sec";
     const g = document.createElement("div"); g.className = "rgrid";
@@ -3814,6 +3973,7 @@ document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
 const jget = (u) => fetch(u).then(r => r.json());
 let _authSt = { logged_in: false, has_client: false, available: false };
 function paintUserChip() {
+  heroTitle();
   const img = $("uimg"), ico = $("uico");
   $("uname").textContent = _authSt.logged_in ? (_authSt.name || t("Tu cuenta"))
     : _authSt.stale ? t("Reconectar") : t("Invitado");
@@ -4068,7 +4228,7 @@ async function linkEntry() {
   return true;
 }
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
-const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx"];
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx", "lightning.heroArts"];
 async function signOutClean() {
   try { await jget("/auth/logout"); } catch (e) {}
   // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"

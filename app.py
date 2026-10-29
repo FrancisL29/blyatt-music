@@ -582,6 +582,30 @@ def _artist(browse_id):
     return {"name": name, "image": image, "subtitle": subtitle, "description": description, "sections": sections}
 
 
+def home_artists(items):
+    """Inicio (escritorio): foto grande (cabecera) de los artistas escuchados hace poco. items = [[id, nombre]];
+    sin id (historial viejo) se resuelve con la busqueda de artistas."""
+    def one(it):
+        try:
+            bid, name = (str(it[0] or ""), str(it[1] or "")) if isinstance(it, list) and len(it) == 2 else ("", "")
+            if not bid and name:
+                r = search(name, "artists")
+                bid = (r[0].get("browseId") or "") if isinstance(r, list) and r else ""
+            if not re.fullmatch(r"UC[\w-]{10,40}", bid):
+                return None
+            def go():
+                d = artist(bid)
+                return {"id": bid, "name": d.get("name") or name, "image": d.get("image") or ""}
+            return cached("himg:" + bid, 86400, go)
+        except Exception:
+            return None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(6) as ex:
+        out = list(ex.map(one, items[:10]))
+    seen = set()
+    return [x for x in out if x and x["image"] and not (x["id"] in seen or seen.add(x["id"]))]
+
+
 def artist_list(browse_id, params):
     return cached("alist:%s:%s" % (browse_id, params), 600, lambda: _artist_list(browse_id, params))
 
@@ -4312,6 +4336,12 @@ class H(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/homeartists":
+            try:
+                items = json.loads(parse_qs(u.query).get("a", ["[]"])[0])
+            except Exception:
+                items = []
+            return self._json(home_artists(items if isinstance(items, list) else []))
         elif u.path == "/related":
             try:
                 payload = json.dumps(related(parse_qs(u.query).get("id", [""])[0])).encode()

@@ -687,6 +687,7 @@
                       z-index: -1; pointer-events: none; opacity: 0; transition: opacity .9s;
                       animation: lbgdrift 40s ease-in-out infinite alternate; will-change: transform; }
   #lyricsPanel .lbg.on { opacity: 1; }
+  #lyricsPanel::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grain); }   /* grano sobre el fondo */
   #lyricsPanel .lbg.gl { left: 0; top: 0; width: 100%; height: 100%; animation: none; will-change: auto; }
   @keyframes lbgdrift { from { transform: scale(1.1) rotate(-6deg) translate3d(-4%, -3%, 0); }
                         to { transform: scale(1.35) rotate(10deg) translate3d(4%, 3%, 0); } }
@@ -5951,6 +5952,7 @@ const FLUID_TAU = Math.PI * 2;
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;
+    this.ft = 0; this.speed = null;   // reloj propio del movimiento: speed(dt) lo acelera o frena (null = ritmo fijo)
     this.pre = document.createElement("canvas"); this.pre.width = this.pre.height = 64;
     this._init();
     if (!this.ok) return;
@@ -6016,7 +6018,9 @@ class FluidBg {
   }
   draw(now, force) {
     if (!this.ok || (!force && now - this.last < 32)) return;   // ~30 fps: el movimiento es lento
+    const dt = Math.min(100, Math.max(0, now - (this.last || now)));   // tapado un rato: no da un salto al volver
     this.last = now;
+    this.ft += dt / 1000 * (this.speed ? this.speed(dt) : 1);
     const gl = this.gl, cv = this.cv;
     const W = 96, H = Math.max(48, Math.min(256, Math.round(W * (cv.clientHeight || 2) / (cv.clientWidth || 1))));
     if (this.W !== W || this.H !== H || cv.width !== W || cv.height !== H) {
@@ -6029,7 +6033,7 @@ class FluidBg {
     }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex[this.cur]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex[1 - this.cur]);
-    const t = now / 1000, t2 = t * .83 + 31, ph = (x, k) => (x * k) % FLUID_TAU;
+    const t = this.ft, t2 = t * .83 + 31, ph = (x, k) => (x * k) % FLUID_TAU;
     gl.uniform3f(this.u.P0, ph(t, .07), ph(t, .11), ph(t, .29)); gl.uniform3f(this.u.P1, ph(t, .21), ph(t, .25), ph(t, .19));
     gl.uniform3f(this.u.Q0, ph(t2, .07), ph(t2, .11), ph(t2, .29)); gl.uniform3f(this.u.Q1, ph(t2, .21), ph(t2, .25), ph(t2, .19));
     gl.uniform1f(this.u.M, m * m * (3 - 2 * m));
@@ -6049,6 +6053,35 @@ class FluidBg {
   }
 }
 let LYR_FLUID = null;
+/* PC: el fondo de la letra se mueve al ritmo de la musica. El mismo flujo aleatorio, pero su velocidad sigue la
+   energia de lo que suena (graves sobre todo) con un empujon en cada golpe; en pausa deriva tranquilo. La
+   velocidad se acerca suave al objetivo: nunca da tirones. En movil no se analiza nada (ritmo fijo, menos bateria) */
+const LYR_BEAT = (IS_APP || IOS_WEB || /Android|iPhone|iPad|Mobile/.test(navigator.userAgent)) ? null : (() => {
+  const an = AC.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = .5;
+  srcBus.connect(an);   // antes del volumen: bajar el volumen no frena el fondo
+  const f = new Uint8Array(an.frequencyBinCount);
+  let lvl = 0, bs = 0, kick = 0, sp = 1;
+  return (dt) => {
+    let target = .4;
+    if (!audio.paused && !CX.remote) {
+      an.getByteFrequencyData(f);
+      const hz = AC.sampleRate / an.fftSize, bEnd = Math.max(2, Math.round(250 / hz)), mEnd = Math.round(4000 / hz);
+      let b = 0, m = 0;
+      for (let i = 1; i < bEnd; i++) b += f[i];
+      for (let i = bEnd; i < mEnd; i++) m += f[i];
+      const bn = b / (bEnd - 1) / 255, e = .65 * bn + .35 * m / (mEnd - bEnd) / 255;
+      // los bytes van en dB: una cancion masterizada fuerte ronda .85-.9 casi siempre; se estira el tramo util
+      const x = Math.min(1, Math.max(0, (e - .5) / .42)) ** 2;
+      if (bn - bs > .06) kick = Math.min(1, kick + (bn - bs) * 4);   // los graves suben de golpe = bombo
+      bs += (bn - bs) * Math.min(1, dt / 90);
+      lvl += (x - lvl) * Math.min(1, dt / 300);
+      kick *= Math.exp(-dt / 300);
+      target = .45 + lvl * 1.5 + kick * .9;   // ~0.6 en lo suave, ~1.6-2.3 en lo fuerte
+    }
+    sp += (target - sp) * Math.min(1, dt / 220);
+    return sp;
+  };
+})();
 // al volver a primer plano el bucle (que se para con la app oculta) se reanuda solo
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
@@ -6069,6 +6102,7 @@ function lyrBg(src) {
   if (!src) { bg.classList.remove("on"); return; }
   if (LYR_FLUID === null) {   // primera vez: WebGL si se puede; si no, el canvas estatico de siempre
     LYR_FLUID = new FluidBg(bg, .46);
+    LYR_FLUID.speed = LYR_BEAT;
     if (LYR_FLUID.ok) { bg.classList.add("gl"); LYR_FLUID.onready = () => bg.classList.add("on"); LYR_FLUID.onlost = () => bg.classList.remove("on"); }
   }
   if (LYR_FLUID.ok || bg.classList.contains("gl")) {   // con la GPU perdida un momento: se repinta al recuperarla

@@ -28,6 +28,12 @@ try:
 except ImportError:   # login con Google opcional: la app funciona sin ytmusicapi
     YTMusic = None
 
+# IPv4 primero (IPv6 queda de respaldo): si la red pierde la salida IPv6 pero el DNS sigue dando AAAA,
+# urllib/yt-dlp prueban cada IPv6 con su timeout entero antes de llegar a la IPv4 -> todo se colgaba
+# (paso en el telefono servidor en nov-2026: la app se quedaba en "Comprobando sesion...")
+_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda *a, **k: sorted(_getaddrinfo(*a, **k), key=lambda x: x[0] != socket.AF_INET)
+
 # app instalada (.exe de PyInstaller): los archivos del programa son de solo lectura (se reemplazan en
 # cada actualizacion) -> sesiones, cache y perfil del WebView van a %LOCALAPPDATA%\Blyatt
 FROZEN = bool(getattr(sys, "frozen", False))

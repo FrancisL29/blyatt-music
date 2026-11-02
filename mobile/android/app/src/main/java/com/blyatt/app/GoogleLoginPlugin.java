@@ -1,6 +1,9 @@
 package com.blyatt.app;
 
+import android.accounts.AccountManager;
+import android.app.Activity;
 import android.app.Dialog;
+import android.content.Intent;
 import android.net.Uri;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
@@ -11,7 +14,10 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+
+import androidx.activity.result.ActivityResult;
 
 // Abre music.youtube.com en un WebView propio (cookies compartidas via CookieManager del sistema).
 // Cuando la cookie de music.youtube.com contiene SAPISID (login completo), cierra y devuelve
@@ -40,9 +46,32 @@ public class GoogleLoginPlugin extends Plugin {
     private WebView web;
     private PluginCall pending;
 
+    // primero el selector de cuentas de Android (las cuentas de Google del movil, sin permisos): el login web
+    // se abre con ese correo ya escrito y pasa solo al siguiente paso (contrasena o "confirma en tu movil").
+    // Google no da cookies de YouTube Music a partir de una cuenta del sistema: el ultimo paso sigue siendo web
     @PluginMethod
     public void login(PluginCall call) {
+        try {
+            Intent pick = AccountManager.newChooseAccountIntent(null, null, new String[]{"com.google"},
+                null, null, null, null);
+            startActivityForResult(call, pick, "accountPicked");
+        } catch (Exception e) {   // sin selector (ROM rara): login web de siempre
+            openLogin(call, null);
+        }
+    }
+
+    @ActivityCallback
+    private void accountPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent d = result.getData();
+        String email = result.getResultCode() == Activity.RESULT_OK && d != null
+            ? d.getStringExtra(AccountManager.KEY_ACCOUNT_NAME) : null;
+        openLogin(call, email);   // cancelado: login web normal (puede ser una cuenta que no esta en el movil)
+    }
+
+    private void openLogin(PluginCall call, String email) {
         pending = call;
+        final boolean[] autoNext = { email != null };
         getActivity().runOnUiThread(() -> {
             dialog = new Dialog(getActivity(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
             web = new WebView(getActivity());
@@ -56,6 +85,11 @@ public class GoogleLoginPlugin extends Plugin {
             web.setWebViewClient(new WebViewClient() {
                 @Override
                 public void onPageFinished(WebView v, String url) {
+                    if (autoNext[0] && url.contains("/signin/identifier")) {   // correo ya puesto: "Siguiente"
+                        autoNext[0] = false;
+                        v.evaluateJavascript("setTimeout(function(){var b=document.querySelector('#identifierNext button')"
+                            + "||document.querySelector('#identifierNext');if(b)b.click();},400)", null);
+                    }
                     String c = CookieManager.getInstance().getCookie(MUSIC);
                     if (c != null && c.contains("SAPISID=") && c.contains("__Secure-3PSID")) {
                         CookieManager.getInstance().flush();
@@ -76,7 +110,7 @@ public class GoogleLoginPlugin extends Plugin {
                 close();
             });
             dialog.show();
-            web.loadUrl(SIGNIN);
+            web.loadUrl(email == null ? SIGNIN : SIGNIN + "&Email=" + Uri.encode(email));
         });
     }
 

@@ -53,24 +53,50 @@
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-.5 -.5 ${12 * DOT.gx + 1} ${12 * DOT.gy + 1}'>${d}</svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   };
-  // pantallas de baja densidad (PC): a 1x un punto de 0.70 queda en ~1 px y se emborrona. Ahi el icono se dibuja un
-  // 30% mas grande (sin ocupar mas: margen negativo, los botones no cambian) y con puntos mas gruesos
-  const LOWDPI = { size: .84, scale: 1.3 };
-  const sels = [];
-  let css = "", low = "";
+  const um = (u) => `{-webkit-mask-image:${u};mask-image:${u}}`;
+  const sels = [], bigSels = [], bits = [];
+  let css = "";
   for (const [k, h] of Object.entries(ICONS)) {
     const b = center(Array.from({ length: 12 }, (_, y) => parseInt(h.substr(y * 3, 3), 16))), f = fill(b);
-    const rule = (a, sz) => { const m = mask(a, sz); return `{-webkit-mask-image:${m};mask-image:${m}}`; };
+    bits.push([k, b, f]);
     sels.push(`.ph.ph-${k}::before`, `.ph-fill.ph-${k}::before`);
-    css += `.ph.ph-${k}::before${rule(b, DOT.size)}.ph-fill.ph-${k}::before${rule(f, DOT.size)}`;
-    low += `.ph.ph-${k}::before${rule(b, LOWDPI.size)}.ph-fill.ph-${k}::before${rule(f, LOWDPI.size)}`;
+    css += `.ph.ph-${k}::before${um(mask(b, DOT.size))}.ph-fill.ph-${k}::before${um(mask(f, DOT.size))}`;
   }
-  const S = LOWDPI.scale, mg = ((S - 1) / 2).toFixed(3);
-  const st = document.createElement("style");
-  st.textContent = `${sels.join(",")}{content:"";display:inline-block;width:1em;height:1em;vertical-align:-.125em;`
+  const base = `${sels.join(",")}{content:"";display:inline-block;width:1em;height:1em;vertical-align:-.125em;`
     + `background:currentColor;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:100% 100%;`
-    + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css
-    + `@media (max-resolution: 1.9dppx){${sels.join(",")}{width:${S}em;height:${S}em;margin:-${mg}em}${low}}`;
+    + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css;
+  // PC (pantalla de menos de 2x): un punto redondo necesita ~3 px fisicos y en un icono de ~20 px cada punto quedaba
+  // en ~1.5 px y se fundia en cuadritos. Ahi los puntos se dibujan en pixeles FISICOS exactos (mapa de bits a la
+  // densidad de la pantalla, sin reescalar): 1 px de punto y 1 de hueco en general (el icono no ocupa mas) y 2 px
+  // de punto y 1 de hueco en la barra lateral y los botones centrales de la de reproduccion, que tienen sitio (ahi el
+  // icono ocupa su tamano; nunca en el diseno estrecho)
+  const BIG = ":is(aside .nav-item, #player .transport .iconbtn:not(.main), body.lyr-full #player .main)>";
+  bits.forEach(([k]) => bigSels.push(`${BIG}.ph.ph-${k}::before`, `${BIG}.ph-fill.ph-${k}::before`));
+  const ras = (b, P, d) => {   // paso P y punto d, en px fisicos
+    const c = document.createElement("canvas"), o = (P - d) >> 1;
+    c.width = c.height = 12 * P;
+    const g = c.getContext("2d");
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) if (lit(b, x, y)) g.fillRect(x * P + o, y * P + o, d, d);
+    return `url(${c.toDataURL()})`;
+  };
+  const st = document.createElement("style");
+  function build() {
+    const r = window.devicePixelRatio || 1;
+    let pc = "";
+    if (r < 1.9) {
+      const sm = +(24 / r).toFixed(3), bg = +(36 / r).toFixed(3);
+      pc = `${sels.join(",")}{width:${sm}px;height:${sm}px;margin:calc((1em - ${sm}px) / 2);`
+        + `-webkit-mask-size:${sm}px;mask-size:${sm}px;image-rendering:pixelated}`
+        + `@media (min-width: 821px){${bigSels.join(",")}{width:${bg}px;height:${bg}px;margin:0;vertical-align:middle;-webkit-mask-size:${bg}px;mask-size:${bg}px}`;
+      for (const [k, b, f] of bits) pc += `${BIG}.ph.ph-${k}::before${um(ras(b, 3, 2))}${BIG}.ph-fill.ph-${k}::before${um(ras(f, 3, 2))}`;
+      pc += "}";
+      for (const [k, b, f] of bits) pc = `.ph.ph-${k}::before${um(ras(b, 2, 1))}.ph-fill.ph-${k}::before${um(ras(f, 2, 1))}` + pc;
+    }
+    st.textContent = base + pc;
+    // zoom del navegador o ventana movida a otra pantalla: cambia la densidad -> se redibuja
+    matchMedia(`(resolution: ${r}dppx)`).addEventListener("change", build, { once: true });
+  }
+  build();
   document.head.appendChild(st);
 })();
 </script>

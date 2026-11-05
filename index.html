@@ -14,6 +14,49 @@
 <title>Blyatt</title>
 <link rel="stylesheet" href="/assets/phosphor/regular/style.css">
 <link rel="stylesheet" href="/assets/phosphor/fill/style.css">
+<script>
+/* Iconos de puntos (estilo Nothing): cada icono ph-* se pinta como una matriz de puntos 12x12, con la configuracion
+   elegida en el laboratorio "Blyatt Dot Icons" (circulos de 0.70, separacion 1). El HTML y el JS siguen usando las
+   clases de Phosphor: aqui solo se cambia el dibujo de cada clase (mascara SVG coloreada con currentColor).
+   Mapas de bits en hex: 12 filas x 3 cifras. Los "ph-fill" se rellenan solos: todo lo que el exterior no alcanza.
+   Los logos de marca (Spotify, Google, YouTube...) siguen siendo los de Phosphor.
+   Dibujos basados en Pixelarticons (MIT, assets/pixelarticons-LICENSE.txt); algunos hechos a mano */
+(() => {
+  const DOT = { size: .7, gx: 1, gy: 1 };
+  const ICONS = {"heart":"0003184a48428028024042081100a0040000","play":"000100180140120110120140180100000000","x":"0000002081100a00400a0110208000000000","magnifying-glass":"0001e02104084084084082101e8004002000","globe-hemisphere-west":"0000f036c4927fe4924927fe49236c0f0000","pause":"0000003b82a82a82a82a82a82a83b8000000","microphone-stage":"0000600900900902942942641080f0060000","repeat":"0800c03284c4484404424464298060020000","plus":"0000400400400407fc040040040040000000","link":"00000000070e8919f989170e000000000000","speaker-hifi":"000000404912a4aaaaa4a912404000000000","download-simple":"0000400400400401a00e04444043f8000000","dots-three-vertical":"0400a00400000400a00400000400a0040000","circle-notch":"0001c02004004004024024024022041f8000","check-circle":"0001f820440240a4125224c24022041f8000","user-plus":"00038044044444e3840007c0820820820000","user":"0000f01081081080f00003fc402402402000","skip-forward":"000104184144124114124144184104000000","sign-out":"0003c02002082042fe2042082003c0000000","shuffle":"00000000800c73e04c04804079e000000000","repeat-once":"0800c03e84044c44444e44042f8060020000","plus-circle":"0001f82044624625fa5fa4624622041f8000","playlist":"00000027e50027800027e500278000000000","pencil-simple":"00001002805408a124248490620740780000","moon":"0001e024048048048244643a2021040f8000","list-plus":"0000007fc0000007fc0000047c401f004004","devices":"0003fc4024024024024024622f41f8000000","arrow-circle-up":"0000400e01f00400400404444043f8000000","x-circle":"0001f820450a49246246249250a2041f8000","warning":"0000600900901681682642044627fe000000","users-three":"00030c49249230c00079e861861861000000","trash":"0000f01987fe2042042042042042041f8000","timer":"0000f01081080900600600901081080f0000","star":"00006009009070e40220410826429430c000","speaker-high":"0000b81842b2c8a8aa8aac8a2b21840b8000","sparkle":"0400400a00a0318c063180a00a0040040000","sliders-horizontal":"0307fe0300003007fe30000000c7fe00c000","skip-back":"000208218228248288248228218208000000","radio":"000000404912a4aaaaa4a912404000000000","microphone-slash":"0004602101100102c42a42701080f4062000","microphone":"0000600900900902942942641080f0060000","list-bullets":"00000027e50027800027e500278000000000","house":"0000600901082044024624924924923fc000","gear":"06036c30c0f0e97e970f030c36c060000000","clock-counter-clockwise":"0001f82044424424424324024022041f8000","check":"000000000004008010220140080000000000","caret-right":"000000080040020010020040080000000000","books":"000000400450550558548548544544544000","arrows-out-simple":"00070e40240200000000000040240270e000","arrow-right":"0000000200300383cc038030020000000000","waveform":"00004004814815855a55a158148048040000","wave-sine":"000000666198000666198000666198000000","warning-circle":"0001f82044624624624624024622041f8000","user-sound":"00038044445244a38a0127c4820820820000","tray":"0003fc40240240240240270e4f24023fc000","translate":"000300480840fce84184f85100f000000000","star-half":"00006009009070e40220410826429430c000","speaker-x":"0000400c014065445c45c6541400c0040000","speaker-simple-high":"0000400c01586444544546441580c0040000","speaker-low":"0000200600a03202282283200a0060020000","sign-in":"00003c0040840447f404408400403c000000","sidebar-simple":"0000003fc4027fe4824824824823fc000000","shuffle-angular":"00000000800c73e04c04804079e000000000","queue":"0000007fe0000007e00000007f8000000000","question":"0001f82644924124224424024422041f8000","prohibit":"0001f820450248244242241240a2041f8000","power":"0602644624624024024022041f8000000000","plug":"0001081087fe4024022041f8060060060000","pause-circle":"0000003b82a82a82a82a82a82a83b8000000","music-notes":"00000007808408408439c4a44a4318000000","music-note":"00000007808408408439c4a44a4318000000","moon-stars":"0001e024048048048244643a2021040f8000","minus-circle":"0001f82044024025fa5fa4024022041f8000","lock-simple":"0000e01101103f84044044044044043f8000","link-simple":"00000000070e8919f989170e000000000000","keyboard":"0000000007fe4024924024f24027fe000000","image":"0003fc40248254248240a4564a05123fc000","hard-drives":"0003fc4025824027fe4025824023fc000000","fire":"0000800801402504284044444e42e81f0000","file-csv":"0001f022822429c2042f42042f42041f8000","file-arrow-up":"0000400e01f00400400404444043f8000000","dots-three-outline":"000000000000444aaa444000000000000000","device-mobile-speaker":"0001f82042042042042042042042041f8000","device-mobile":"0001f82042042042042042042042041f8000","desktop":"0003fc4024024024024024023fc0600f0000","cloud-arrow-up":"0000000700883044828098018017fe000000","chat-circle-dots":"0003fc4024024025524024023fa006002000","caret-up":"0000000000000400a0110208000000000000","caret-left":"000000010020040080040020010000000000","caret-down":"0000000000002081100a0040000000000000","browser":"0003fc4824827fe4024024024024023fc000","arrows-left-right":"00000000020860cdb660c208000000000000","arrows-in-simple":"00010810870e00000000000070e108108000","arrow-up-right":"00003838c4144244404884084083f0000000","arrow-square-out":"00003838c4144244404884084083f0000000","arrow-left":"0000000400c01c033c1c00c0040000000000","users":"00030c49249230c00079e861861861000000"};
+  const lit = (b, x, y) => (b[y] >> (11 - x)) & 1;
+  const fill = (b) => {   // inundacion desde el borde por lo apagado (4 vecinos): lo que no alcanza es interior
+    const out = new Set(), q = [];
+    for (let i = 0; i < 12; i++) q.push([i, 0], [i, 11], [0, i], [11, i]);
+    while (q.length) {
+      const [x, y] = q.pop(), k = y * 12 + x;
+      if (x < 0 || y < 0 || x > 11 || y > 11 || out.has(k) || lit(b, x, y)) continue;
+      out.add(k); q.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    return b.map((_, y) => { let r = 0; for (let x = 0; x < 12; x++) if (!out.has(y * 12 + x)) r |= 1 << (11 - x); return r; });
+  };
+  const mask = (b) => {
+    let d = "";
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++)
+      if (lit(b, x, y)) d += `<circle cx='${(x + .5) * DOT.gx}' cy='${(y + .5) * DOT.gy}' r='${DOT.size / 2}'/>`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-.5 -.5 ${12 * DOT.gx + 1} ${12 * DOT.gy + 1}'>${d}</svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  };
+  const sels = [];
+  let css = "";
+  for (const [k, h] of Object.entries(ICONS)) {
+    const b = Array.from({ length: 12 }, (_, y) => parseInt(h.substr(y * 3, 3), 16)), m = mask(b), f = mask(fill(b));
+    sels.push(`.ph.ph-${k}::before`, `.ph-fill.ph-${k}::before`);
+    css += `.ph.ph-${k}::before{-webkit-mask-image:${m};mask-image:${m}}`
+         + `.ph-fill.ph-${k}::before{-webkit-mask-image:${f};mask-image:${f}}`;
+  }
+  const st = document.createElement("style");
+  st.textContent = `${sels.join(",")}{content:"";display:inline-block;width:1em;height:1em;vertical-align:-.125em;`
+    + `background:currentColor;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:100% 100%;`
+    + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css;
+  document.head.appendChild(st);
+})();
+</script>
 <style>
   :root {
     color-scheme: dark;

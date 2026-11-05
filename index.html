@@ -4117,12 +4117,15 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
       refreshLikeUI();
     }
     const lib = getLibrary();
-    const haveB = new Set(lib.map(x => x.id));
+    const haveB = new Set(lib.map(x => x.id)), ytB = new Set();
     let nB = 0;
     [].concat(d.playlists || [], d.albums || [], d.artists || []).forEach(it => {
       if (!it.browseId) return;
+      ytB.add(it.browseId);
       const ex = lib.find(x => x.id === it.browseId);
       if (ex) {   // refresca editable, creator y portada de entradas ya presentes
+        if (!ex.yt) { ex.yt = 1; nB++; }   // confirmada por la cuenta: si desaparece de ella, se quita (abajo)
+        if (it.kind === "playlists" && it.title && ex.title !== it.title) { ex.title = it.title; nB++; }   // renombrada en otro dispositivo
         if (it.editable !== undefined && ex.editable !== it.editable) { ex.editable = it.editable; nB++; }
         if (it.creator && ex.creator !== it.creator) { ex.creator = it.creator; nB++; }
         // "N canciones" cambia al anadir/quitar: antes solo se guardaba al entrar en la biblioteca
@@ -4131,9 +4134,19 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
         if (it.cover && ex.cover !== it.cover) { ex.cover = it.cover; nB++; }
         return;
       }
-      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "" });
+      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "", yt: 1 });
       haveB.add(it.browseId); nB++;
     });
+    if (force) {
+      // BAJAS (borrada / dejada de guardar en otro dispositivo): solo entradas que la cuenta ya confirmo (yt) y
+      // solo con la lista de su tipo completa (sin fallo y bajo el tope de 50 del servidor). Lo recien creado
+      // aqui y aun no reflejado por YT no lleva yt: se conserva
+      const full = new Set(["playlists", "albums", "artists"].filter(k => Array.isArray(d[k]) && !_failed.includes(k) && d[k].length < 50));
+      for (let i = lib.length - 1; i >= 0; i--) {
+        const x = lib[i], k = String(x.kind || "").replace(/s?$/, "s");
+        if (x.yt && full.has(k) && !ytB.has(x.id)) { lib.splice(i, 1); nB++; }
+      }
+    }
     if (nB) {
       localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
       if (document.body.dataset.mv === "lib") openMobileLibrary(false);   // la cuadricula movil no la repinta renderLibrary
@@ -6767,9 +6780,52 @@ function cxMirror(st) {   // modo remoto: la UI refleja lo que suena en el otro 
   if (eng.onState) eng.onState();
   if ($("queue").classList.contains("show")) renderQueue();
 }
+/* biblioteca en vivo entre dispositivos con la app abierta: el que cambia algo (like, playlist, guardar album...)
+   avisa al hub y el resto re-sincroniza con la cuenta en ese momento, sin esperar a reabrir la app */
+const CX_LIBCHG = /^\/(rate|libsave|pl(add|remove|edit|create|delete|cover|collab|join)|impcsv|implace|spot\/import)$/;
+let _cxLibT = null, _cxLibPl = null;
+(() => {
+  const f0 = window.fetch;
+  window.fetch = function (u, o) {
+    const p = f0.apply(this, arguments);
+    if (typeof u === "string" && u[0] === "/") {
+      const m = u.split("?"), path = m[0];
+      if (CX_LIBCHG.test(path)) p.then(r => {
+        if (!r.ok || !CX.enabled) return;
+        const id = new URLSearchParams(m[1] || "").get("id") || "";
+        const pl = /^pl(add|remove|edit|cover|collab)$/.test(path.slice(1)) && id ? "VL" + id.replace(/^VL/, "") : "";
+        _cxLibPl = _cxLibPl === null || _cxLibPl === pl ? pl : "";   // varias playlists a la vez: solo la biblioteca
+        clearTimeout(_cxLibT);
+        // YT tarda ~3 s en reflejar los cambios: antes de eso los otros leerian la cuenta sin ellos
+        _cxLibT = setTimeout(() => { cxPost("/connect/lib", { pl: _cxLibPl }); _cxLibPl = null; }, 3500);
+      }, () => {});
+    }
+    return p;
+  };
+})();
+let _cxLibSyncT = null;
+function cxLibSync(pl) {   // otro dispositivo cambio la biblioteca
+  clearTimeout(_cxLibSyncT);
+  _cxLibSyncT = setTimeout(async () => {
+    if (pl && view === "collection" && _colId === pl) {   // tiene abierta esa playlist: se repinta donde estaba
+      try {
+        const d = await (await fetch("/collection?fresh=1&id=" + encodeURIComponent(pl))).json();
+        if (!d.error && view === "collection" && _colId === pl) { const y = _main.scrollTop; renderCollection(d); _main.scrollTop = y; }
+      } catch (e) {}
+    }
+    while (_ytSyncBusy) await new Promise(r => setTimeout(r, 250));
+    syncYtLibrary(true);
+  }, 400);
+}
 function cxApply(r) {
   const was = CX.remote;
   CX.hub = r; CX.ver = r.ver; CX.rxAt = performance.now();
+  const libN = r.lib ? r.lib.n : 0;   // (0: aun nadie cambio nada / hub reiniciado)
+  if (libN !== CX.libN) {   // el primer estado solo marca la referencia (al abrir ya se sincronizo)
+    const first = CX.libN === undefined;
+    CX.libN = libN;
+    if (!first && r.lib && r.lib.by !== CX.dev) cxLibSync(r.lib.pl);
+  }
   let took = false;
   (r.cmds || []).forEach(c => { if (c.type === "take") took = true; try { cxExec(c); } catch (e) {} });
   const act = r.active && r.active !== CX.dev ? (r.devices || []).find(d => d.id === r.active && d.online) : null;

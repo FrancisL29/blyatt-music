@@ -2451,7 +2451,7 @@ def _cx_snap(h, dev, now, take_cmds=False):
                         for d, v in sorted(h["devices"].items(), key=lambda kv: -kv[1]["seen"])],
             # solo el sondeo entrega las ordenes: si las devolviera cualquier respuesta (p.ej. la del
             # /connect/transfer del propio activo) se perderian y el "handoff" nunca llegaria
-            "cmds": cmds}
+            "cmds": cmds, "lib": h.get("lib")}
 
 
 def connect_api(path, qs, d):
@@ -2564,6 +2564,11 @@ def connect_api(path, qs, d):
             x = h.get("xfer")
             if x and x["to"] == dev:
                 _cx_xfer_go(h, now, bool(d.get("ok")))
+        elif path == "/connect/lib":   # este dispositivo cambio la biblioteca (like, playlist...): el resto re-sincroniza
+            pl = str(d.get("pl") or "")
+            h["lib"] = {"n": (h.get("lib") or {}).get("n", 0) + 1, "by": dev,
+                        "pl": pl if re.fullmatch(r"[\w-]{2,80}", pl) else ""}
+            _cx_bump(h)
         return _cx_snap(h, dev, now)
 
 
@@ -4385,7 +4390,10 @@ class H(BaseHTTPRequestHandler):
             self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/collection":
             try:
-                payload = json.dumps(collection(parse_qs(u.query).get("id", [""])[0])).encode()
+                cid = parse_qs(u.query).get("id", [""])[0]
+                if parse_qs(u.query).get("fresh") and ytm():   # otro dispositivo la cambio: sin la cache de 10 min
+                    _CACHE.pop(_sk("col:" + cid), None)
+                payload = json.dumps(collection(cid)).encode()
                 self.send_response(200); self.send_header("Content-Type", "application/json")
             except Exception as e:
                 payload = json.dumps({"error": str(e)}).encode()

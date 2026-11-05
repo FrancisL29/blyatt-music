@@ -35,25 +35,42 @@
     }
     return b.map((_, y) => { let r = 0; for (let x = 0; x < 12; x++) if (!out.has(y * 12 + x)) r |= 1 << (11 - x); return r; });
   };
-  const mask = (b) => {
+  // centra el dibujo en la rejilla (por su caja). Con medio punto de sobra va a la derecha: los triangulos
+  // (play, siguiente) tienen el peso a la izquierda y asi se ven centrados
+  const center = (b) => {
+    let x0 = 12, x1 = -1, y0 = 12, y1 = -1;
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++)
+      if (lit(b, x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    if (x1 < 0) return b;
+    const dx = Math.max(-x0, Math.min(11 - x1, Math.round(5.5 - (x0 + x1) / 2)));
+    const dy = Math.max(-y0, Math.min(11 - y1, Math.round(5.5 - (y0 + y1) / 2 - .01)));
+    return b.map((_, y) => { const r = b[y - dy] || 0; return dx >= 0 ? r >> dx : (r << -dx) & 0xfff; });
+  };
+  const mask = (b, size) => {
     let d = "";
     for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++)
-      if (lit(b, x, y)) d += `<circle cx='${(x + .5) * DOT.gx}' cy='${(y + .5) * DOT.gy}' r='${DOT.size / 2}'/>`;
+      if (lit(b, x, y)) d += `<circle cx='${(x + .5) * DOT.gx}' cy='${(y + .5) * DOT.gy}' r='${size / 2}'/>`;
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-.5 -.5 ${12 * DOT.gx + 1} ${12 * DOT.gy + 1}'>${d}</svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   };
+  // pantallas de baja densidad (PC): a 1x un punto de 0.70 queda en ~1 px y se emborrona. Ahi el icono se dibuja un
+  // 30% mas grande (sin ocupar mas: margen negativo, los botones no cambian) y con puntos mas gruesos
+  const LOWDPI = { size: .84, scale: 1.3 };
   const sels = [];
-  let css = "";
+  let css = "", low = "";
   for (const [k, h] of Object.entries(ICONS)) {
-    const b = Array.from({ length: 12 }, (_, y) => parseInt(h.substr(y * 3, 3), 16)), m = mask(b), f = mask(fill(b));
+    const b = center(Array.from({ length: 12 }, (_, y) => parseInt(h.substr(y * 3, 3), 16))), f = fill(b);
+    const rule = (a, sz) => { const m = mask(a, sz); return `{-webkit-mask-image:${m};mask-image:${m}}`; };
     sels.push(`.ph.ph-${k}::before`, `.ph-fill.ph-${k}::before`);
-    css += `.ph.ph-${k}::before{-webkit-mask-image:${m};mask-image:${m}}`
-         + `.ph-fill.ph-${k}::before{-webkit-mask-image:${f};mask-image:${f}}`;
+    css += `.ph.ph-${k}::before${rule(b, DOT.size)}.ph-fill.ph-${k}::before${rule(f, DOT.size)}`;
+    low += `.ph.ph-${k}::before${rule(b, LOWDPI.size)}.ph-fill.ph-${k}::before${rule(f, LOWDPI.size)}`;
   }
+  const S = LOWDPI.scale, mg = ((S - 1) / 2).toFixed(3);
   const st = document.createElement("style");
   st.textContent = `${sels.join(",")}{content:"";display:inline-block;width:1em;height:1em;vertical-align:-.125em;`
     + `background:currentColor;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:100% 100%;`
-    + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css;
+    + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css
+    + `@media (max-resolution: 1.9dppx){${sels.join(",")}{width:${S}em;height:${S}em;margin:-${mg}em}${low}}`;
   document.head.appendChild(st);
 })();
 </script>

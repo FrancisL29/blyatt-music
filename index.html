@@ -641,6 +641,19 @@
     transform: translateX(100%); transition: transform .42s cubic-bezier(.16,1,.3,1); will-change: transform;
   }
   .sidepanel.show { transform: translateX(0); }
+  /* PC: tarjetas flotantes de esquinas redondeadas (alineadas con la barra de reproduccion, que pasa por encima
+     de su borde inferior). Aparecen y se van en su sitio: fundido + desenfoque + un leve deslizamiento */
+  @media (min-width: 821px) {
+    .sidepanel { top: 12px; right: 22px; bottom: 18px; overflow: hidden;
+      border: 1px solid rgb(255 255 255 / .1); border-radius: 22px;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 24px 70px rgb(0 0 0 / .55);
+      transform: translateX(28px) scale(.97); transform-origin: 100% 50%; opacity: 0; filter: blur(16px);
+      visibility: hidden; pointer-events: none; will-change: transform, opacity;
+      transition: transform .5s cubic-bezier(.16,1,.3,1), opacity .3s ease, filter .38s ease, visibility 0s linear .5s; }
+    .sidepanel.show { transform: none; opacity: 1; filter: none; visibility: visible; pointer-events: auto;
+      transition: transform .55s cubic-bezier(.16,1,.3,1), opacity .38s ease, filter .45s ease, visibility 0s; }
+    body.dtapp .sidepanel { top: 42px; padding-top: 0; }   /* bajo la barra de titulo */
+  }
   /* tirador para redimensionar arrastrando el borde izquierdo */
   .resizer { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 3;
              transition: background .15s; }
@@ -785,7 +798,13 @@
   .lsrc { font-size: .72rem; color: rgb(255 255 255 / .35); padding: 26px 0 8px; }
   /* escritorio: letra a pantalla completa, portada a la izquierda (como Apple Music en Mac) */
   @media (min-width: 821px) {
-    body.lyr-full #lyricsPanel { left: 0; width: auto !important; z-index: 7; border-left: 0; box-shadow: none; }
+    body.lyr-full #lyricsPanel { left: 0; top: 0; right: 0; bottom: 0; width: auto !important; z-index: 7;
+                                 border: 0; border-radius: 0; box-shadow: none; }
+    body.dtapp.lyr-full #lyricsPanel { padding-top: 22px; }
+    /* la portada se inclina un poco hacia el raton, como una tarjeta (--lrx/--lry los pone el JS, con inercia);
+       el osciloscopio del DJ va encima de ella y se inclina igual */
+    body.lyr-full .lside > img, body.lyr-full .lside > #djScope {
+      transform: perspective(1100px) rotateX(var(--lrx, 0deg)) rotateY(var(--lry, 0deg)); }
     body.lyr-full #lyricsPanel .resizer, body.lyr-full .lmeta { visibility: hidden; }
     body.lyr-full .lside { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
                            width: 42%; padding: 0 3vw 24px 5vw; text-align: center; --lw: min(28vw, 44vh, 420px); }
@@ -1338,8 +1357,10 @@
   /* ---------- MODO KARAOKE (app de escritorio) ----------
      Escenario a pantalla completa: el panel de letra (mismo motor) ocupa todo y encima va esta capa con el
      cantante, la puntuacion, el carril de melodia y las pantallas de sala / presentacion / resultados. */
-  body.kara-on #lyricsPanel { left: 0; width: auto !important; z-index: 40; border-left: 0; box-shadow: none;
-                              transform: none; transition: none; }
+  body.kara-on #lyricsPanel { left: 0; top: 0; right: 0; bottom: 0; width: auto !important; z-index: 40;
+                              border: 0; border-radius: 0; box-shadow: none;
+                              transform: none; transition: none; opacity: 1; filter: none; visibility: visible; pointer-events: auto; }
+  body.dtapp.kara-on #lyricsPanel { padding-top: 22px; }
   body.kara-on #lyricsPanel .lhead, body.kara-on #lyricsPanel .resizer { display: none; }
   body.kara-on .lmain { opacity: 0; transition: opacity .7s ease; }
   body.kara-on.kara-sing .lmain { opacity: 1; }
@@ -5474,7 +5495,8 @@ function initResizer(panel) {
   rz.addEventListener("pointerdown", (e) => {
     e.preventDefault(); rz.classList.add("drag"); rz.setPointerCapture(e.pointerId);
     const move = (ev) => {
-      const w = Math.min(Math.max(window.innerWidth - ev.clientX, 320), Math.round(window.innerWidth * 0.8));
+      const gap = parseFloat(getComputedStyle(panel).right) || 0;   // PC: la tarjeta flota separada del borde
+      const w = Math.min(Math.max(window.innerWidth - gap - ev.clientX, 320), Math.round(window.innerWidth * 0.8));
       document.documentElement.style.setProperty("--lyrics-w", w + "px");
     };
     const up = () => {
@@ -6144,8 +6166,32 @@ async function loadLyrics() {
   }
 }
 const _plHome = [player.parentNode, player.nextSibling];   // sitio normal de la barra de reproduccion
+/* pantalla completa (PC): la portada se inclina hacia el raton como una tarjeta. Sutil (max ~5-7 grados) y con
+   inercia: sigue al raton con algo de retraso y vuelve sola al centro cuando el raton sale de la ventana */
+const LTILT = { x: 0, y: 0, tx: 0, ty: 0, raf: 0 };
+function lTiltStep() {
+  const k = LTILT, s = document.querySelector(".lside");
+  k.x += (k.tx - k.x) * .07; k.y += (k.ty - k.y) * .07;
+  s.style.setProperty("--lrx", (-k.y * 5).toFixed(2) + "deg"); s.style.setProperty("--lry", (k.x * 7).toFixed(2) + "deg");
+  k.raf = Math.abs(k.tx - k.x) + Math.abs(k.ty - k.y) > .002 ? requestAnimationFrame(lTiltStep) : 0;
+}
+function lTilt(tx, ty) { LTILT.tx = tx; LTILT.ty = ty; if (!LTILT.raf) LTILT.raf = requestAnimationFrame(lTiltStep); }
+document.addEventListener("pointermove", e => {
+  if (e.pointerType !== "mouse" || !document.body.classList.contains("lyr-full") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const im = $("lcover"), r = im.parentNode.getBoundingClientRect();
+  if (!im.offsetWidth) return;
+  // respecto al centro de la portada (sin la inclinacion), normalizado a media ventana: toda la pantalla la mueve
+  const cx = r.left + im.offsetLeft + im.offsetWidth / 2, cy = r.top + im.offsetTop + im.offsetHeight / 2;
+  const cl = v => Math.max(-1, Math.min(1, v));
+  lTilt(cl((e.clientX - cx) / (innerWidth / 2)), cl((e.clientY - cy) / (innerHeight / 2)));
+}, { passive: true });
+document.documentElement.addEventListener("mouseleave", () => lTilt(0, 0));
 function lyrFull(on) {
   if (on && innerWidth <= 820) on = false;   // movil: el panel ya es pantalla completa
+  if (!on) {   // la proxima vez empieza recta
+    cancelAnimationFrame(LTILT.raf); Object.assign(LTILT, { x: 0, y: 0, tx: 0, ty: 0, raf: 0 });
+    const s = document.querySelector(".lside"); s.style.removeProperty("--lrx"); s.style.removeProperty("--lry");
+  }
   document.body.classList.toggle("lyr-full", on);
   // la barra de abajo desaparece: sus controles (los mismos, ya conectados) pasan bajo la portada
   if (on && player.parentNode !== $("lctl")) $("lctl").appendChild(player);

@@ -54,7 +54,7 @@
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   };
   const um = (u) => `{-webkit-mask-image:${u};mask-image:${u}}`;
-  const sels = [], bigSels = [], bits = [];
+  const sels = [], bits = [];
   let css = "";
   for (const [k, h] of Object.entries(ICONS)) {
     const b = center(Array.from({ length: 12 }, (_, y) => parseInt(h.substr(y * 3, 3), 16))), f = fill(b);
@@ -67,11 +67,8 @@
     + `mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}` + css;
   // PC (pantalla de menos de 2x): un punto redondo necesita ~3 px fisicos y en un icono de ~20 px cada punto quedaba
   // en ~1.5 px y se fundia en cuadritos. Ahi los puntos se dibujan en pixeles FISICOS exactos (mapa de bits a la
-  // densidad de la pantalla, sin reescalar): 1 px de punto y 1 de hueco en general (el icono no ocupa mas) y 2 px
-  // de punto y 1 de hueco en la barra lateral y los botones centrales de la de reproduccion, que tienen sitio (ahi el
-  // icono ocupa su tamano; nunca en el diseno estrecho)
-  const BIG = ":is(aside .nav-item, #player .transport .iconbtn:not(.main), body.lyr-full #player .main)>";
-  bits.forEach(([k]) => bigSels.push(`${BIG}.ph.ph-${k}::before`, `${BIG}.ph-fill.ph-${k}::before`));
+  // densidad de la pantalla, sin reescalar): 1 px de punto y 1 de hueco. El icono ocupa lo mismo que antes (margen
+  // negativo) y nunca pasa de 1.5 veces su letra: en botones pequenos encoge en vez de salirse de su tarjeta
   const ras = (b, P, d) => {   // paso P y punto d, en px fisicos
     const c = document.createElement("canvas"), o = (P - d) >> 1;
     c.width = c.height = 12 * P;
@@ -84,13 +81,9 @@
     const r = window.devicePixelRatio || 1;
     let pc = "";
     if (r < 1.9) {
-      const sm = +(24 / r).toFixed(3), bg = +(36 / r).toFixed(3);
-      pc = `${sels.join(",")}{width:${sm}px;height:${sm}px;margin:calc((1em - ${sm}px) / 2);`
-        + `-webkit-mask-size:${sm}px;mask-size:${sm}px;image-rendering:pixelated}`
-        + `@media (min-width: 821px){${bigSels.join(",")}{width:${bg}px;height:${bg}px;margin:0;vertical-align:middle;-webkit-mask-size:${bg}px;mask-size:${bg}px}`;
-      for (const [k, b, f] of bits) pc += `${BIG}.ph.ph-${k}::before${um(ras(b, 3, 2))}${BIG}.ph-fill.ph-${k}::before${um(ras(f, 3, 2))}`;
-      pc += "}";
-      for (const [k, b, f] of bits) pc = `.ph.ph-${k}::before${um(ras(b, 2, 1))}.ph-fill.ph-${k}::before${um(ras(f, 2, 1))}` + pc;
+      const z = `min(${+(24 / r).toFixed(3)}px, 1.5em)`;
+      pc = `${sels.join(",")}{width:${z};height:${z};margin:calc((1em - ${z}) / 2);-webkit-mask-size:${z};mask-size:${z}}`;
+      for (const [k, b, f] of bits) pc += `.ph.ph-${k}::before${um(ras(b, 2, 1))}.ph-fill.ph-${k}::before${um(ras(f, 2, 1))}`;
     }
     st.textContent = base + pc;
     // zoom del navegador o ventana movida a otra pantalla: cambia la densidad -> se redibuja
@@ -693,6 +686,16 @@
   .right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .right-icons { display: flex; align-items: center; gap: 6px; }
   .vol-row { display: flex; align-items: center; gap: 8px; }
+  /* PC con ventana estrecha (821-1100 px): el centro fijo de 360 px + los 7 botones de la derecha no cabian y se
+     salian de la barra. Aqui la cancion se queda con una franja, el centro se adapta y todo se aprieta un poco */
+  @media (min-width: 821px) and (max-width: 1100px) {
+    .controls { grid-template-columns: minmax(62px, 16%) minmax(0, 1fr) auto; gap: 10px; }
+    .center { width: auto; min-width: 0; justify-self: stretch; }
+    .transport { gap: clamp(4px, 1.6vw - 8px, 10px); }
+    .right-icons { gap: 0; }
+    .right .iconbtn { padding: 3px; }
+    #vol { width: 72px; }
+  }
   .vol-row i { color: var(--muted); font-size: 1.2rem; cursor: pointer; }
 
   input[type=range] {

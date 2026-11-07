@@ -775,6 +775,9 @@
   .qbtn.like.on { opacity: 1; color: #ff4d6d; }
   .qbtn.del:hover { color: #ff5a5a; }
   #histBtn.on { color: var(--accent); }
+  body.cx-noaccess #devBtn { position: relative; }   /* PC sin conexion con tus dispositivos: punto rojo */
+  body.cx-noaccess #devBtn::after { content: ""; position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
+    border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 0 2px rgb(10 10 14 / .9); }
   #toast { position: fixed; left: 50%; bottom: 130px; transform: translateX(-50%); z-index: 8;
            background: rgb(20 20 28 / .95); border: 1px solid var(--line); color: var(--text);
            padding: 10px 18px; border-radius: 999px; font-size: .85rem; opacity: 0; transition: opacity .25s; pointer-events: none; }
@@ -7119,6 +7122,7 @@ async function cxStart() {
       const r = await (await fetch("/connect/poll?" + q, { cache: "no-store" })).json();
       if (r.error) {
         CX.needAccess = r.error === "need_access";
+        document.body.classList.toggle("cx-noaccess", CX.needAccess);
         if (CX.remote) { CX.remote = false; if (eng.onState) eng.onState(); }
         syncCxUI();
         if (CX.needAccess) cxAskAccess();
@@ -7126,21 +7130,37 @@ async function cxStart() {
         await wait(CX.needAccess ? (Date.now() - CX.loginAt < 15 * 60000 ? 2000 : 20000) : 6000); continue;
       }
       if (CX.needAccess && CX.loginAt) toast(t("PC conectada con tus dispositivos"));
-      CX.needAccess = false; CX.loginAt = 0;
+      CX.needAccess = false; CX.loginAt = 0; document.body.classList.remove("cx-noaccess");
+      cxAccessCheck();
       cxApply(r);
     } catch (e) { await wait(3000); }
   }
 }
 // app de escritorio sin el pase de Cloudflare (instalacion nueva o caducado ~30 dias): se ofrece conectar
 // en vez de dejar Dispositivos sin sincronizar en silencio. Como mucho una vez al dia.
+// El pase dura ~30 dias: antes se avisaba una vez al dia con un dialogo facil de perder y la PC se quedaba
+// semanas sin sincronizar. Ahora se avisa en cada arranque mientras falte (con el punto rojo en Dispositivos)
 async function cxAskAccess() {
   if (CX.askedAccess || CX.loginAt) return;
   CX.askedAccess = true;
-  let last = 0;
-  try { last = +localStorage.getItem("lightning.cxAsked") || 0; localStorage.setItem("lightning.cxAsked", Date.now()); } catch (e) {}
-  if (Date.now() - last < 864e5) return;
-  const ok = await askModal({ title: "Conectar esta PC con tus dispositivos", icon: "ph-devices", okLabel: "Conectar",
-    message: "Para sincronizar esta PC con tu móvil (Dispositivos), conéctala una vez: te llegará un código a tu email." });
+  let had = false; try { had = !!localStorage.getItem("lightning.cxAsked"); localStorage.setItem("lightning.cxAsked", Date.now()); } catch (e) {}
+  const ok = await askModal({ title: had ? "Reconecta esta PC con tus dispositivos" : "Conectar esta PC con tus dispositivos",
+    icon: "ph-devices", okLabel: "Conectar",
+    message: had ? "La conexión de esta PC caducó (dura unos 30 días). Mientras tanto no se sincroniza con tu móvil: ni la música en Dispositivos ni tu biblioteca en vivo. Renuévala con el código que te llega a tu email."
+      : "Para sincronizar esta PC con tu móvil (Dispositivos y tu biblioteca en vivo), conéctala una vez: te llegará un código a tu email." });
+  if (ok) cxLogin();
+}
+// avisa unos dias ANTES de que caduque el pase (la app de escritorio sabe la fecha), para no quedarse sin sincronizar
+async function cxAccessCheck() {
+  if (IS_APP || CX.accChecked || !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) return;
+  CX.accChecked = true;
+  let r; try { r = await jget("/connect/access"); } catch (e) { return; }
+  const left = (r && r.exp ? r.exp * 1000 : 0) - Date.now();
+  if (!r || !r.exp || left <= 0 || left > 3 * 864e5) return;   // caducado: lo avisa cxAskAccess (el hub responde need_access)
+  const days = Math.max(1, Math.round(left / 864e5));
+  const ok = await askModal({ title: "Renueva la conexión de esta PC", icon: "ph-devices", okLabel: "Renovar",
+    message: t("La conexión de esta PC con tus dispositivos caduca en") + " " + days + " " + t(days === 1 ? "día" : "días")
+      + ". " + t("Renuévala ahora con el código que te llega a tu email para que siga sincronizada con tu móvil.") });
   if (ok) cxLogin();
 }
 async function cxLogin() {

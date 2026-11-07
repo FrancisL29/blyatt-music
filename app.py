@@ -2584,6 +2584,15 @@ def _cx_access():
         return ""
 
 
+def _cx_access_exp():
+    """Caducidad (epoch) del pase de Cloudflare Access del escritorio; 0 = no hay. Dura ~30 dias: la app avisa antes."""
+    try:
+        p = _cx_access().split(".")[1]
+        return int(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))).get("exp") or 0)
+    except Exception:
+        return 0
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k):
         return None   # Access sin sesion redirige al login: se trata como "hace falta iniciar sesion"
@@ -4156,6 +4165,8 @@ class H(BaseHTTPRequestHandler):
         if u.path == "/connect/ping":
             return self._json({"pong": True})
         if not SERVER_MODE:   # escritorio: el hub vive en el server publico
+            if u.path == "/connect/access":
+                return self._json({"exp": _cx_access_exp()})
             if u.path == "/connect/login":
                 if CONNECTLOGIN:
                     CONNECTLOGIN()

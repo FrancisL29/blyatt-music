@@ -4116,7 +4116,9 @@ $("gateBtn").onclick = async () => {
   await toggleGoogleSession();   // login nativo -> /auth/cookie -> refreshAuth -> syncGate oculta la pantalla
   if (!_authSt.logged_in) syncGate(false);   // cancelado o fallido: el boton vuelve
 };
+let _authT = 0, _authTry = 0;
 async function refreshAuth() {
+  clearTimeout(_authT);
   let ok = true;
   try { _authSt = await jget("/auth/status"); } catch (e) { ok = false; }
   paintUserChip();
@@ -4134,7 +4136,13 @@ async function refreshAuth() {
       else toast("Sesión de YouTube caducada: vuelve a conectar");
     } catch (e) {}
   }
+  // sin sesion o sin respuesta: se vuelve a mirar sola (5 s, 10, 20... hasta cada minuto). En escritorio, si la
+  // primera consulta fallaba (PC recien despierta sin red, server ocupado), la pagina se quedaba "sin sesion" para
+  // siempre: sin Dispositivos ni sincronizacion aunque el server si tuviera la sesion
+  if (_authSt.logged_in) _authTry = 0;
+  else if (!(IS_APP && !ok)) _authT = setTimeout(refreshAuth, Math.min(60000, 5000 * 2 ** _authTry++));
 }
+addEventListener("online", () => { if (!_authSt.logged_in) refreshAuth(); });
 let _pollT = null;
 function pollAuth(tries, quiet) {
   clearInterval(_pollT);

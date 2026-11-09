@@ -406,6 +406,7 @@
   .lib-head .libadd { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer;
                       font-size: 1.1rem; padding: 2px; border-radius: 6px; display: flex; }
   .lib-head .libadd:hover { color: var(--text); background: rgb(255 255 255 / .07); }
+  .lib-head .libadd + .libadd { margin-left: 0; }
   body.sb-collapsed .lib-head .libadd { display: none; }
   .gbox { position: relative; width: min(460px, 92vw); padding: 26px 28px; border-radius: 18px;
           background: var(--grain), rgb(20 20 28 / .92); border: 1px solid rgb(255 255 255 / .09);
@@ -775,6 +776,25 @@
   .qbtn.like.on { opacity: 1; color: #ff4d6d; }
   .qbtn.del:hover { color: #ff5a5a; }
   #histBtn.on { color: var(--accent); }
+  .mlibsort { display: inline-flex; align-items: center; gap: 7px; margin: -4px 0 14px; padding: 7px 12px; border: none;
+              border-radius: 999px; background: rgb(255 255 255 / .07); color: var(--text); font: 600 .8rem/1.2 inherit; cursor: pointer; }
+  .mlibsort i { font-size: 1rem; color: var(--muted); }
+  /* "ver todo" de un artista (albumes, singles, videos, en directo...): la busqueda estorbaba encima del titulo */
+  body[data-mv="grid"] .topbar form { display: none; }
+  /* tactil: :hover se queda "pegado" tras tocar. Lo que en PC aparece al pasar el raton aqui se ve solo un
+     momento (clase .tap: la pone el JS al tocar y la quita a los ~1.5 s) */
+  @media (hover: none) {
+    .cov:hover .covplay, li:hover .play-hint, li:not(.ctrack):hover .row-like, li:hover > .cdots,
+    .qitem:hover .qbtn, .brand:hover .blt-toggle { opacity: 0; }
+    .cov.tap .covplay, li.tap .play-hint, li.tap:not(.ctrack) .row-like, li.tap > .cdots, .qitem.tap .qbtn { opacity: 1; }
+    li.playing.tap .play-hint { opacity: 0; }
+    .ccard:hover { background: none; }
+  }
+  /* teclado abierto en el movil: solo sube la barra de reproduccion; la de navegacion se queda bajo el teclado */
+  @media (max-width: 820px) {
+    body.kb-open #mnav { display: none; }
+    body.kb-open #player { bottom: 8px; }
+  }
   body.cx-noaccess #devBtn { position: relative; }   /* PC sin conexion con tus dispositivos: punto rojo */
   body.cx-noaccess #devBtn::after { content: ""; position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 0 2px rgb(10 10 14 / .9); }
@@ -1728,6 +1748,7 @@
     <button class="nav-item" id="karaNav" hidden><i class="ph ph-microphone-stage"></i> <span data-i18n>Karaoke</span></button>
   </nav>
   <div class="lib-head"><i class="ph ph-books"></i> <span data-i18n>Biblioteca</span>
+    <button class="libadd" id="libSort" aria-label="Ordenar"><i class="ph ph-sliders-horizontal"></i></button>
     <button class="libadd" id="plNew" aria-label="Nueva playlist" title="Nueva playlist"><i class="ph ph-plus"></i></button>
   </div>
   <div class="lib-scroll">
@@ -2764,7 +2785,8 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
   const end = eng.start + eng.dur;           // momento exacto en que termina el audio real actual
   if (end <= AC.currentTime) return;         // ya muy tarde
   // fundido: la siguiente entra X s antes del final (como mucho un tercio de cada cancion); sin el, gapless exacto
-  let X = Math.min(PLAY.xf, eng.dur / 3, (buf._eff || buf.duration) / 3), when = end - X;
+  const inAlbum = _albumRun && current && _albumRun.has(current.id) && _albumRun.has(song.id);
+  let X = inAlbum ? 0 : Math.min(PLAY.xf, eng.dur / 3, (buf._eff || buf.duration) / 3), when = end - X;
   if (X && when < AC.currentTime + .05) { when = AC.currentTime + .05; X = Math.max(0, end - when); }   // ya empezado
   const n = _src(buf);
   n.start(when, buf._lead || 0);             // la siguiente entra en su audio real, sin su silencio inicial
@@ -3022,9 +3044,39 @@ function bumpLibrary(s) {
   list.forEach(e => { if (ids.has(e.id)) { e.ts = Date.now(); hit = true; } });
   if (hit) { localStorage.setItem("lightning.library", JSON.stringify(list)); renderLibrary(); }
 }
+/* orden de la biblioteca (como Spotify). Recientes: lo ultimo que sono de ella (album, playlist, artista) arriba;
+   lo nunca escuchado, por su fecha de guardado. "Me gusta" y DJ Lara van siempre fijos al principio (aparte) */
+const LIB_SORTS = [["recent", "Recientes"], ["added", "Añadidos recientemente"], ["alpha", "Alfabético"], ["creator", "Creador"]];
+const libSortKey = () => { try { const k = localStorage.getItem("lightning.libSort"); return LIB_SORTS.some(x => x[0] === k) ? k : "recent"; } catch (e) { return "recent"; } };
+const getLibRecent = () => { try { return JSON.parse(localStorage.getItem("lightning.libRecent") || "{}") || {}; } catch (e) { return {}; } };
+function libTouch(id) {   // empezo a sonar algo de la biblioteca: sube arriba en "Recientes"
+  if (!id || !inLibrary(id)) return;
+  const m = getLibRecent(); m[id] = Date.now();
+  try { localStorage.setItem("lightning.libRecent", JSON.stringify(m)); } catch (e) {}
+  if (libSortKey() === "recent") { renderLibrary(); if (document.body.dataset.mv === "lib") openMobileLibrary(false); }
+}
+function libSorted() {
+  const lib = getLibrary(), m = getLibRecent(), k = libSortKey(), pos = new Map(lib.map((e, i) => [e.id, i]));
+  const col = new Intl.Collator(document.documentElement.lang === "en" ? "en" : "es", { sensitivity: "base", numeric: true });
+  const by = (e) => e.kind === "artists" ? e.title || "" : e.creator || "";
+  const tie = (a, b) => pos.get(a.id) - pos.get(b.id);
+  return lib.slice().sort(k === "alpha" ? (a, b) => col.compare(a.title || "", b.title || "") || tie(a, b)
+    : k === "creator" ? (a, b) => col.compare(by(a), by(b)) || col.compare(a.title || "", b.title || "")
+    : k === "added" ? (a, b) => (b.ts || 0) - (a.ts || 0) || tie(a, b)
+    : (a, b) => Math.max(m[b.id] || 0, b.ts || 0) - Math.max(m[a.id] || 0, a.ts || 0) || tie(a, b));
+}
+const libSortName = () => t((LIB_SORTS.find(x => x[0] === libSortKey()) || [])[1] || "");
+function libSortMenu(btn) {
+  const r = btn.getBoundingClientRect(), k = libSortKey();
+  showMenu(LIB_SORTS.map(([id, label]) => [id === k ? "ph-check" : "", label, () => {
+    try { localStorage.setItem("lightning.libSort", id); } catch (e) {}
+    renderLibrary(); if (document.body.dataset.mv === "lib") openMobileLibrary(false);
+  }]), r.left, r.bottom + 6);
+}
 function renderLibrary() {
   const box = $("libList"); box.innerHTML = "";
-  getLibrary().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).forEach(e => {
+  const sb = $("libSort"); if (sb) sb.title = t("Ordenar por") + ": " + libSortName();
+  libSorted().forEach(e => {
     const b = document.createElement("button"); b.className = "nav-item lib-item";
     b.innerHTML = '<img class="lib-cov" alt=""><span class="lib-meta"><span class="lt2"></span><span class="la2"></span></span>';
     const im = b.querySelector("img"); im.src = e.ccover || e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : ""); im.classList.add(e.kind || "");
@@ -3809,7 +3861,7 @@ function syncMnav(v) {
 function openMobileLibrary(push = true) {
   // estado propio en el historial: volver atras desde una playlist restaura la biblioteca movil
   // completa (tarjeta "Me gusta" + avatar), no un grid generico
-  showGrid(t("Biblioteca"), getLibrary().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle,
+  showGrid(t("Biblioteca"), libSorted().map(e => ({ browseId: e.id, title: e.title, subtitle: e.subtitle,
     cover: e.ccover || e.cover || (e.kind === "playlists" ? PL_EMPTY_COVER : "") })), false);   // mismo criterio que renderLibrary
   if (push) pushHist({ t: "mlib" });
   // "Me gusta" como primera playlist de la biblioteca
@@ -3823,6 +3875,11 @@ function openMobileLibrary(push = true) {
   c.onclick = () => setView("liked");
   grid.prepend(c);
   c.after(djLibCard());   // DJ Lara, justo despues de Me gusta
+  const sb = document.createElement("button"); sb.className = "mlibsort";
+  sb.innerHTML = '<i class="ph ph-sliders-horizontal"></i><span></span>';
+  sb.querySelector("span").textContent = libSortName();
+  sb.onclick = (ev) => { ev.stopPropagation(); libSortMenu(sb); };
+  $("gridView").querySelector(".gridhead").after(sb);
   syncMnav("lib");
 }
 document.querySelectorAll("#mnav button").forEach(b => b.onclick = () => {
@@ -4129,7 +4186,8 @@ async function refreshAuth() {
     if (!getLibrary().length && !getLiked().length) firstSync();   // cuenta recien conectada
     else syncYtLibrary();
   }
-  else if (_authSt.stale) {   // cookies rotadas: intenta refresco silencioso desde el perfil WebView2
+  else if (_authSt.stale && Date.now() - (refreshAuth._silent || 0) > 6e5) {   // cookies rotadas: refresco silencioso desde el perfil WebView2
+    refreshAuth._silent = Date.now();
     try {
       const r = await jget("/auth/weblogin?silent=1");
       if (r.ok) pollAuth(25, true);
@@ -4143,6 +4201,25 @@ async function refreshAuth() {
   else if (!(IS_APP && !ok)) _authT = setTimeout(refreshAuth, Math.min(60000, 5000 * 2 ** _authTry++));
 }
 addEventListener("online", () => { if (!_authSt.logged_in) refreshAuth(); });
+// tactil: marca un momento lo tocado para mostrar sus controles "de hover" y luego ocultarlos (CSS .tap)
+document.addEventListener("touchstart", (e) => {
+  const el = e.target.closest && e.target.closest(".cov, li, .qitem"); if (!el) return;
+  clearTimeout(el._tapT); el.classList.add("tap");
+  el._tapT = setTimeout(() => el.classList.remove("tap"), 1500);
+}, { passive: true });
+// teclado del movil: la ventana encoge (la app Android redimensiona; en el navegador, visualViewport)
+(() => {
+  let full = window.visualViewport ? visualViewport.height : innerHeight;
+  const chk = () => {
+    const h = window.visualViewport ? visualViewport.height : innerHeight, a = document.activeElement || {};
+    const typing = /^(INPUT|TEXTAREA)$/.test(a.tagName || "") || !!a.isContentEditable;
+    if (!typing || h > full) full = h;   // sin escribir, la altura es la de pantalla completa
+    document.body.classList.toggle("kb-open", typing && full - h > 140);
+  };
+  (window.visualViewport || window).addEventListener("resize", chk);
+  addEventListener("focusin", () => setTimeout(chk, 350));
+  addEventListener("focusout", () => setTimeout(chk, 120));
+})();
 let _pollT = null;
 function pollAuth(tries, quiet) {
   clearInterval(_pollT);
@@ -4263,17 +4340,25 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
         if (it.cover && ex.cover !== it.cover) { ex.cover = it.cover; nB++; }
         return;
       }
-      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "", yt: 1 });
+      lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "", yt: 1,
+                 ts: _firstSyncing ? 0 : Date.now() });
       haveB.add(it.browseId); nB++;
     });
     if (force) {
       // BAJAS (borrada / dejada de guardar en otro dispositivo): solo entradas que la cuenta ya confirmo (yt) y
       // solo con la lista de su tipo completa (sin fallo y bajo el tope de 50 del servidor). Lo recien creado
       // aqui y aun no reflejado por YT no lleva yt: se conserva
-      const full = new Set(["playlists", "albums", "artists"].filter(k => Array.isArray(d[k]) && !_failed.includes(k) && d[k].length < 50));
+      // una lista VACIA nunca cuenta (con la sesion caducada YouTube responde vacio sin error y se borraba la
+      // biblioteca entera) y como mucho se quita el 40% de un tipo de golpe: mas que eso es un fallo, no bajas
+      const full = new Set(["playlists", "albums", "artists"].filter(k => Array.isArray(d[k]) && d[k].length
+        && !_failed.includes(k) && d[k].length < 50));
+      const kindOf = (x) => String(x.kind || "").replace(/s?$/, "s");
+      const gone = lib.filter(x => x.yt && full.has(kindOf(x)) && !ytB.has(x.id));
+      const ok = new Set([...full].filter(k => gone.filter(x => kindOf(x) === k).length
+        <= Math.max(2, lib.filter(x => x.yt && kindOf(x) === k).length * .4)));
       for (let i = lib.length - 1; i >= 0; i--) {
-        const x = lib[i], k = String(x.kind || "").replace(/s?$/, "s");
-        if (x.yt && full.has(k) && !ytB.has(x.id)) { lib.splice(i, 1); nB++; }
+        const x = lib[i];
+        if (x.yt && ok.has(kindOf(x)) && !ytB.has(x.id)) { lib.splice(i, 1); nB++; }
       }
     }
     if (nB) {
@@ -4356,7 +4441,7 @@ async function linkEntry() {
   return true;
 }
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
-const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx", "lightning.heroArts"];
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx", "lightning.heroArts", "lightning.libRecent"];
 async function signOutClean() {
   try { await jget("/auth/logout"); } catch (e) {}
   // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"
@@ -4573,6 +4658,7 @@ function openPlModal(entry) {
   $("plmodal").hidden = false; $("plname").focus();
 }
 $("plpriv").onclick = (e) => { const b = e.target.closest("button"); if (b) setPriv(b.dataset.p); };
+$("libSort").onclick = (e) => { e.stopPropagation(); libSortMenu($("libSort")); };
 $("plNew").onclick = (e) => {
   e.stopPropagation();
   const r = $("plNew").getBoundingClientRect();
@@ -5293,6 +5379,9 @@ let playToken = 0;
 // artista) o como sencillo si se toco una cancion suelta. Solo cuenta lo que inicia el usuario
 // (playFromList); el avance automatico dentro del mismo contexto no lo mueve
 var _ctxMeta = { col: null, art: null };   // var: renderCollection/renderArtist lo rellenan
+// album sonando de principio a fin: sus pistas suelen ir encadenadas (transiciones dentro del propio disco) y el
+// fundido las pisaria. Ids de las pistas del album en reproduccion; entre ellas, gapless exacto sin fundido
+var _albumRun = null;
 const getRecentCtx = () => store("lightning.recentCtx", "[]");
 function recordCtx(song) {
   let e;
@@ -5301,12 +5390,14 @@ function recordCtx(song) {
   else if (view === "artist" && _ctxMeta.art && _ctxMeta.art.id === _artistId) e = _ctxMeta.art;
   else if (song && song.id) e = { kind: "song", id: song.id, title: song.title, artist: song.artist, cover: song.cover, artists: song.artists };
   if (!e) return;
+  libTouch(e.id);
   const l = getRecentCtx().filter(x => !(x.kind === e.kind && x.id === e.id));
   l.unshift(Object.assign({}, e, { ts: Date.now() }));
   try { localStorage.setItem("lightning.recentCtx", JSON.stringify(l.slice(0, 16))); } catch (err) {}
 }
 function playFromList(list, i) {
   recordCtx(list[i]);
+  _albumRun = view === "collection" && _colKind === "album" ? new Set(list.map(s => s.id)) : null;
   queue = list.slice(); qIndex = i;
   if (shuffle) { queueOrig = list.slice(); shuffleQueue(i); }   // la elegida suena primero, el resto barajado
   if (current && current.id === list[i].id) { togglePlay(); return; }

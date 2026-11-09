@@ -2779,8 +2779,13 @@ def ytm():
     return _ytm_by.get(f)
 
 
+_ALIVE_LAST = {}   # archivo de sesion -> ultimo estado CONOCIDO (True/False)
+
+
 def _session_alive():
-    # las cookies pueden morir cuando Google las rota: el flag logged_in del responseContext no miente
+    # las cookies pueden morir cuando Google las rota: el flag logged_in del responseContext no miente.
+    # True/False = respuesta real de YouTube; None = no se pudo saber (sin red, timeout, PC recien despierta).
+    # Antes un fallo de red contaba como "sesion muerta": la app se deslogueaba sola tras horas abierta
     y = ytm()
     if not y:
         return False
@@ -2790,9 +2795,41 @@ def _session_alive():
             for p in s.get("params", []):
                 if p.get("key") == "logged_in":
                     return p.get("value") == "1"
+        return False
     except Exception:
-        pass
-    return False
+        return None
+
+
+def _alive_now(f):
+    """Estado de la sesion de este archivo: lo desconocido (None) se resuelve con el ultimo estado conocido."""
+    v = cached(_sk("sess_alive"), 300, _session_alive)
+    if v is None:
+        _CACHE.pop(_sk("sess_alive"), None)   # no se fija lo desconocido 5 min: la proxima consulta reintenta
+        return _ALIVE_LAST.get(f, True)
+    _ALIVE_LAST[f] = v
+    return v
+
+
+def session_keepalive():
+    """Escritorio (hilo de main.py): mantiene viva la sesion de Google aunque la app pase dias abierta.
+    El perfil de WebView2 rota las cookies solo, como un navegador; las de browser.json no. Cada 20 min se
+    comprueba la sesion y, si YouTube dice que murio, se recogen cookies frescas del perfil en una ventana
+    oculta. Ademas se refrescan cada 6 h aunque sigan vivas, para no llegar a perderla."""
+    last_fix = time.time()
+    while True:
+        time.sleep(20 * 60)
+        try:
+            if not (WEBLOGIN and os.path.exists(BROWSER_FILE)):
+                continue
+            _CACHE.pop(_sk("sess_alive", BROWSER_FILE), None)
+            v = _session_alive()
+            if v is not None:
+                _ALIVE_LAST[BROWSER_FILE] = v
+            if (v is False and time.time() - last_fix > 10 * 60) or time.time() - last_fix > 6 * 3600:
+                last_fix = time.time()
+                WEBLOGIN(True)
+        except Exception:
+            pass
 
 
 def _account_info():
@@ -2807,7 +2844,7 @@ def _account_info():
 def auth_status():
     f = _bid_file()
     has_file = os.path.exists(f)
-    alive = bool(has_file and cached(_sk("sess_alive"), 300, _session_alive))
+    alive = bool(has_file and _alive_now(f))
     st = {"logged_in": alive, "stale": has_file and not alive, "available": YTMusic is not None,
           # propia del dispositivo (o escritorio, donde el global ES del usuario); false = compartida de la casa
           "own": (not SERVER_MODE) or f != BROWSER_FILE}
@@ -3953,6 +3990,14 @@ def yt_library(parts=None):
     for k in truncated:
         if k not in out.get("_partial", []):
             out.setdefault("_partial", []).append(k)
+    # todo vacio: o la cuenta no tiene nada o la sesion murio (YouTube responde vacio, sin error). Si murio, error:
+    # el cliente no debe tomarlo como "lo borraste todo en otro dispositivo" (se vaciaba la biblioteca entera)
+    if not any(out.get(k) for k in ("liked", "playlists", "artists", "albums")):
+        v = _session_alive()
+        if v is False:
+            return {"error": "Sin sesión de Google"}
+        if v is None:
+            out["_partial"] = sorted(set(out.get("_partial", [])) | {"liked", "playlists", "artists", "albums"})
     return out
 
 

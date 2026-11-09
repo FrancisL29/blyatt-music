@@ -435,6 +435,7 @@ if __name__ == "__main__":
     os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required")
     app.CONNECTLOGIN = connect_login
     app.WEBLOGIN = google_login
+    threading.Thread(target=app.session_keepalive, daemon=True).start()   # sesion de Google viva aunque pase dias abierta
     app.WEBLOGOUT = google_logout
     app.SPOTLOGIN = spotify_login
     app.WINCTL = win_cmd

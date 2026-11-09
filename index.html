@@ -784,10 +784,12 @@
   /* tactil: :hover se queda "pegado" tras tocar. Lo que en PC aparece al pasar el raton aqui se ve solo un
      momento (clase .tap: la pone el JS al tocar y la quita a los ~1.5 s) */
   @media (hover: none) {
-    .cov:hover .covplay, li:hover .play-hint, li:not(.ctrack):hover .row-like, li:hover > .cdots,
-    .qitem:hover .qbtn, .brand:hover .blt-toggle { opacity: 0; }
-    .cov.tap .covplay, li.tap .play-hint, li.tap:not(.ctrack) .row-like, li.tap > .cdots, .qitem.tap .qbtn { opacity: 1; }
-    li.playing.tap .play-hint { opacity: 0; }
+    /* html delante: mas prioridad que las reglas :hover originales, que van despues en este CSS */
+    html .cov:hover .covplay, html li:hover .play-hint, html li:not(.ctrack):hover .row-like, html li:hover > .cdots,
+    html .qitem:hover .qbtn, html .brand:hover .blt-toggle { opacity: 0; }
+    html .cov.tap .covplay, html li.tap .play-hint, html li.tap:not(.ctrack) .row-like, html li.tap > .cdots,
+    html .qitem.tap .qbtn { opacity: 1; }
+    html li.playing.tap .play-hint { opacity: 0; }
     .ccard:hover { background: none; }
   }
   /* teclado abierto en el movil: solo sube la barra de reproduccion; la de navegacion se queda bajo el teclado */
@@ -5547,7 +5549,8 @@ eng.onState = () => {
   if (!CX.remote) cxPush(!audio.paused);   // empezar a sonar aqui = este pasa a ser el activo
 };
 function syncPlayIcons() {
-  const cp = document.querySelector(".covplay"); if (cp && cp._sync) cp._sync();
+  // todas: la primera del DOM es la de Me gusta (oculta fuera de esa vista) y la del album abierto no se enteraba
+  document.querySelectorAll(".covplay").forEach(cp => cp._sync && cp._sync());
   document.querySelectorAll("li.playing .play-hint i").forEach(i => i.className = "ph-fill " + (audio.paused ? "ph-play" : "ph-pause"));
   document.querySelectorAll("li:not(.playing) .play-hint i").forEach(i => i.className = "ph-fill ph-play");
 }

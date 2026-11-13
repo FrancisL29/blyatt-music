@@ -6332,7 +6332,7 @@ void main(){vec3 c=mix(f(A),f(B),M);float l=dot(c,vec3(.299,.587,.114));c=mix(ve
  gl_FragColor=vec4(c,1.);}`;
 const FLUID_TAU = Math.PI * 2;
 // letra integrada en la vista Reproduciendo del movil (npLyrEnter/npLyrExit): estado y medidas de la cabecera
-var NPL = { on: false, drag: false, cover: 58, gap: 14, ms: .8, dur: 480 };
+var NPL = { on: false, drag: false, cover: 58, gap: 8, ms: .8, dur: 480 };   // gap: portada-titulo en la cabecera
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;

@@ -1234,6 +1234,9 @@
   .np-art { flex: none; display: flex; align-items: flex-start; justify-content: center; padding: 4.5vh 0 0; position: relative; }
   #npv .np-info { margin-top: auto; padding-top: 18px; }
   #npCover.wide, body.lyr-full .lside img#lcover.wide { aspect-ratio: 16 / 9; }
+  /* miniatura de video (16:9) en cualquier hueco de portada: entera, sin recortar; en los huecos cuadrados queda
+     centrada sobre negro. Las portadas grandes cambian su recuadro a 16:9 (arriba), asi que alli la llena */
+  img.wide { object-fit: contain !important; background-color: #000 !important; }
   /* portada ancha: ocupa el sitio de la cuadrada y va centrada en el (el resto de la vista no se mueve) */
   #npv .np-art:has(#npCover.wide) { min-height: min(100vw - 44px, 48vh); align-items: center; }
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
@@ -5541,6 +5544,20 @@ function coverShape(e) {
   applyCoverShape();
 }
 $("npCover").addEventListener("load", coverShape); $("lcover").addEventListener("load", coverShape);
+// el resto de la app (filas, cola, tarjetas, mini reproductor...): cualquier portada de YouTube/Google que cargue
+// apaisada se marca .wide (CSS: entera sobre negro dentro de su hueco cuadrado, sin descuadrar filas ni
+// cuadriculas) y su forma queda en _coverWide, que tambien consulta la vista grande. Las dos portadas grandes van
+// aparte (coverShape: solo cuenta la imagen de lo que suena)
+const COVER_SRC = /(ytimg|googleusercontent|ggpht)\.com|\/img\?u=/;
+document.addEventListener("load", (e) => {
+  const im = e.target;
+  if (im.tagName !== "IMG" || !im.naturalWidth || im.id === "npCover" || im.id === "lcover") return;
+  const src = im.getAttribute("src") || "";
+  if (!COVER_SRC.test(src)) return;   // logos, avatares locales...: fuera
+  const w = im.naturalWidth / im.naturalHeight > 1.3;
+  im.classList.toggle("wide", w);
+  if (!src.startsWith("/img?")) _coverWide.set(hiCover(src), w);
+}, true);
 let _mqT = 0;
 addEventListener("resize", () => { clearTimeout(_mqT); _mqT = setTimeout(() => { marquee($("ptitle")); if (npOpen) marquee($("npTitle")); }, 200); });
 function paintPlayer(s) {
@@ -6682,7 +6699,8 @@ function _npRun(closing) {
   const minis = [$("pcover"), $("ptitle"), $("partist")];
   // elementos compartidos: invierte (FLIP) desde la posicion/tamano del mini player
   [[$("pcover"), $("npCover"), false], [$("ptitle"), $("npTitle"), true], [$("partist"), $("npArtist"), true]].forEach(([from, to, text]) => {
-    const a = _npRect(from), b = _npRect(to); if (!a || !b) return;
+    let a = _npRect(from); const b = _npRect(to); if (!a || !b) return;
+    if (to.classList.contains("wide")) { const h = a.width * 9 / 16; a = { left: a.left, top: a.top + (a.height - h) / 2, width: a.width, height: h }; }
     const sy = a.height / b.height, sx = text ? sy : a.width / b.width;   // texto: escala uniforme por tamano de fuente
     const inv = { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${sx}, ${sy})` };
     _npAnims.push(to.animate(kf(inv, { transform: "none" }), opt));

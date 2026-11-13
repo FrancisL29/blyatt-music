@@ -5595,6 +5595,7 @@ function paintPlayer(s) {
     : `<span class="lnk" data-artq="${esc(a.name)}">${esc(a.name)}</span>`).join(", ");   // sin id: resuelve via busqueda al click
   player.classList.add("show");
   paintNp(s);
+  clearTimeout(paintPlayer._lyrT); paintPlayer._lyrT = setTimeout(prefetchLyrics, 1200);
 }
 function paintNowPlaying(s) {
   paintPlayer(s);
@@ -6512,6 +6513,35 @@ function lyrPaintBg(cv, im) {
   x.filter = "blur(2.5px)"; x.drawImage(sm, -6, -6, 60, 60); x.filter = "none";
   x.fillStyle = "rgba(0, 0, 0, .56)"; x.fillRect(0, 0, 48, 48);
 }
+/* letra de una cancion (con cache): loadLyrics la usa y se precarga como el audio (la de lo que empieza a sonar y la
+   de la siguiente), asi al abrir la letra o al pasar de cancion con ella abierta aparece al instante */
+const _lyrCache = new Map();   // consulta -> Promise<datos>, acotada
+function fetchLyrics(s, isCur) {
+  if (!s || !s.id) return Promise.reject(new Error("sin cancion"));
+  // duracion del CATALOGO (igual en todos los dispositivos aunque uno suene otra subida del tema); si no, la del audio
+  const cat = String(s.duration || "").split(":").reduce((a, x) => a * 60 + (+x || 0), 0);
+  const dur = Math.round(cat || (isCur ? audio.duration : 0) || 0);
+  const qs = `title=${encodeURIComponent(s.title)}&artist=${encodeURIComponent(s.artist)}&dur=${dur || ""}&id=${encodeURIComponent(s.id)}`;
+  if (_lyrCache.has(qs)) return _lyrCache.get(qs);
+  const p = (async () => {
+    // escritorio con Dispositivos: la letra la da el servidor (la misma que ve el movil, misma cache); si falla, la local
+    if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
+      try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) return r; } catch (e) {}
+    }
+    const d = await jget("/lyrics?" + qs);
+    if (d.error) throw new Error(d.error);
+    return d;
+  })();
+  _lyrCache.set(qs, p);
+  p.catch(() => _lyrCache.delete(qs));   // un fallo no se queda en cache: se reintenta al abrir
+  while (_lyrCache.size > 12) _lyrCache.delete(_lyrCache.keys().next().value);
+  return p;
+}
+function prefetchLyrics() {   // lo que suena y lo siguiente, en segundo plano (cada una se pide una sola vez)
+  if (LYR.clock || !current) return;
+  fetchLyrics(current, true).catch(() => {});
+  const n = queue[qIndex + 1]; if (n) fetchLyrics(n).catch(() => {});
+}
 async function loadLyrics() {
   if (LYR.clock) return;   // modo karaoke: la letra es la de la cancion del karaoke
   lyrHeader();
@@ -6522,17 +6552,7 @@ async function loadLyrics() {
   $("lbody").className = "static"; $("lbody").innerHTML = '<div class="lempty">' + esc(t("Buscando letra…")) + "</div>";
   LYR.items = []; LYR.ai = -1;
   try {
-    // duracion del CATALOGO (igual en todos los dispositivos aunque uno suene otra subida del tema); si no, la del audio
-    const cat = String(current.duration || "").split(":").reduce((a, x) => a * 60 + (+x || 0), 0);
-    const dur = Math.round(cat || audio.duration || 0);
-    const qs = `title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}&dur=${dur || ""}&id=${encodeURIComponent(current.id)}`;
-    let d = null;
-    // escritorio con Dispositivos: la letra la da el servidor (la misma que ve el movil, misma cache); si falla, la local
-    if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
-      try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) d = r; } catch (e) {}
-    }
-    if (!d) d = await jget("/lyrics?" + qs);
-    if (d.error) throw new Error(d.error);
+    const d = await fetchLyrics(current, true);
     if (LYR.for !== id) return;
     lyrBuild(d);
     startLyricLoop();
@@ -7089,7 +7109,7 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
   npv.addEventListener("touchstart", (e) => {
     // con la letra integrada (NPL.on) lo unico de la vista que se puede tocar es la cabecera: arrastrarla cierra
     if (e.target.closest("input, button, .lnk") || ($("lyricsPanel").classList.contains("show") && !NPL.on) || $("queue").classList.contains("show")) { x0 = null; return; }
-    reset();
+    if (!NPL.on) reset();   // con la letra integrada portada y titulo son la cabecera: reiniciarlos los devolvia encima de la letra
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dx = dy = 0; axis = null; tgt = {};
     hZone = !!e.target.closest(".np-art, .np-info") && !npv.classList.contains("lyr");
   }, { passive: true });

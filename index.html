@@ -859,7 +859,8 @@
                       z-index: -1; pointer-events: none; opacity: 0; transition: opacity .9s;
                       animation: lbgdrift 40s ease-in-out infinite alternate; will-change: transform; }
   #lyricsPanel .lbg.on { opacity: 1; }
-  #lyricsPanel::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grain); }   /* grano sobre el fondo */
+  #lyricsPanel::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grain);   /* grano sobre el fondo */
+                        transform: translateZ(0); will-change: transform; }
   #lyricsPanel .lbg.gl { left: 0; top: 0; width: 100%; height: 100%; animation: none; will-change: auto; }
   @keyframes lbgdrift { from { transform: scale(1.1) rotate(-6deg) translate3d(-4%, -3%, 0); }
                         to { transform: scale(1.35) rotate(10deg) translate3d(4%, 3%, 0); } }
@@ -1219,7 +1220,8 @@
      re-rasterizaba (el blur del fondo es caro) -> un frame vacio = parpadeo al abrir y al cambiar de pista */
   #npv { will-change: clip-path, transform; }
   #npCover, #npPeek, .np-meta, #npPeekMeta, #npTitle, #npArtist, #npv .np-fade { will-change: transform; backface-visibility: hidden; }
-  .np-bg::after { content: ""; position: absolute; inset: 0; background: var(--grain); }   /* grano, como la letra */
+  .np-bg::after { content: ""; position: absolute; inset: 0; background: var(--grain);   /* grano, como la letra */
+                  transform: translateZ(0); will-change: transform; }   /* capa propia: no se repinta con cada fotograma del fondo */
   /* arriba solo el tirador (se cierra deslizando hacia abajo) y el estado de lo que suena */
   .np-top { display: flex; flex-direction: column; align-items: center; padding: 4px 0 6px; flex: none; }
   .np-grab { width: 58px; height: 5px; border-radius: 99px; background: rgb(255 255 255 / .32); }
@@ -1235,8 +1237,7 @@
   @media (max-width: 820px) {
     /* el panel de letra de siempre, sin su cabecera ni su fondo, encajado bajo la cabecera de la vista */
     body.np-lyr #lyricsPanel { top: var(--npl-top, 120px); background: transparent; transform: translateY(14px); border: 0; box-shadow: none;
-      opacity: 0; transition: opacity .2s ease, transform .2s ease; pointer-events: none; will-change: opacity, transform;
-      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 28px); mask-image: linear-gradient(180deg, transparent 0, #000 28px); }
+      opacity: 0; transition: opacity .2s ease, transform .2s ease; pointer-events: none; will-change: opacity, transform; }
     body.np-lyr #lyricsPanel.show { opacity: 1; transform: none; pointer-events: auto;
       transition: opacity .36s ease .14s, transform .5s cubic-bezier(.22,.8,.24,1) .14s; }
     body.np-lyr #lyricsPanel .lhead, body.np-lyr #lyricsPanel .lbg, body.np-lyr #lyricsPanel::after { display: none; }
@@ -6330,7 +6331,7 @@ void main(){vec3 c=mix(f(A),f(B),M);float l=dot(c,vec3(.299,.587,.114));c=mix(ve
  gl_FragColor=vec4(c,1.);}`;
 const FLUID_TAU = Math.PI * 2;
 // letra integrada en la vista Reproduciendo del movil (npLyrEnter/npLyrExit): estado y medidas de la cabecera
-var NPL = { on: false, cover: 58, gap: 14, ms: .8, dur: 480 };
+var NPL = { on: false, drag: false, cover: 58, gap: 14, ms: .8, dur: 480 };
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;
@@ -6651,7 +6652,8 @@ function npFluidRun() {
   const f = npFluid();
   // con la letra o la cola encima la vista queda tapada: el bucle sigue pero no dibuja
   // tapada por la letra o la cola no se dibuja; con la letra INTEGRADA la vista sigue a la vista (su fondo es el de la letra)
-  if (f) f.run(() => npOpen, () => (NPL.on || !$("lyricsPanel").classList.contains("show")) && !$("queue").classList.contains("show"));
+  // y mientras se arrastra para minimizar se congela en su ultimo fotograma: la GPU queda libre para seguir el dedo
+  if (f) f.run(() => npOpen, () => !NPL.drag && (NPL.on || !$("lyricsPanel").classList.contains("show")) && !$("queue").classList.contains("show"));
 }
 function npPaintBg(url) {   // crossfade entre las dos capas del fondo
   const npb = npv.querySelector(".np-bg");
@@ -6754,7 +6756,7 @@ function _npRun(closing) {
 }
 function openNp() {
   if (npOpen || !current || !_mqMobile.matches) return;
-  npOpen = true; closeMenu();
+  npOpen = true; closeMenu(); NPL.drag = false;   // un cierre deslizando no pasa por npDragY(0)
   paintNp(current); npv.hidden = false; npv.style.transform = ""; document.body.classList.add("np-open");
   marquee($("npTitle"));   // cerrada no habia ancho para medir
   npFluidRun();
@@ -6818,7 +6820,7 @@ $("npLyrics").onclick = () => { npLyrEnter(); syncNp(); };
 let _npLyrAnims = [];
 // lo que se arrastra al minimizar: la vista y, con la letra integrada, tambien el panel de letra (va aparte)
 const npDragEls = () => NPL.on ? [npv, $("lyricsPanel")] : [npv];
-function npDragY(v) { npDragEls().forEach(el => { el.style.transform = v ? `translateY(${v}px)` : ""; }); }
+function npDragY(v) { NPL.drag = !!v; npDragEls().forEach(el => { el.style.transform = v ? `translateY(${v}px)` : ""; }); }
 function npLyrEnter() {
   const lp = $("lyricsPanel");
   if (!npOpen || NPL.on) return;

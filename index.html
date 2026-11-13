@@ -1234,9 +1234,17 @@
   .np-art { flex: none; display: flex; align-items: flex-start; justify-content: center; padding: 4.5vh 0 0; position: relative; }
   #npv .np-info { margin-top: auto; padding-top: 18px; }
   #npCover.wide, body.lyr-full .lside img#lcover.wide { aspect-ratio: 16 / 9; }
-  /* miniatura de video (16:9) en cualquier hueco de portada: entera, sin recortar; en los huecos cuadrados queda
-     centrada sobre negro. Las portadas grandes cambian su recuadro a 16:9 (arriba), asi que alli la llena */
-  img.wide { object-fit: contain !important; background-color: #000 !important; }
+  /* miniatura de video (solo canciones): la MISMA altura que una portada cuadrada en ese sitio y su ancho 16:9.
+     Las filas con columna fija para la portada la ajustan; en cuadriculas y carruseles la tarjeta ocupa dos
+     columnas con la imagen a la altura de las demas (--cg = hueco entre columnas, --cp = relleno de la tarjeta) */
+  img.wide { aspect-ratio: 16 / 9 !important; width: auto !important; object-fit: cover; }
+  .cover-wrap:has(> img.wide) { width: auto !important; }
+  #queue .qitem:has(> img.wide) { grid-template-columns: auto 1fr auto; }
+  .ctracks.withpic .ctrack:has(> img.wide) { grid-template-columns: 26px auto 1fr minmax(0, auto) 26px 48px 26px; }
+  .hrow { --cg: 16px; } .arow { --cg: 18px; } .cardgrid { --cg: 20px; }
+  .hrow > .ccard:has(> img.wide), .arow > .ccard:has(> img.wide), .cardgrid > .ccard:has(> img.wide) {
+    grid-column: span 2; container-type: inline-size; }
+  .ccard > img.wide { height: calc((100cqw - var(--cg, 16px)) / 2 - var(--cp, 8px)); }
   /* portada ancha: ocupa el sitio de la cuadrada y va centrada en el (el resto de la vista no se mueve) */
   #npv .np-art:has(#npCover.wide) { min-height: min(100vw - 44px, 48vh); align-items: center; }
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
@@ -1468,6 +1476,12 @@
     body[data-mv="liked"] #r > li > .cplays, body[data-mv="liked"] #r > li > .row-like { display: none; }
     body[data-mv="liked"] #r > li > .cdots { opacity: 1; justify-self: end; padding: 0; }
     body[data-mv="liked"] #r .cover-wrap, body[data-mv="liked"] #r .cover-wrap img { width: 42px; height: 42px; }
+    body[data-mv="liked"] #r > li:has(img.wide) { grid-template-columns: auto minmax(0, 1fr) auto 18px; }
+    #artistView .asongs > li:has(img.wide) { grid-template-columns: auto minmax(0, 1fr) 34px; }
+    .ctracks.withpic .ctrack:has(> img.wide) { grid-template-columns: auto minmax(0, 1fr) auto 18px; }
+    .cardgrid { --cg: 10px; } .cardgrid > .ccard { --cp: 0px; }
+    .hrow > .ccard:has(> img.wide), .arow > .ccard:has(> img.wide) { flex-basis: calc(42vw * 16 / 9); max-width: 320px; }
+    .hrow > .ccard > img.wide, .arow > .ccard > img.wide { width: 100% !important; height: auto; }
     /* busqueda (Todo y Canciones): filas de cancion como las de playlist -> titulo y artista con todo el
        ancho; reproducciones y corazon ocultos (se comian el titulo), duracion + (...) al borde */
     body[data-mv="buscar"] #r { margin-right: -8px; }
@@ -4032,7 +4046,7 @@ function recentTiles() {
   return out;
 }
 function recentTile(e) {
-  const b = document.createElement("button"); b.className = "rtile";
+  const b = document.createElement("button"); b.className = "rtile " + (e.kind || "");
   if (e.kind === "liked") b.innerHTML = '<span class="rliked"><i class="ph-fill ph-heart"></i></span>';
   else { const im = document.createElement("img"); im.alt = ""; im.src = e.cover || PL_EMPTY_COVER; b.appendChild(im); }
   const tt = document.createElement("span"); tt.className = "rt"; tt.textContent = e.title || ""; b.appendChild(tt);
@@ -5549,11 +5563,13 @@ $("npCover").addEventListener("load", coverShape); $("lcover").addEventListener(
 // cuadriculas) y su forma queda en _coverWide, que tambien consulta la vista grande. Las dos portadas grandes van
 // aparte (coverShape: solo cuenta la imagen de lo que suena)
 const COVER_SRC = /(ytimg|googleusercontent|ggpht)\.com|\/img\?u=/;
+const NOT_SONG = ".artist, .artists, .brow, .lib-item, .rtile:not(.song), .ccard:not(.video), .col-hero, .versions, .improw";
 document.addEventListener("load", (e) => {
   const im = e.target;
   if (im.tagName !== "IMG" || !im.naturalWidth || im.id === "npCover" || im.id === "lcover") return;
   const src = im.getAttribute("src") || "";
   if (!COVER_SRC.test(src)) return;   // logos, avatares locales...: fuera
+  if (im.closest(NOT_SONG)) return;   // artistas (tambien en Recientes), albumes y playlists: cuadrados
   const w = im.naturalWidth / im.naturalHeight > 1.3;
   im.classList.toggle("wide", w);
   if (!src.startsWith("/img?")) _coverWide.set(hiCover(src), w);
@@ -6699,8 +6715,7 @@ function _npRun(closing) {
   const minis = [$("pcover"), $("ptitle"), $("partist")];
   // elementos compartidos: invierte (FLIP) desde la posicion/tamano del mini player
   [[$("pcover"), $("npCover"), false], [$("ptitle"), $("npTitle"), true], [$("partist"), $("npArtist"), true]].forEach(([from, to, text]) => {
-    let a = _npRect(from); const b = _npRect(to); if (!a || !b) return;
-    if (to.classList.contains("wide")) { const h = a.width * 9 / 16; a = { left: a.left, top: a.top + (a.height - h) / 2, width: a.width, height: h }; }
+    const a = _npRect(from), b = _npRect(to); if (!a || !b) return;
     const sy = a.height / b.height, sx = text ? sy : a.width / b.width;   // texto: escala uniforme por tamano de fuente
     const inv = { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${sx}, ${sy})` };
     _npAnims.push(to.animate(kf(inv, { transform: "none" }), opt));

@@ -1262,7 +1262,7 @@
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
              box-shadow: 0 20px 55px rgb(0 0 0 / .55); transform-origin: 0 0; }
   .np-info { display: flex; align-items: center; gap: 12px; flex: none; position: relative; }
-  .np-meta { flex: 1; min-width: 0; }
+  .np-meta { flex: 1; min-width: 0; transform-origin: 0 0; }   /* la cabecera de la letra la escala desde su esquina: el borde izquierdo queda donde se calcula */
   #npTitle, #npArtist, #npPeekMeta > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform-origin: 0 0; }
   /* peek del carrusel: la pista vecina asoma junto a la actual mientras se arrastra (posicion fijada en JS) */
   #npPeek { position: absolute; object-fit: cover; border-radius: 10px; background: #1a1a20;
@@ -6332,7 +6332,7 @@ void main(){vec3 c=mix(f(A),f(B),M);float l=dot(c,vec3(.299,.587,.114));c=mix(ve
  gl_FragColor=vec4(c,1.);}`;
 const FLUID_TAU = Math.PI * 2;
 // letra integrada en la vista Reproduciendo del movil (npLyrEnter/npLyrExit): estado y medidas de la cabecera
-var NPL = { on: false, drag: false, cover: 58, gap: 8, ms: .8, dur: 480 };   // gap: portada-titulo en la cabecera
+var NPL = { on: false, drag: false, cover: 58, gap: 12, ms: .8, dur: 480 };   // gap: portada-titulo en la cabecera
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;

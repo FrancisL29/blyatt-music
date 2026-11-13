@@ -811,6 +811,12 @@
   .qbtn.like.on { opacity: 1; color: #ff4d6d; }
   .qbtn.del:hover { color: #ff5a5a; }
   #histBtn.on { color: var(--accent); }
+  /* titulo desplazandose: sin puntos suspensivos, con un leve fundido en los bordes */
+  .mq { text-overflow: clip !important;
+        -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 18px), transparent 100%);
+                mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 18px), transparent 100%); }
+  .mq .mqw { display: inline-flex; gap: 44px; animation: mqrun var(--mqt, 10s) linear infinite; will-change: transform; }
+  @keyframes mqrun { 0%, 25% { transform: translateX(0); } 100% { transform: translateX(var(--mqd)); } }
   .mlibsort { display: inline-flex; align-items: center; gap: 7px; margin: -4px 0 14px; padding: 7px 12px; border: none;
               border-radius: 999px; background: rgb(255 255 255 / .07); color: var(--text); font: 600 .8rem/1.2 inherit; cursor: pointer; }
   .mlibsort i { font-size: 1rem; color: var(--muted); }
@@ -1031,6 +1037,17 @@
                backdrop-filter: blur(8px); font-size: 1.2rem; }
   .hero-back:hover { background: var(--grain), rgb(0 0 0 / .65); color: #fff; }
   .ashelf { margin-bottom: 34px; }
+  .arel { display: flex; align-items: center; gap: 18px; max-width: 680px; padding: 10px; border-radius: 16px; cursor: pointer;
+          background: rgb(255 255 255 / .04); transition: background .15s; }
+  .arel:hover { background: rgb(255 255 255 / .08); }
+  .arel-img { position: relative; flex: none; width: min(300px, 48%); aspect-ratio: 16 / 9; }
+  .arel-img img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+  .arel-play { position: absolute; right: 8px; bottom: 8px; width: 38px; height: 38px; border-radius: 50%; display: grid;
+               place-items: center; background: rgb(0 0 0 / .55); color: #fff; font-size: 1.1rem; }
+  .arel-meta { min-width: 0; }
+  .arel-k { font-size: .7rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .arel .t { font-size: 1.15rem; font-weight: 700; margin-top: 4px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .arel .a { font-size: .88rem; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ashelf h3 { display: inline-flex; align-items: center; gap: 6px; font-size: 1.25rem; font-weight: 700;
                letter-spacing: -.01em; margin: 0 0 14px; cursor: pointer; transition: color .15s; }
   .ashelf h3.static { cursor: default; }
@@ -1208,15 +1225,18 @@
                   background: linear-gradient(180deg, rgb(11 11 15 / .1) 0%, rgb(11 11 15 / .45) 50%, #0b0b0f 92%); }
   /* arriba solo el tirador (se cierra deslizando hacia abajo) y el estado de lo que suena */
   .np-top { display: flex; flex-direction: column; align-items: center; padding: 4px 0 6px; flex: none; }
-  .np-grab { width: 38px; height: 5px; border-radius: 99px; background: rgb(255 255 255 / .32); }
+  .np-grab { width: 58px; height: 5px; border-radius: 99px; background: rgb(255 255 255 / .32); }
   #npv { touch-action: manipulation; }   /* sin zoom por doble toque: el doble toque da me gusta */
   #npv .np-heart { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
   #npv .np-src { display: none; }   /* sin texto de estado arriba: solo el tirador */
   .np-src { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: rgb(255 255 255 / .8); font-weight: 600; }
   /* portada arriba (como Apple Music); el hueco libre se reparte a partes iguales: portada-titulo,
      progreso-transporte y transporte-iconos de abajo (margin-top: auto en los tres) */
-  .np-art { flex: none; display: flex; align-items: flex-start; justify-content: center; padding: 16px 0 0; position: relative; }
+  .np-art { flex: none; display: flex; align-items: flex-start; justify-content: center; padding: 4.5vh 0 0; position: relative; }
   #npv .np-info { margin-top: auto; padding-top: 18px; }
+  #npCover.wide, body.lyr-full .lside img#lcover.wide { aspect-ratio: 16 / 9; }
+  /* portada ancha: ocupa el sitio de la cuadrada y va centrada en el (el resto de la vista no se mueve) */
+  #npv .np-art:has(#npCover.wide) { min-height: min(100vw - 44px, 48vh); align-items: center; }
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
              box-shadow: 0 20px 55px rgb(0 0 0 / .55); transform-origin: 0 0; }
   .np-info { display: flex; align-items: center; gap: 12px; flex: none; position: relative; }
@@ -3554,7 +3574,21 @@ function renderArtist(d) {
   (d.sections || []).forEach(sec => {
     const el = document.createElement("section"); el.className = "ashelf";
     const h = document.createElement("h3"); el.appendChild(h);
-    if (sec.kind === "songs") {
+    if (sec.promo) {   // la promo de YT Music (nuevo video musical): tarjeta propia, no un carrusel de uno
+      h.textContent = t(sec.title); h.classList.add("static");
+      sec.items.forEach(it => {
+        const c = document.createElement("div"); c.className = "arel";
+        c.innerHTML = '<div class="arel-img"><img alt=""><span class="arel-play"><i class="ph-fill ph-play"></i></span></div>'
+          + '<div class="arel-meta"><div class="arel-k"></div><div class="t"></div><div class="a"></div></div>';
+        c.querySelector("img").src = it.cover;
+        c.querySelector(".arel-k").textContent = t(it.wide ? "Vídeo musical" : "Nuevo");
+        c.querySelector(".t").textContent = it.title;
+        c.querySelector(".a").textContent = it.artist || String(it.subtitle || "").replace(/^Vídeo musical • /, "");
+        c.onclick = () => openItem(it);
+        c.oncontextmenu = (e) => { e.preventDefault(); const so = itemSong(it); openTrackMenu(so, [so], 0, e.clientX, e.clientY, c); };
+        el.appendChild(c);
+      });
+    } else if (sec.kind === "songs") {
       h.textContent = sec.title; h.classList.add("static");
       const ul = document.createElement("ul"); ul.className = "asongs";
       sec.items.forEach((s, i) => ul.appendChild(songLi(s, sec.items, i)));
@@ -3582,14 +3616,21 @@ function itemCard(it, allowVersions) {
   if (it.browseId) c.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(it, e.clientX, e.clientY, c); };
   else if (it.id) c.oncontextmenu = (e) => {   // cancion (Inicio: Recientes / Para ti): menu de pista
     e.preventDefault();
-    const s = { id: it.id, title: it.title, artist: it.subtitle, cover: it.cover };
+    const s = itemSong(it);
     openTrackMenu(s, [s], 0, e.clientX, e.clientY, c);
   };
   if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
   return c;
 }
+// cancion desde una tarjeta (video/cancion): el subtitulo de los videos mezcla artista y visualizaciones
+// ("The Weeknd • 3,3 M de visualizaciones"); wide = miniatura 16:9 que se muestra entera al reproducir
+function itemSong(it) {
+  const s = { id: it.id, title: it.title, artist: it.artist || String(it.subtitle || "").split(" • ")[0], cover: it.cover };
+  ["artists", "duration", "wide", "explicit"].forEach(k => { if (it[k]) s[k] = it[k]; });
+  return s;
+}
 function openItem(it) {
-  if (it.id) playFromList([{ id: it.id, title: it.title, artist: it.subtitle, cover: it.cover }], 0);
+  if (it.id) playFromList([itemSong(it)], 0);
   else if (it.browseId && it.browseId.startsWith("UC")) openArtist(it.browseId, true, it);
   else if (it.browseId) openCollection(it.browseId, true, it);
 }
@@ -5464,8 +5505,25 @@ async function resolveAtv(s) {   // music video -> art track (solo para resultad
 function splitArtists(str) {   // "A, B & C" / "A y B" / "A feat. B" -> nombres individuales clickeables
   return String(str || "").split(/,|&|\sy\s|\scon\s|\sfeat\.?\s|\sft\.?\s/gi).map(x => x.trim()).filter(Boolean);
 }
+/* titulo que no cabe: se desplaza (como Apple Music). Quieto un momento, recorre hasta la copia que le sigue y
+   vuelve a empezar. Sin espacio para medir (vista cerrada) no hace nada: se vuelve a llamar al abrirla */
+function marquee(el) {
+  if (!el) return;
+  const txt = el.dataset.mq != null && el.querySelector(".mqw") ? el.dataset.mq : el.textContent;
+  el.classList.remove("mq"); el.textContent = txt; el.dataset.mq = txt;
+  if (!el.clientWidth || el.scrollWidth <= el.clientWidth + 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const w = el.scrollWidth, gap = 44, d = w + gap;
+  const wrap = document.createElement("span"), a = document.createElement("span"), b = document.createElement("span");
+  wrap.className = "mqw"; a.textContent = txt; b.textContent = txt; b.setAttribute("aria-hidden", "true");
+  wrap.append(a, b); el.textContent = ""; el.appendChild(wrap);
+  el.style.setProperty("--mqd", -d + "px"); el.style.setProperty("--mqt", (d / 34 + 3).toFixed(1) + "s");
+  el.classList.add("mq");
+}
+let _mqT = 0;
+addEventListener("resize", () => { clearTimeout(_mqT); _mqT = setTimeout(() => { marquee($("ptitle")); if (npOpen) marquee($("npTitle")); }, 200); });
 function paintPlayer(s) {
   $("pcover").src = s.cover; $("ptitle").textContent = s.title;
+  requestAnimationFrame(() => marquee($("ptitle")));
   $("ptitle").dataset.art = s.artist || (s.artists || []).map(a => a.name).join(", ");
   // segunda linea: badge Explicit a la izquierda + artistas clickeables (-> vista de artista via delegated .lnk)
   const arts = (s.artists && s.artists.length) ? s.artists
@@ -6356,6 +6414,7 @@ function lyrHeader() {
   $("lsideT").textContent = c ? c.title : ""; $("lsideA").textContent = c ? c.artist : "";
   const big = c && c.cover ? hiCover(c.cover) : "";
   if (c && c.cover) { $("lthumb").src = c.cover; $("lcover").src = big; } else { $("lthumb").removeAttribute("src"); $("lcover").removeAttribute("src"); }
+  $("lcover").classList.toggle("wide", !!(c && c.wide));
   lyrBg(c && c.cover);
 }
 function lyrBg(src) {
@@ -6565,8 +6624,10 @@ function paintNp(s) {
       npPreload(hi).then(im => { if (im && img.dataset.src === hi) img.src = im.src; });
     }
   }
+  img.classList.toggle("wide", !!s.wide);   // video: la miniatura 16:9 tal cual, sin recortar a cuadrado
   setTimeout(npPrefetchNeighbors, 400);   // qIndex se actualiza tras pintar
   $("npTitle").textContent = s.title || "";
+  marquee($("npTitle"));
   $("npArtist").innerHTML = $("partist").innerHTML;
   if (npOpen) syncNp();
 }
@@ -6630,6 +6691,7 @@ function openNp() {
   if (npOpen || !current || !_mqMobile.matches) return;
   npOpen = true; closeMenu();
   paintNp(current); npv.hidden = false; npv.style.transform = ""; document.body.classList.add("np-open");
+  marquee($("npTitle"));   // cerrada no habia ancho para medir
   npFluidRun();
   try { history.pushState({ t: "np" }, ""); } catch (e) {}   // boton/gesto atras de Android la cierra
   _npRun(false).then(() => {

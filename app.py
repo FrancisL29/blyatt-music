@@ -462,6 +462,16 @@ def _parse_tworow(it):
     if _is_explicit(it.get("subtitleBadges")): out["explicit"] = True
     if vid:
         out["id"] = vid
+        # videos: la miniatura es 16:9 (se muestra entera al reproducir) y el subtitulo mezcla artista y
+        # visualizaciones ("The Weeknd • 3,3 M de visualizaciones"): el artista va aparte
+        if "16_9" in str(it.get("aspectRatio") or ""):
+            out["wide"] = True
+        arts = [{"name": r.get("text", ""), "id": ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId")}
+                for r in (it.get("subtitle") or {}).get("runs", [])
+                if str(((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")).startswith("UC")]
+        if arts:
+            out["artists"] = arts
+            out["artist"] = ", ".join(a["name"] for a in arts)
     else:
         bid = _find_browse_id(it)
         if not bid:
@@ -583,7 +593,19 @@ def _artist(browse_id):
             items = [_parse_tworow(c["musicTwoRowItemRenderer"])
                      for c in cs.get("contents", []) if "musicTwoRowItemRenderer" in c]
             items = [x for x in items if x]
-            if items:
+            if items and not title:
+                # carrusel sin titulo arriba de todo = la promo de YT Music ("Ver el nuevo video musical (con ...)"):
+                # seccion "Nuevo lanzamiento" con el titulo REAL del video (el de la promo es un reclamo)
+                for x in items:
+                    m = video_meta(x["id"]) if x.get("id") else None
+                    if m and m.get("title"):
+                        x["title"] = m["title"]
+                        x["subtitle"] = "Vídeo musical • " + (x.get("artist") or m.get("artist") or "")
+                        for k in ("artist", "artists", "duration"):
+                            if m.get(k) and not x.get(k):
+                                x[k] = m[k]
+                sections.append({"title": "Nuevo lanzamiento", "kind": "items", "items": items, "more": None, "promo": True})
+            elif items:
                 sections.append({"title": title, "kind": "items", "items": items, "more": more})
     return {"name": name, "image": image, "subtitle": subtitle, "description": description, "sections": sections}
 
@@ -905,6 +927,32 @@ def _new_releases():
                     "kind": "albums",
                     "explicit": _is_explicit(sh.get("subtitleBadges"))})
     return out
+
+
+def video_meta(video_id):
+    """Titulo, artista y duracion reales de un video (endpoint next). La promo del artista solo trae un reclamo."""
+    def go():
+        body = {"context": CTX, "videoId": video_id, "isAudioOnly": True}
+        req = urllib.request.Request(YTN_URL, data=json.dumps(body).encode(), headers={
+            "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            data = json.loads(r.read())
+        for it in _find_all_renderers(data, "playlistPanelVideoRenderer", []):
+            if it.get("videoId") != video_id:
+                continue
+            arts = []
+            for rr in (it.get("longBylineText") or {}).get("runs", []):
+                b = ((rr.get("navigationEndpoint") or {}).get("browseEndpoint") or {}).get("browseId", "")
+                if b.startswith("UC"):
+                    arts.append({"name": rr.get("text", ""), "id": b})
+            byline = (_runs_text(it.get("shortBylineText")) or _runs_text(it.get("longBylineText"))).split(" • ")[0].strip()
+            return {"title": _runs_text(it.get("title")), "artist": ", ".join(a["name"] for a in arts) or byline,
+                    "artists": arts, "duration": _runs_text(it.get("lengthText"))}
+        return {}
+    try:
+        return cached("vmeta:" + video_id, 86400, go)
+    except Exception:
+        return {}
 
 
 def radio(video_id):
@@ -2419,6 +2467,8 @@ def _cx_song(x):
     o = {k: x[k] for k in ("id", "title", "artist", "cover", "duration", "explicit") if k in x}
     if x.get("rec"):
         o["rec"] = True
+    if x.get("wide"):
+        o["wide"] = True
     for k in ("title", "artist", "cover", "duration"):
         if k in o:
             o[k] = str(o[k])[:500]

@@ -5519,9 +5519,27 @@ function marquee(el) {
   el.style.setProperty("--mqd", -d + "px"); el.style.setProperty("--mqt", (d / 34 + 3).toFixed(1) + "s");
   el.classList.add("mq");
 }
-// portada grande (vista Reproduciendo / letra a pantalla completa): al cargar se mira su proporcion real; apaisada =
-// miniatura de video -> 16:9 entera. Asi tambien los videos guardados antes o que vienen de la cuenta de YouTube
-function coverShape(e) { const im = e.target; if (im.naturalWidth) im.classList.toggle("wide", im.naturalWidth / im.naturalHeight > 1.3); }
+/* forma de la portada grande: video = miniatura 16:9 entera; musica = 1:1. Una sola fuente de verdad para la vista
+   Reproduciendo y la letra a pantalla completa, venga la cancion de donde venga (playlist, Me gusta, artista,
+   busqueda). Manda la marca de la cancion (wide); si no la trae, se mide la imagen al cargar y el resultado se
+   guarda en la cancion y por portada: al volver a abrir la vista (sin recargar la imagen) no se pierde */
+const _coverWide = new Map();   // portada en alta (hiCover) -> apaisada; la rellenan las cargas y las precargas
+const isWide = (s) => !!(s && (s.wide || _coverWide.get(hiCover(s.cover))));
+function applyCoverShape(s = current) {
+  const w = isWide(s);
+  $("npCover").classList.toggle("wide", w); $("lcover").classList.toggle("wide", w);
+}
+function coverShape(e) {
+  const im = e.target;
+  if (!im.naturalWidth || !current || !current.cover) return;
+  // solo cuenta si la imagen cargada es la portada de lo que suena (no una anterior que termina tarde)
+  const mine = im === $("npCover") ? im.dataset.src === hiCover(current.cover) : im.getAttribute("src") === hiCover(current.cover);
+  if (!mine) return;
+  const w = im.naturalWidth / im.naturalHeight > 1.3;
+  _coverWide.set(hiCover(current.cover), w);
+  if (w) current.wide = true;
+  applyCoverShape();
+}
 $("npCover").addEventListener("load", coverShape); $("lcover").addEventListener("load", coverShape);
 let _mqT = 0;
 addEventListener("resize", () => { clearTimeout(_mqT); _mqT = setTimeout(() => { marquee($("ptitle")); if (npOpen) marquee($("npTitle")); }, 200); });
@@ -6418,7 +6436,7 @@ function lyrHeader() {
   $("lsideT").textContent = c ? c.title : ""; $("lsideA").textContent = c ? c.artist : "";
   const big = c && c.cover ? hiCover(c.cover) : "";
   if (c && c.cover) { $("lthumb").src = c.cover; $("lcover").src = big; } else { $("lthumb").removeAttribute("src"); $("lcover").removeAttribute("src"); }
-  $("lcover").classList.toggle("wide", !!(c && c.wide));
+  applyCoverShape();
   lyrBg(c && c.cover);
 }
 function lyrBg(src) {
@@ -6566,7 +6584,7 @@ function npPreload(u) {
   // p._url = la URL que SI cargo (los consumidores usan esa: nunca un intento fallido visible)
   const load = (src) => { const im = new Image(); im.decoding = "async"; im.fetchPriority = "high"; im.src = src; return im.decode().then(() => im); };
   const p = load(u).catch(() => u.indexOf("/img?u=") === -1 ? load("/img?u=" + encodeURIComponent(u)) : null)
-    .then(im => { if (im) { p._ok = true; p._url = im.src; } return im; }).catch(() => null);
+    .then(im => { if (im) { p._ok = true; p._url = im.src; _coverWide.set(u, im.naturalWidth / im.naturalHeight > 1.3); } return im; }).catch(() => null);
   _npPre.set(u, p);
   if (_npPre.size > 24) _npPre.delete(_npPre.keys().next().value);   // actual + vecinas (alta y baja) + fondo
   return p;
@@ -6628,7 +6646,7 @@ function paintNp(s) {
       npPreload(hi).then(im => { if (im && img.dataset.src === hi) img.src = im.src; });
     }
   }
-  img.classList.toggle("wide", !!s.wide);   // video: la miniatura 16:9 tal cual, sin recortar a cuadrado (y al cargar, coverShape)
+  applyCoverShape(s);   // video 16:9 / musica 1:1 (ver isWide)
   setTimeout(npPrefetchNeighbors, 400);   // qIndex se actualiza tras pintar
   $("npTitle").textContent = s.title || "";
   marquee($("npTitle"));

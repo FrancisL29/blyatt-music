@@ -1225,14 +1225,20 @@
   .np-grab { width: 58px; height: 5px; border-radius: 99px; background: rgb(255 255 255 / .32); }
   #npv { touch-action: manipulation; }
   /* letra dentro de la vista: controles e iconos se desvanecen; la cabecera compacta la mueve el JS */
-  #npv .np-seek, #npv .np-transport, #npv .np-extra, #npLike, #npMore { transition: opacity .28s ease; }
-  #npv.lyr .np-seek, #npv.lyr .np-transport, #npv.lyr .np-extra, #npv.lyr #npLike, #npv.lyr #npMore { opacity: 0; pointer-events: none; }
+  #npv .np-seek, #npv .np-transport, #npv .np-extra, #npLike, #npMore {
+    transition: opacity .32s ease, transform .42s cubic-bezier(.22,.8,.24,1); }
+  /* al abrir la letra bajan y se desvanecen (escalonados); al volver suben en orden inverso */
+  #npv.lyr .np-seek, #npv.lyr .np-transport, #npv.lyr .np-extra, #npv.lyr #npLike, #npv.lyr #npMore {
+    opacity: 0; transform: translateY(18px); pointer-events: none; }
+  #npv.lyr .np-transport { transition-delay: .03s; } #npv.lyr .np-extra { transition-delay: .06s; }
+  #npv:not(.lyr) .np-seek { transition-delay: .1s; } #npv:not(.lyr) .np-transport { transition-delay: .06s; }
   @media (max-width: 820px) {
     /* el panel de letra de siempre, sin su cabecera ni su fondo, encajado bajo la cabecera de la vista */
-    body.np-lyr #lyricsPanel { top: var(--npl-top, 120px); background: transparent; transform: none; border: 0; box-shadow: none;
-      opacity: 0; transition: opacity .4s ease .12s; pointer-events: none;
+    body.np-lyr #lyricsPanel { top: var(--npl-top, 120px); background: transparent; transform: translateY(14px); border: 0; box-shadow: none;
+      opacity: 0; transition: opacity .2s ease, transform .2s ease; pointer-events: none; will-change: opacity, transform;
       -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 28px); mask-image: linear-gradient(180deg, transparent 0, #000 28px); }
-    body.np-lyr #lyricsPanel.show { opacity: 1; pointer-events: auto; }
+    body.np-lyr #lyricsPanel.show { opacity: 1; transform: none; pointer-events: auto;
+      transition: opacity .36s ease .14s, transform .5s cubic-bezier(.22,.8,.24,1) .14s; }
     body.np-lyr #lyricsPanel .lhead, body.np-lyr #lyricsPanel .lbg, body.np-lyr #lyricsPanel::after { display: none; }
   }   /* sin zoom por doble toque: el doble toque da me gusta */
   #npv .np-heart { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
@@ -6323,6 +6329,8 @@ vec3 f(sampler2D x){return mix(texture2D(x,w(uv,P0,P1,0.)).rgb,texture2D(x,w(uv.
 void main(){vec3 c=mix(f(A),f(B),M);float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,1.45)*K;
  gl_FragColor=vec4(c,1.);}`;
 const FLUID_TAU = Math.PI * 2;
+// letra integrada en la vista Reproduciendo del movil (npLyrEnter/npLyrExit): estado y medidas de la cabecera
+var NPL = { on: false, cover: 58, gap: 14, ms: .8, dur: 480 };
 class FluidBg {
   constructor(cv, dim) {
     this.cv = cv; this.dim = dim; this.ok = false; this.raf = 0; this.last = 0; this.fade = -1;
@@ -6474,6 +6482,7 @@ function lyrHeader() {
 }
 function lyrBg(src) {
   const bg = $("lyricsPanel").querySelector(".lbg");
+  if (NPL.on) { if (LYR_FLUID && LYR_FLUID.raf) { cancelAnimationFrame(LYR_FLUID.raf); LYR_FLUID.raf = 0; } return; }   // letra integrada: su fondo no se ve (ahorra GPU)
   if (!src) { bg.classList.remove("on"); return; }
   if (LYR_FLUID === null) {   // primera vez: WebGL si se puede; si no, el canvas estatico de siempre
     LYR_FLUID = new FluidBg(bg, .46);
@@ -6641,7 +6650,8 @@ function npFluid() {   // fondo fluido de la vista completa (si hay WebGL); null
 function npFluidRun() {
   const f = npFluid();
   // con la letra o la cola encima la vista queda tapada: el bucle sigue pero no dibuja
-  if (f) f.run(() => npOpen, () => !$("lyricsPanel").classList.contains("show") && !$("queue").classList.contains("show"));
+  // tapada por la letra o la cola no se dibuja; con la letra INTEGRADA la vista sigue a la vista (su fondo es el de la letra)
+  if (f) f.run(() => npOpen, () => (NPL.on || !$("lyricsPanel").classList.contains("show")) && !$("queue").classList.contains("show"));
 }
 function npPaintBg(url) {   // crossfade entre las dos capas del fondo
   const npb = npv.querySelector(".np-bg");
@@ -6760,7 +6770,8 @@ function openNp() {
 }
 function closeNp(kind) {
   if (!npOpen) return;
-  npLyrExit(true);
+  const lyrSwipe = kind === "swipe" && NPL.on;
+  if (!lyrSwipe) npLyrExit(true);   // el cierre animado parte de la vista normal
   npOpen = false; closeMenu();
   const done = () => {
     if (npOpen) return;
@@ -6770,9 +6781,14 @@ function closeNp(kind) {
     $("lyricsBtn").classList.remove("on"); $("queueBtn").classList.remove("on");
   };
   if (kind === "swipe") {   // tras arrastrar hacia abajo: termina el gesto deslizando fuera de pantalla
-    const a = npv.animate([{ transform: npv.style.transform || "none" }, { transform: "translateY(100%)" }],
-      { duration: 220, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" });
-    a.finished.then(() => { a.cancel(); done(); }).catch(done);
+    const lp = $("lyricsPanel"), els = lyrSwipe ? [npv, lp] : [npv];
+    const an = els.map(el => el.animate([{ transform: el.style.transform || "none" }, { transform: "translateY(100%)" }],
+      { duration: 220, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }));
+    const fin = () => {
+      if (lyrSwipe) { lp.style.transform = ""; npLyrExit(true); }
+      an.forEach(x => x.cancel()); done();
+    };
+    an[0].finished.then(fin).catch(fin);
   } else _npRun(true).then(done);
 }
 // cierre por UI: si la entrada "np" esta en el historial se consume con back() (popstate cierra)
@@ -6800,7 +6816,9 @@ $("npLyrics").onclick = () => { npLyrEnter(); syncNp(); };
    siempre, sin su cabecera ni su fondo) aparece debajo sobre el fondo de la vista. Tocar la cabecera, el boton
    atras o cerrar la vista lo deshace. En escritorio la letra sigue siendo su panel lateral */
 let _npLyrAnims = [];
-const NPL = { cover: 58, gap: 14, ms: .8, dur: 480 };
+// lo que se arrastra al minimizar: la vista y, con la letra integrada, tambien el panel de letra (va aparte)
+const npDragEls = () => NPL.on ? [npv, $("lyricsPanel")] : [npv];
+function npDragY(v) { npDragEls().forEach(el => { el.style.transform = v ? `translateY(${v}px)` : ""; }); }
 function npLyrEnter() {
   const lp = $("lyricsPanel");
   if (!npOpen || NPL.on) return;
@@ -6818,8 +6836,12 @@ function npLyrEnter() {
   ];
   // la letra empieza justo debajo de la cabecera
   document.body.style.setProperty("--npl-top", Math.round(top + ch + 16 - vr.top) + "px");
+  // primero el modo (el panel queda transparente en su sitio) y en el siguiente fotograma se muestra: asi hay un
+  // estado de partida y la letra se funde (antes las dos cosas caian en el mismo fotograma y aparecia de golpe)
+  lp.style.transition = "none";   // el panel salta a su sitio de partida (transparente) sin transicion
   document.body.classList.add("np-lyr"); npv.classList.add("lyr");
-  if (!lp.classList.contains("show")) togglePanel(lp, $("lyricsBtn"), loadLyrics);
+  void lp.offsetWidth; lp.style.transition = "";
+  requestAnimationFrame(() => { if (NPL.on && !lp.classList.contains("show")) togglePanel(lp, $("lyricsBtn"), loadLyrics); });
 }
 function npLyrExit(instant) {
   if (!NPL.on) return;
@@ -7063,7 +7085,8 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
     hidePeek();
   }
   npv.addEventListener("touchstart", (e) => {
-    if (e.target.closest("input, button, .lnk") || $("lyricsPanel").classList.contains("show") || $("queue").classList.contains("show")) { x0 = null; return; }
+    // con la letra integrada (NPL.on) lo unico de la vista que se puede tocar es la cabecera: arrastrarla cierra
+    if (e.target.closest("input, button, .lnk") || ($("lyricsPanel").classList.contains("show") && !NPL.on) || $("queue").classList.contains("show")) { x0 = null; return; }
     reset();
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dx = dy = 0; axis = null; tgt = {};
     hZone = !!e.target.closest(".np-art, .np-info") && !npv.classList.contains("lyr");
@@ -7075,7 +7098,7 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
       axis = Math.abs(dx) > Math.abs(dy) ? (hZone ? "x" : "none") : (dy > 0 ? "y" : "none");
       if (axis === "x") geo = measure();
     }
-    if (axis === "y") npv.style.transform = dy > 0 ? `translateY(${dy}px)` : "";
+    if (axis === "y") npDragY(dy > 0 ? dy : 0);
     else if (axis === "x") place(dx);
   }, { passive: true });
   npv.addEventListener("touchend", () => {
@@ -7083,8 +7106,8 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
     x0 = null;
     if (axis === "y") {
       if (dy > 110) { requestCloseNp("swipe"); return; }
-      if (dy > 0) npv.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 200, easing: NP_EASE });
-      npv.style.transform = "";
+      if (dy > 0) npDragEls().forEach(el => el.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 200, easing: NP_EASE }));
+      npDragY(0);
       return;
     }
     if (axis !== "x") return;

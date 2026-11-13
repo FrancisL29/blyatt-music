@@ -1223,7 +1223,18 @@
   /* arriba solo el tirador (se cierra deslizando hacia abajo) y el estado de lo que suena */
   .np-top { display: flex; flex-direction: column; align-items: center; padding: 4px 0 6px; flex: none; }
   .np-grab { width: 58px; height: 5px; border-radius: 99px; background: rgb(255 255 255 / .32); }
-  #npv { touch-action: manipulation; }   /* sin zoom por doble toque: el doble toque da me gusta */
+  #npv { touch-action: manipulation; }
+  /* letra dentro de la vista: controles e iconos se desvanecen; la cabecera compacta la mueve el JS */
+  #npv .np-seek, #npv .np-transport, #npv .np-extra, #npLike, #npMore { transition: opacity .28s ease; }
+  #npv.lyr .np-seek, #npv.lyr .np-transport, #npv.lyr .np-extra, #npv.lyr #npLike, #npv.lyr #npMore { opacity: 0; pointer-events: none; }
+  @media (max-width: 820px) {
+    /* el panel de letra de siempre, sin su cabecera ni su fondo, encajado bajo la cabecera de la vista */
+    body.np-lyr #lyricsPanel { top: var(--npl-top, 120px); background: transparent; transform: none; border: 0; box-shadow: none;
+      opacity: 0; transition: opacity .4s ease .12s; pointer-events: none;
+      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 28px); mask-image: linear-gradient(180deg, transparent 0, #000 28px); }
+    body.np-lyr #lyricsPanel.show { opacity: 1; pointer-events: auto; }
+    body.np-lyr #lyricsPanel .lhead, body.np-lyr #lyricsPanel .lbg, body.np-lyr #lyricsPanel::after { display: none; }
+  }   /* sin zoom por doble toque: el doble toque da me gusta */
   #npv .np-heart { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
   #npv .np-src { display: none; }   /* sin texto de estado arriba: solo el tirador */
   .np-src { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: rgb(255 255 255 / .8); font-weight: 600; }
@@ -6749,6 +6760,7 @@ function openNp() {
 }
 function closeNp(kind) {
   if (!npOpen) return;
+  npLyrExit(true);
   npOpen = false; closeMenu();
   const done = () => {
     if (npOpen) return;
@@ -6782,7 +6794,72 @@ $("npShuffle").onclick = () => setShuffle(!shuffle);
 $("npRepeat").onclick = () => { $("repeat").click(); syncNp(); };
 $("npLike").onclick = () => { if (current) toggleLike(current); };
 $("npSleep").onclick = openSleepSheet;
-$("npLyrics").onclick = () => { $("lyricsBtn").click(); syncNp(); };
+$("npLyrics").onclick = () => { npLyrEnter(); syncNp(); };
+/* movil: la letra se abre DENTRO de la vista Reproduciendo (como Apple Music). Portada, titulo y artista suben a
+   una cabecera compacta (FLIP con WAAPI), controles e iconos se desvanecen y la letra (el mismo panel y motor de
+   siempre, sin su cabecera ni su fondo) aparece debajo sobre el fondo de la vista. Tocar la cabecera, el boton
+   atras o cerrar la vista lo deshace. En escritorio la letra sigue siendo su panel lateral */
+let _npLyrAnims = [];
+const NPL = { cover: 58, gap: 14, ms: .8, dur: 480 };
+function npLyrEnter() {
+  const lp = $("lyricsPanel");
+  if (!npOpen || NPL.on) return;
+  NPL.on = true;
+  const cov = $("npCover"), meta = npv.querySelector(".np-meta");
+  [cov, meta].forEach(el => { el.getAnimations().forEach(a => a.cancel()); el.style.transform = ""; });
+  const vr = npv.getBoundingClientRect(), top = npv.querySelector(".np-top").getBoundingClientRect().bottom + 8;
+  const left = vr.left + 22, a = cov.getBoundingClientRect(), m = meta.getBoundingClientRect();
+  const sc = NPL.cover / a.width, ch = a.height * sc;   // video: misma anchura, menos alto
+  const mx = left + NPL.cover + NPL.gap, my = top + (ch - m.height * NPL.ms) / 2;
+  const opt = { duration: NPL.dur, easing: NP_EASE, fill: "forwards" };
+  _npLyrAnims = [
+    cov.animate([{ transform: "none" }, { transform: `translate(${left - a.left}px, ${top - a.top}px) scale(${sc})` }], opt),
+    meta.animate([{ transform: "none" }, { transform: `translate(${mx - m.left}px, ${my - m.top}px) scale(${NPL.ms})` }], opt),
+  ];
+  // la letra empieza justo debajo de la cabecera
+  document.body.style.setProperty("--npl-top", Math.round(top + ch + 16 - vr.top) + "px");
+  document.body.classList.add("np-lyr"); npv.classList.add("lyr");
+  if (!lp.classList.contains("show")) togglePanel(lp, $("lyricsBtn"), loadLyrics);
+}
+function npLyrExit(instant) {
+  if (!NPL.on) return;
+  NPL.on = false;
+  npv.classList.remove("lyr");
+  const lp = $("lyricsPanel");
+  if (lp.classList.contains("show")) { lp.classList.remove("show"); $("lyricsBtn").classList.remove("on"); }
+  const anims = _npLyrAnims; _npLyrAnims = [];
+  const end = () => {
+    if (NPL.on) return;   // se volvio a abrir mientras volvia
+    anims.forEach(x => x.cancel());
+    // sin np-lyr el panel vuelve a su sitio de panel lateral: sin transicion (si no, se veria deslizarse)
+    lp.style.transition = "none"; document.body.classList.remove("np-lyr"); void lp.offsetWidth; lp.style.transition = "";
+  };
+  if (instant) { end(); return; }
+  anims.forEach(x => x.reverse());
+  Promise.all(anims.map(x => x.finished)).catch(() => {}).then(end);
+  setTimeout(end, NPL.dur + 300);   // red de seguridad (webview sin frames)
+}
+// salir: tocar la cabecera compacta (portada o titulo)
+npv.addEventListener("click", (e) => {
+  if (npv.classList.contains("lyr") && e.target.closest(".np-art, .np-meta")) { e.stopPropagation(); npLyrExit(); }
+});
+/* pantalla encendida mientras se ve la letra (el sistema la apagaba a mitad de cancion). Screen Wake Lock: se suelta
+   al cerrar la letra; el sistema lo suelta solo al salir de la app y se vuelve a pedir al volver */
+let _wake = null;
+async function keepAwake(on) {
+  try {
+    if (on && !_wake && navigator.wakeLock && document.visibilityState === "visible") {
+      _wake = await navigator.wakeLock.request("screen");
+      _wake.addEventListener("release", () => { _wake = null; });
+    } else if (!on && _wake) { const w = _wake; _wake = null; await w.release(); }
+  } catch (e) { _wake = null; }
+}
+const lyrVisible = () => $("lyricsPanel").classList.contains("show") && _mqMobile.matches;
+new MutationObserver(() => {
+  keepAwake(lyrVisible());
+  if (!$("lyricsPanel").classList.contains("show")) npLyrExit();   // la letra se cerro por otra via (atras...)
+}).observe($("lyricsPanel"), { attributes: true, attributeFilter: ["class"] });
+document.addEventListener("visibilitychange", () => keepAwake(lyrVisible()));
 $("npQueue").onclick = () => { $("queueBtn").click(); syncNp(); };
 /* doble toque en la vista Reproduciendo = me gusta (como TikTok). El corazon es de puntos y cae como una gota:
    aparece con un rebote donde se toco y levanta ondas con forma de corazon que recorren un campo de puntos
@@ -6989,7 +7066,7 @@ function npSwipeTarget(dir) {   // indice de la pista destino o -1 (sin siguient
     if (e.target.closest("input, button, .lnk") || $("lyricsPanel").classList.contains("show") || $("queue").classList.contains("show")) { x0 = null; return; }
     reset();
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dx = dy = 0; axis = null; tgt = {};
-    hZone = !!e.target.closest(".np-art, .np-info");
+    hZone = !!e.target.closest(".np-art, .np-info") && !npv.classList.contains("lyr");
   }, { passive: true });
   npv.addEventListener("touchmove", (e) => {
     if (x0 == null) return;

@@ -1236,6 +1236,9 @@
      baja). Filas, tarjetas y columnas no cambian; el hueco cuadrado que la contenia se ajusta a su altura */
   img.wide { aspect-ratio: 16 / 9 !important; height: auto !important; object-fit: cover; }
   .cover-wrap:has(> img.wide) { height: auto !important; }
+  /* excepcion: la barra de reproduccion (mini reproductor en el movil). Ahi el video tiene la MISMA altura que una
+     portada cuadrada y es mas ancho */
+  #player .now img.wide { height: 62px !important; width: auto !important; }
   /* portada ancha: ocupa el sitio de la cuadrada y va centrada en el (el resto de la vista no se mueve) */
   #npv .np-art:has(#npCover.wide) { min-height: min(100vw - 44px, 48vh); align-items: center; }
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
@@ -1511,6 +1514,7 @@
     #mpPeek[hidden] { display: none; }
     #mpPeek .meta { min-width: 0; }
     .now img { width: 42px; height: 42px; border-radius: 8px; }
+    #player .now img.wide { height: 42px !important; }
     .now .lnk { pointer-events: none; }   /* tocar el artista abre la vista completa, no navega */
     .right { grid-column: 2; grid-row: 1; flex-direction: row; align-items: center; gap: 0; }
     .right-icons > :not(#like), .vol-row { display: none; }

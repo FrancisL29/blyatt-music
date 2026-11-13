@@ -91,6 +91,16 @@
       pc = `${sels.join(",")}{width:${z};height:${z};margin:calc((1em - ${z}) / 2);-webkit-mask-size:${z};mask-size:${z}}`;
       for (const [k, b, f] of bits) { const big = BIGDOT.has(k);
         pc += `.ph.ph-${k}::before${um(ras(b, 2, 1, big))}.ph-fill.ph-${k}::before${um(ras(f, 2, 1, big))}`; }
+      // play / pausa grandes (barra y letra a pantalla completa): a 24 px quedaban pequenos. Dibujo propio de 48 px
+      // fisicos con puntos redondos de ~2.6 px y 4 de paso (redondos, no cuadraditos)
+      const P4 = +(48 / r).toFixed(3), round = (bm) => {
+        const c = document.createElement("canvas"); c.width = c.height = 48; const g = c.getContext("2d");
+        for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) if (lit(bm, x, y)) { g.beginPath(); g.arc(x * 4 + 2, y * 4 + 2, 1.35, 0, 6.2832); g.fill(); }
+        return `url(${c.toDataURL()})`;
+      };
+      for (const [k, , f] of bits) if (k === "play" || k === "pause")
+        pc += `.transport .main > .ph-fill.ph-${k}::before{width:${P4}px;height:${P4}px;margin:calc((1em - ${P4}px) / 2);`
+          + `-webkit-mask-size:${P4}px;mask-size:${P4}px;-webkit-mask-image:${round(f)};mask-image:${round(f)}}`;
     }
     st.textContent = base + pc;
     // zoom del navegador o ventana movida a otra pantalla: cambia la densidad -> se redibuja
@@ -726,6 +736,55 @@
   .seekrow:hover #seek::-webkit-slider-thumb, #seek:active::-webkit-slider-thumb,
   .vol-row:hover #vol::-webkit-slider-thumb { width: 13px; height: 13px; }
   input[type=range]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+  .vol-max, #pMore { display: none; }
+  /* ---------- PC: barra de reproduccion como Apple Music ----------
+     transporte a la izquierda (play sin circulo), en el centro la "pantalla" con portada, titulo y una barra de
+     progreso fina, a la derecha los botones y el volumen con un altavoz a cada lado. Aleatorio, repetir, playlist,
+     temporizador y DJ pasan al menu "..." (tambien en la letra a pantalla completa) */
+  @media (min-width: 821px) {
+    #shuffle, #repeat, #addpl, #sleep, #djBtn { display: none !important; }
+    #pMore { display: grid; }
+    #pMore.on { color: var(--accent); }   /* aleatorio / repetir / temporizador / DJ activos */
+    .transport .main { width: auto; height: auto; padding: 2px 6px; border-radius: 0; background: none; box-shadow: none;
+                       color: var(--text); font-size: 2.1rem; }
+    .transport .main:hover { color: var(--text); transform: scale(1.06); }
+    .transport .nav-btn { font-size: 1.55rem; }
+    /* progreso y volumen: barra fina neutra (sin color de acento), sin bolita; engorda al pasar el raton */
+    #seek, #vol { height: 4px; background-color: rgb(255 255 255 / .16);
+                  background-image: linear-gradient(rgb(255 255 255 / .62), rgb(255 255 255 / .62)); }
+    #seek:hover, #seek:active, #vol:hover, #vol:active { height: 6px; background-image: linear-gradient(rgb(255 255 255 / .9), rgb(255 255 255 / .9)); }
+    #player input[type=range]::-webkit-slider-thumb { width: 0 !important; height: 0 !important; }
+    .vol-row { gap: 9px; }
+    .vol-row i { font-size: .95rem; color: rgb(255 255 255 / .55); }
+    .vol-max { display: inline; cursor: default; }
+    body:not(.lyr-full) #player { padding: 10px 16px; }
+    body:not(.lyr-full) #player .controls { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
+                                            column-gap: 20px; row-gap: 0; align-items: stretch; }
+    body:not(.lyr-full) #player .center { display: contents; }
+    body:not(.lyr-full) #player .transport { grid-column: 1; grid-row: 1 / 3; gap: 16px; align-self: center; padding-left: 4px; }
+    /* la "pantalla" (dos piezas con el mismo fondo: arriba la cancion, abajo el progreso) */
+    body:not(.lyr-full) #player .now { grid-column: 2; grid-row: 1; gap: 12px; padding: 7px 14px 3px 7px; min-width: 0;
+      background: rgb(255 255 255 / .055); border: 1px solid rgb(255 255 255 / .08); border-bottom: 0; border-radius: 11px 11px 0 0; }
+    body:not(.lyr-full) #player .now img { width: 40px; height: 40px; border-radius: 6px; box-shadow: none; }
+    body:not(.lyr-full) #player .now .meta { flex: 1; min-width: 0; text-align: center; }
+    body:not(.lyr-full) #player .now .t { font-size: .86rem; } body:not(.lyr-full) #player .now .a { font-size: .78rem; }
+    body:not(.lyr-full) #player .seekrow { grid-column: 2; grid-row: 2; gap: 8px; padding: 2px 12px 6px;
+      background: rgb(255 255 255 / .055); border: 1px solid rgb(255 255 255 / .08); border-top: 0; border-radius: 0 0 11px 11px; }
+    body:not(.lyr-full) #player .seekrow time { font-size: .64rem; width: 30px; opacity: 0; transition: opacity .15s; }
+    body:not(.lyr-full) #player:hover .seekrow time { opacity: 1; }   /* tiempos al pasar el raton, como Apple Music */
+    body:not(.lyr-full) #player .right { grid-column: 3; grid-row: 1 / 3; flex-direction: row-reverse; align-items: center; gap: 16px; }
+    body:not(.lyr-full) #player .right-icons { gap: 4px; }
+    body:not(.lyr-full) #player #vol { width: 92px; }
+  }
+  @media (min-width: 821px) and (max-width: 1100px) {
+    body:not(.lyr-full) #player .controls { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
+    body:not(.lyr-full) #player .transport { gap: 8px; }
+    body:not(.lyr-full) #player .right { gap: 8px; }
+    body:not(.lyr-full) #player #vol { width: 60px; }
+  }
+  @media (min-width: 821px) and (max-width: 980px) {   /* muy estrecha: solo el altavoz (clic = silenciar), sin barra */
+    body:not(.lyr-full) #player #vol, body:not(.lyr-full) #player .vol-max { display: none; }
+  }
 
   /* ---------- paneles deslizantes derecha (lyrics + cola), bajo el reproductor ---------- */
   .sidepanel {
@@ -958,9 +1017,8 @@
     body.lyr-full .lside #player .transport .iconbtn:not(.main):hover { color: #fff; }
     body.lyr-full .lside #player .transport .iconbtn.on { color: var(--accent); }
     body.lyr-full .lside #player .transport .nav-btn { font-size: 1.75rem; }
-    body.lyr-full .lside #player .transport .main { width: 62px; height: 62px; font-size: 1.65rem; background: #fff; color: #0b0b10;
-      box-shadow: 0 10px 30px rgb(0 0 0 / .35), 0 0 0 6px rgb(255 255 255 / .06); }
-    body.lyr-full .lside #player .transport .main:hover { transform: scale(1.05); color: #0b0b10; }
+    body.lyr-full .lside #player .transport .main { width: auto; height: auto; font-size: 2.9rem; background: none; color: #fff; box-shadow: none; }
+    body.lyr-full .lside #player .transport .main:hover { transform: scale(1.05); color: #fff; }
     body.lyr-full .lside #player .right { flex-direction: row-reverse; justify-content: space-between; align-items: center;
       width: 100%; padding: 8px 4px 0; border-top: 1px solid rgb(255 255 255 / .08); }
     body.lyr-full .lside #player .right-icons { gap: 2px; }
@@ -2176,10 +2234,12 @@
         <button id="lyricsBtn" class="iconbtn" aria-label="Letra"><i class="ph ph-chat-centered-text"></i></button>
         <button id="queueBtn" class="iconbtn" aria-label="Cola"><i class="ph ph-list-bullets"></i></button>
         <button id="sleep" class="iconbtn" aria-label="Temporizador"><i class="ph ph-moon"></i></button>
+        <button id="pMore" class="iconbtn pmore" aria-label="Más opciones"><i class="ph ph-dots-three-outline"></i></button>
       </div>
       <div class="vol-row" id="volRow">
         <i id="muteBtn" class="ph ph-speaker-high" role="button" aria-label="Silenciar"></i>
         <input id="vol" type="range" min="0" max="100" value="100" aria-label="Volumen">
+        <i class="ph ph-speaker-high vol-max" aria-hidden="true"></i>
       </div>
     </div>
   </div>
@@ -6747,18 +6807,20 @@ const NPH = (() => {
   }, { passive: true });
 })();
 ["lyricsClose", "queueClose"].forEach(id => $(id).addEventListener("click", () => setTimeout(syncNp)));
-// "..." junto a Me gusta: todo lo que ya no esta a la vista (aleatorio, repetir, playlist, temporizador, DJ, ir a...)
-$("npMore").onclick = (e) => {
+// menu "...": todo lo que ya no esta a la vista (aleatorio, repetir, playlist, temporizador, DJ, ir a...). Lo usan el
+// "..." de la vista Reproduciendo del movil y el de la barra del PC (tambien en la letra a pantalla completa)
+function moreMenu(btn, e) {
   e.stopPropagation();   // sin esto el click global cierra el menu recien abierto
   if (!current) return;
-  const btn = $("npMore"), r = btn.getBoundingClientRect(), s = current;
+  const r = btn.getBoundingClientRect(), s = current;
   const rep = { off: "Repetir: desactivado", all: "Repetir: todo", one: "Repetir: esta canción" }[repeat] || "Repetir";
-  const go = (fn) => () => { requestCloseNp(); setTimeout(fn, 60); };
+  // "ir a..." sale de la vista completa del movil o de la letra a pantalla completa
+  const go = (fn) => () => { if (npOpen) requestCloseNp(); if (document.body.classList.contains("lyr-full")) $("lyricsClose").click(); setTimeout(fn, 60); };
   const art = (s.artists || []).find(a => a.id);
+  const up = (m) => { m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
+                      m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px"; };   // hacia arriba desde el boton
   const opts = [
-    ["ph-list-plus", "Añadir a playlist", () => { openPlPicker(s, r.left, r.top, null);
-      const m = $("ctxmenu"); m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
-      m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px"; }],
+    ["ph-list-plus", "Añadir a playlist", () => { openPlPicker(s, r.left, r.top, null); up($("ctxmenu")); }],
     ["ph-shuffle", shuffle ? "Aleatorio: activado" : "Aleatorio: desactivado", () => { setShuffle(!shuffle); syncNp(); }],
     [repeat === "one" ? "ph-repeat-once" : "ph-repeat", rep, () => { $("repeat").click(); syncNp(); }],
     ["ph-moon", sleepActive() ? "Temporizador (activo)" : "Temporizador", openSleepSheet],
@@ -6767,10 +6829,15 @@ $("npMore").onclick = (e) => {
   if (art) opts.push(["ph-user", "Ir al artista", go(() => openArtist(art.id, true, { title: art.name }))]);
   if (s.album && s.album.id) opts.push(["ph-image", "Ir al álbum", go(() => openCollection(s.album.id, true, { kind: "album", title: s.album.name }))]);
   showMenu(opts, r.right - 230, r.top);
-  const m = $("ctxmenu");   // se abre hacia arriba desde el boton (abajo esta el reproductor)
-  m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
-  m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";
-};
+  up($("ctxmenu"));
+}
+$("npMore").onclick = (e) => moreMenu($("npMore"), e);
+$("pMore").onclick = (e) => moreMenu($("pMore"), e);
+// el "..." del PC se pinta de acento si hay algo activo que ya no se ve (aleatorio, repetir, temporizador, DJ)
+function syncMoreDot() {
+  $("pMore").classList.toggle("on", !!(shuffle || repeat !== "off" || sleepActive() || (window.DJ && DJ.on)));
+}
+setInterval(syncMoreDot, 1500);
 $("npAddpl").onclick = (e) => {
   e.stopPropagation();
   if (!current) return;

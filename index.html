@@ -736,11 +736,10 @@
   .seekrow:hover #seek::-webkit-slider-thumb, #seek:active::-webkit-slider-thumb,
   .vol-row:hover #vol::-webkit-slider-thumb { width: 13px; height: 13px; }
   input[type=range]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
-  .vol-max, #pMore { display: none; }
-  /* ---------- PC: barra de reproduccion como Apple Music ----------
-     transporte a la izquierda (play sin circulo), en el centro la "pantalla" con portada, titulo y una barra de
-     progreso fina, a la derecha los botones y el volumen con un altavoz a cada lado. Aleatorio, repetir, playlist,
-     temporizador y DJ pasan al menu "..." (tambien en la letra a pantalla completa) */
+  #pMore { display: none; }
+  /* ---------- PC: misma barra de siempre con el toque de Apple Music ----------
+     play sin circulo, progreso y volumen finos y neutros. Aleatorio, repetir, playlist, temporizador y DJ pasan al
+     menu "..." (tambien en la letra a pantalla completa) */
   @media (min-width: 821px) {
     #shuffle, #repeat, #addpl, #sleep, #djBtn { display: none !important; }
     #pMore { display: grid; }
@@ -754,36 +753,6 @@
                   background-image: linear-gradient(rgb(255 255 255 / .62), rgb(255 255 255 / .62)); }
     #seek:hover, #seek:active, #vol:hover, #vol:active { height: 6px; background-image: linear-gradient(rgb(255 255 255 / .9), rgb(255 255 255 / .9)); }
     #player input[type=range]::-webkit-slider-thumb { width: 0 !important; height: 0 !important; }
-    .vol-row { gap: 9px; }
-    .vol-row i { font-size: .95rem; color: rgb(255 255 255 / .55); }
-    .vol-max { display: inline; cursor: default; }
-    body:not(.lyr-full) #player { padding: 10px 16px; }
-    body:not(.lyr-full) #player .controls { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
-                                            column-gap: 20px; row-gap: 0; align-items: stretch; }
-    body:not(.lyr-full) #player .center { display: contents; }
-    body:not(.lyr-full) #player .transport { grid-column: 1; grid-row: 1 / 3; gap: 16px; align-self: center; padding-left: 4px; }
-    /* la "pantalla" (dos piezas con el mismo fondo: arriba la cancion, abajo el progreso) */
-    body:not(.lyr-full) #player .now { grid-column: 2; grid-row: 1; gap: 12px; padding: 7px 14px 3px 7px; min-width: 0;
-      background: rgb(255 255 255 / .055); border: 1px solid rgb(255 255 255 / .08); border-bottom: 0; border-radius: 11px 11px 0 0; }
-    body:not(.lyr-full) #player .now img { width: 40px; height: 40px; border-radius: 6px; box-shadow: none; }
-    body:not(.lyr-full) #player .now .meta { flex: 1; min-width: 0; text-align: center; }
-    body:not(.lyr-full) #player .now .t { font-size: .86rem; } body:not(.lyr-full) #player .now .a { font-size: .78rem; }
-    body:not(.lyr-full) #player .seekrow { grid-column: 2; grid-row: 2; gap: 8px; padding: 2px 12px 6px;
-      background: rgb(255 255 255 / .055); border: 1px solid rgb(255 255 255 / .08); border-top: 0; border-radius: 0 0 11px 11px; }
-    body:not(.lyr-full) #player .seekrow time { font-size: .64rem; width: 30px; opacity: 0; transition: opacity .15s; }
-    body:not(.lyr-full) #player:hover .seekrow time { opacity: 1; }   /* tiempos al pasar el raton, como Apple Music */
-    body:not(.lyr-full) #player .right { grid-column: 3; grid-row: 1 / 3; flex-direction: row-reverse; align-items: center; gap: 16px; }
-    body:not(.lyr-full) #player .right-icons { gap: 4px; }
-    body:not(.lyr-full) #player #vol { width: 92px; }
-  }
-  @media (min-width: 821px) and (max-width: 1100px) {
-    body:not(.lyr-full) #player .controls { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
-    body:not(.lyr-full) #player .transport { gap: 8px; }
-    body:not(.lyr-full) #player .right { gap: 8px; }
-    body:not(.lyr-full) #player #vol { width: 60px; }
-  }
-  @media (min-width: 821px) and (max-width: 980px) {   /* muy estrecha: solo el altavoz (clic = silenciar), sin barra */
-    body:not(.lyr-full) #player #vol, body:not(.lyr-full) #player .vol-max { display: none; }
   }
 
   /* ---------- paneles deslizantes derecha (lyrics + cola), bajo el reproductor ---------- */
@@ -2239,7 +2208,6 @@
       <div class="vol-row" id="volRow">
         <i id="muteBtn" class="ph ph-speaker-high" role="button" aria-label="Silenciar"></i>
         <input id="vol" type="range" min="0" max="100" value="100" aria-label="Volumen">
-        <i class="ph ph-speaker-high vol-max" aria-hidden="true"></i>
       </div>
     </div>
   </div>

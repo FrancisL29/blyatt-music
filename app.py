@@ -3208,7 +3208,7 @@ def spot_login():
 def spot_callback(code, state):
     global _spot_tok, _spot_exp, _spot_rt
     if not code or state != _spot_pkce.get("state"):
-        return False, "Estado OAuth inválido: reintenta desde Blyatt"
+        return False, "Estado OAuth inválido: reintenta desde Wave"
     try:
         d = _spot_token_post({"grant_type": "authorization_code", "code": code,
                               "redirect_uri": SPOT_REDIRECT, "client_id": _spot_cid,
@@ -4311,7 +4311,7 @@ class H(BaseHTTPRequestHandler):
                     return self._json(auth_status())
                 if u.path == "/auth/weblogin":
                     if not WEBLOGIN:
-                        return self._json({"error": "Solo disponible en la app de escritorio (Blyatt.bat / py main.py)"})
+                        return self._json({"error": "Solo disponible en la app de escritorio de Wave"})
                     WEBLOGIN(parse_qs(u.query).get("silent", ["0"])[0] == "1")
                     return self._json({"ok": True})
                 if u.path == "/auth/logout":
@@ -4361,7 +4361,7 @@ class H(BaseHTTPRequestHandler):
                         ok, err = spot_callback(g("code"), g("state"))
                         page = ("<html><body style='font-family:sans-serif;background:#0b0b0f;color:#eee;"
                                 "display:grid;place-items:center;height:100vh'><div style='text-align:center'>"
-                                + ("<h2>Spotify conectado</h2><p>Vuelve a Blyatt, esta pestaña ya puede cerrarse.</p>"
+                                + ("<h2>Spotify conectado</h2><p>Vuelve a Wave, esta pestaña ya puede cerrarse.</p>"
                                    if ok else "<h2>Error</h2><p>%s</p>" % err)
                                 + "</div></body></html>").encode("utf-8")
                         self.send_response(200)

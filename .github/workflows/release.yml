@@ -71,9 +71,9 @@ jobs:
         run: |
           $v = "${{ steps.ver.outputs.version }}"
           $exe = "build\installer\Blyatt-Setup-$v.exe"
-          $notes = "Instalador: descarga **Blyatt-Setup-$v.exe** y ábrelo. Si ya tienes Blyatt, se actualiza solo.`n`nyt-dlp ${{ steps.ver.outputs.ytdlp }}"
+          $notes = "Instalador: descarga **Blyatt-Setup-$v.exe** y ábrelo. Si ya tienes Wave (antes Blyatt), se actualiza solo.`n`nyt-dlp ${{ steps.ver.outputs.ytdlp }}"
           if ("${{ github.ref_type }}" -eq "tag") {
-            gh release create "v$v" $exe --title "Blyatt $v" --notes "$notes" --generate-notes --verify-tag
+            gh release create "v$v" $exe --title "Wave $v" --notes "$notes" --generate-notes --verify-tag
           } else {
-            gh release create "v$v" $exe --title "Blyatt $v" --notes "Actualización automática (yt-dlp al día).`n`n$notes" --target "${{ github.sha }}"
+            gh release create "v$v" $exe --title "Wave $v" --notes "Actualización automática (yt-dlp al día).`n`n$notes" --target "${{ github.sha }}"
           }

@@ -123,7 +123,7 @@ def spotify_login():
 def connect_login():
     # Dispositivos: el hub vive en el server publico (Cloudflare Access). Una vez por mes aprox.: el usuario
     # entra con su codigo de email en esta ventana y se guarda la cookie CF_Authorization para el relay.
-    w = webview.create_window("Conectar esta PC con Blyatt", app.CONNECT_REMOTE + "/", width=520, height=760)
+    w = webview.create_window("Conectar esta PC con Wave", app.CONNECT_REMOTE + "/", width=520, height=760)
 
     def poll():
         for _ in range(450):   # 15 min max
@@ -146,7 +146,7 @@ def connect_login():
 
 def _msgbox(text):
     try:
-        ctypes.windll.user32.MessageBoxW(None, text, "Blyatt", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, text, "Wave", 0x40)
     except Exception:
         pass
 
@@ -343,9 +343,9 @@ def _make_tray():   # hilo de WinForms
     from System.Windows.Forms import ContextMenuStrip, MouseButtons, NotifyIcon, ToolStripSeparator
     ni = NotifyIcon()
     ni.Icon = Icon(os.path.join(app.BASE, "assets", "blyatt.ico"))
-    ni.Text = "Blyatt"
+    ni.Text = "Wave"
     menu = ContextMenuStrip()
-    for label, fn in (("Abrir Blyatt", _show), ("Reproducir / pausar", lambda: _js("play")),
+    for label, fn in (("Abrir Wave", _show), ("Reproducir / pausar", lambda: _js("play")),
                       ("Siguiente", lambda: _js("next")), ("Anterior", lambda: _js("prev")), (None, None),
                       ("Salir", _quit)):
         if not label:
@@ -382,7 +382,7 @@ def _on_closing():   # hilo de WinForms; devolver False cancela el cierre
         threading.Thread(target=main_win.hide, daemon=True).start()   # sigue sonando en la bandeja
         if _tray and not _tray[1:]:   # la primera vez, se avisa donde quedo
             from System.Windows.Forms import ToolTipIcon
-            _tray[0].ShowBalloonTip(4000, "Blyatt sigue aquí", "La música sigue sonando. Clic derecho en el icono → Salir para cerrarlo.", ToolTipIcon.Info)
+            _tray[0].ShowBalloonTip(4000, "Wave sigue aquí", "La música sigue sonando. Clic derecho en el icono → Salir para cerrarlo.", ToolTipIcon.Info)
             _tray.append(True)
         return False
     _APP_CLOSING.set()
@@ -396,7 +396,7 @@ def _frozen_setup():
     # el instalador espera a que este mutex desaparezca antes de reemplazar archivos (actualizaciones)
     globals()["_MUTEX"] = k32.CreateMutexW(None, False, "BlyattAppMutex")
     if ctypes.get_last_error() == 183:   # ERROR_ALREADY_EXISTS
-        _msgbox("Blyatt ya está abierto.")
+        _msgbox("Wave ya está abierto.")
         os._exit(0)
     # sin consola sys.stdout/err son None (yt-dlp y http.server escriben ahi): a un log por sesion
     import sys
@@ -445,13 +445,14 @@ if __name__ == "__main__":
     try:
         httpd = serve(PORT)
     except OSError:
-        _msgbox("No se pudo abrir el puerto %d: ¿hay otra copia de Blyatt abierta?" % PORT)
+        _msgbox("No se pudo abrir el puerto %d: ¿hay otra copia de Wave abierta?" % PORT)
         os._exit(1)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     # abierta por Windows con "Iniciar minimizado": en la bandeja si esta activa, si no minimizada
     st = app.settings()
     quiet = "--autostart" in sys.argv and st["start_min"]
-    main_win = webview.create_window("Blyatt", f"http://127.0.0.1:{PORT}", width=1200, height=800, min_size=(900, 600),
+    main_win = webview.create_window("Wave", f"http://127.0.0.1:{PORT}", width=1200, height=800, min_size=(900, 600),
+                                     background_color="#07090C",   # el de la pantalla de carga: sin destello blanco
                                      hidden=quiet and st["tray"], minimized=quiet and not st["tray"])
     # al cerrar la ventana principal, avisa a los polls de login para que cierren sus ventanas
     # (si no, una ventana de login abierta mantiene webview.start() vivo = proceso zombie)

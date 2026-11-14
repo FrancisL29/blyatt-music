@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#100F0D</color>
+    <color name="ic_launcher_background">#0B0F14</color>
+    <!-- fondo del splash = el de la pantalla de carga de la web: el paso de una a otra no se nota -->
+    <color name="splash_bg">#07090C</color>
 </resources>

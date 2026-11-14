@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0b0f">
+<meta name="theme-color" content="#07090c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Blyatt">
+<meta name="apple-mobile-web-app-title" content="Wave">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/assets/manifest.json">
 <link rel="icon" type="image/png" href="/assets/favicon.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<title>Blyatt</title>
+<title>Wave</title>
 <link rel="stylesheet" href="/assets/phosphor/regular/style.css">
 <link rel="stylesheet" href="/assets/phosphor/fill/style.css">
 <script>
 /* Iconos de puntos (estilo Nothing): cada icono ph-* se pinta como una matriz de puntos 12x12, con la configuracion
-   elegida en el laboratorio "Blyatt Dot Icons" (circulos de 0.70, separacion 1). El HTML y el JS siguen usando las
+   elegida en el laboratorio "Wave Dot Icons" (circulos de 0.70, separacion 1). El HTML y el JS siguen usando las
    clases de Phosphor: aqui solo se cambia el dibujo de cada clase (mascara SVG coloreada con currentColor).
    Mapas de bits en hex: 12 filas x 3 cifras. Los "ph-fill" se rellenan solos: todo lo que el exterior no alcanza.
    Los logos de marca (Spotify, Google, YouTube...) siguen siendo los de Phosphor.
@@ -165,16 +165,20 @@
     transition: padding .22s ease; }
   .brand .bolt {
     position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
-    background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
-    color: var(--accent-ink, #fff); font-size: 1.25rem; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
-    transition: background .5s, box-shadow .5s;
+    background: #0b0f14; color: #f2f5f8; font-size: 1.25rem; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .08);
   }
-  .brand .bolt i, .brand .bolt img { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity .15s; }
+  .brand .bolt .blt-logo svg { width: 82%; height: 82%; display: block; }
+  /* nombre: Doto con los puntos redondos (eje ROND), como la tipografia del Nothing Phone */
+  @font-face { font-family: "Doto"; src: url("/assets/fonts/doto.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  .wordmark { font-family: "Doto", var(--font, system-ui), sans-serif; font-variation-settings: "ROND" 100; font-weight: 800;
+              letter-spacing: 0; text-transform: lowercase; }
+  .brand span.wordmark { font-weight: 800; font-size: 1.5rem; letter-spacing: 0; line-height: 1; }
+  .brand .bolt i, .brand .bolt img, .brand .bolt .blt-logo { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity .15s; }
   .brand .bolt img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
   .brand .blt-toggle { opacity: 0; }
   .brand:hover .blt-logo { opacity: 0; }
   .brand:hover .blt-toggle { opacity: 1; }
-  .brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
+  .brand > span { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; }
   /* biblioteca: Me gusta fija + guardados (artistas/albumes/playlists) */
   .lib-head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 8px; color: var(--muted);
     font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
@@ -204,8 +208,8 @@
      (sin display:none ni justify-content: eso hacia saltar los iconos); textos hacen fade */
   body { transition: grid-template-columns .22s ease; }
   body.sb-collapsed { --sb-w: 96px; }   /* 76 de tarjeta + 20 de margenes */
-  .brand span, .nav-item > span:not(.lib-cov), .gh-link span, .lib-head span, .lib-meta { transition: opacity .15s ease; }
-  body.sb-collapsed .brand span,
+  .brand > span, .nav-item > span:not(.lib-cov), .gh-link span, .lib-head span, .lib-meta { transition: opacity .15s ease; }
+  body.sb-collapsed .brand > span,
   body.sb-collapsed .nav-item > span:not(.lib-cov),   /* NO ocultar .lib-cov: es la caratula/corazon de los items de biblioteca */
   body.sb-collapsed .gh-link span:not(.ucov),   /* .ucov = avatar del user-chip, visible colapsado */
   body.sb-collapsed .lib-head span,
@@ -1826,14 +1830,83 @@
 </style>
 </head>
 <body>
+<!-- pantalla de carga: el logo de Wave en movimiento (la onda que se abre desde la gota), igual que en el
+     laboratorio del logo. Se dibuja en cuanto llega el HTML y se va al estar la app lista (carga + sesion) -->
+<div id="boot" aria-hidden="true"><canvas></canvas></div>
+<style>
+  #boot { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; background: #07090c;
+          transition: opacity .55s ease; }
+  #boot canvas { width: 150px; height: 150px; transition: transform .7s cubic-bezier(.2,.7,.2,1), filter .6s ease; }
+  #boot.out { opacity: 0; pointer-events: none; }
+  #boot.out canvas { transform: scale(1.35); filter: blur(6px); }   /* la onda se disuelve hacia fuera */
+</style>
+<script>
+(() => {
+  const P = {"rings": 3, "gap0": 1.3, "growth": 1, "spacing": 9, "dot": 3, "falloff": 0.45, "opFall": 0.7, "center": 0, "stagger": 1, "twist": 0, "arc": 360, "arcRot": 0, "crest": 0.7, "wavelen": 1.5, "wobble": 0.07, "lobes": 5, "sym": 0, "fg": "#f2f5f8", "bg": "#07090c"};
+  // misma geometria que el laboratorio (anillos de puntos; crestas y ondulacion avanzan con la fase)
+  function dots(p, ph) {
+    const out = [], C = 50, R = 46, N = Math.round(p.rings), raw = []; let r = p.gap0;
+    for (let i = 0; i < N; i++) { raw.push(r); r += Math.pow(p.growth, i); }
+    const wave = i => .5 + .5 * Math.cos(2 * Math.PI * (i / p.wavelen - ph));
+    const k = (R - p.dot * (1 + p.wobble * 2)) / raw[N - 1];
+    const arc = p.arc * Math.PI / 180, full = p.arc >= 359.5;
+    const a0 = (p.arcRot - 90) * Math.PI / 180 - (full ? 0 : arc / 2);
+    for (let i = 0; i < N; i++) {
+      const ri = raw[i] * k, t = N > 1 ? i / (N - 1) : 0;
+      let s = p.dot * (1 - p.falloff * t), op = 1 - p.opFall * t;
+      if (p.crest > 0) { const w = wave(i); s *= 1 - p.crest * (1 - w); op *= 1 - p.crest * .45 * (1 - w); }
+      if (s < .05 || op < .02) continue;
+      let n = Math.max(3, Math.round(ri * arc / p.spacing));
+      if (p.sym > 0) n = Math.max(p.sym, Math.round(n / p.sym) * p.sym);
+      const off = full ? (i % 2) * p.stagger * .5 : 0, tw = i * p.twist * Math.PI / 180, cnt = full ? n : n + 1;
+      for (let j = 0; j < cnt; j++) {
+        const th = a0 + tw + (j + off) * arc / n;
+        const rr = ri * (1 + p.wobble * Math.sin(p.lobes * th + i * .9 + ph * 2 * Math.PI));
+        out.push([C + rr * Math.cos(th), C + rr * Math.sin(th), s, op]);
+      }
+    }
+    if (p.center > 0) out.push([C, C, p.center * (p.crest > 0 ? 1 - p.crest * .35 * (.5 - .5 * Math.cos(2 * Math.PI * ph)) : 1), 1]);
+    return out;
+  }
+  const el = document.getElementById("boot"), cv = el.querySelector("canvas"), ctx = cv.getContext("2d");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let ph = 0, last = 0, raf = 0, done = false;
+  function draw() {
+    const px = Math.round(150 * Math.min(devicePixelRatio || 1, 3));
+    if (cv.width !== px) cv.width = cv.height = px;
+    const k = px / 100;
+    ctx.clearRect(0, 0, px, px); ctx.fillStyle = P.fg;
+    for (const [x, y, r, o] of dots(P, ph)) { ctx.globalAlpha = o; ctx.beginPath(); ctx.arc(x * k, y * k, r * k, 0, 6.2832); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
+  function frame(t) {
+    const dt = last ? Math.min(.05, (t - last) / 1000) : 0; last = t;
+    ph = (ph + dt * .45) % 1; draw();
+    if (!done || el.isConnected) raf = requestAnimationFrame(frame);
+  }
+  draw(); if (!still) raf = requestAnimationFrame(frame);
+  // se va cuando la pagina esta montada y la sesion respondio (o a los 7 s), y nunca antes de 1,4 s: sin parpadeo
+  const t0 = performance.now(), need = new Set(["dom", "auth"]);
+  function finish() {
+    if (done) return; done = true;
+    setTimeout(() => {
+      el.classList.add("out");
+      setTimeout(() => { cancelAnimationFrame(raf); el.remove(); }, 750);
+    }, Math.max(0, 1400 - (performance.now() - t0)));
+  }
+  window.bootReady = (key) => { need.delete(key); if (!need.size) finish(); };
+  document.addEventListener("DOMContentLoaded", () => window.bootReady("dom"));   // no "load": esperaria a todas las portadas
+  setTimeout(finish, 7000);
+})();
+</script>
 <div id="bg"><canvas width="48" height="48"></canvas><canvas width="48" height="48"></canvas></div>
 <div id="abg"><div class="lo"></div><div class="hi"></div></div>
 <div id="hbg"></div>
 
 <aside>
   <button class="brand" id="sbToggle" aria-label="Contraer barra lateral">
-    <div class="bolt"><img class="blt-logo" src="/assets/blyatt_logo.png" alt="Blyatt"><i class="ph ph-sidebar-simple blt-toggle"></i></div>
-    <span>Blyatt</span>
+    <div class="bolt"><span class="blt-logo"><svg class="wave-logo" viewBox="0 0 100 100" aria-hidden="true"><g fill="currentColor"><circle cx="50" cy="34.4" r="3"/><circle cx="58.9" cy="34.59" r="3"/><circle cx="64.02" cy="41.91" r="3"/><circle cx="66.77" cy="50" r="3"/><circle cx="65.04" cy="58.68" r="3"/><circle cx="57.88" cy="63.65" r="3"/><circle cx="50" cy="67.95" r="3"/><circle cx="42.12" cy="63.65" r="3"/><circle cx="34.96" cy="58.68" r="3"/><circle cx="33.23" cy="50" r="3"/><circle cx="35.98" cy="41.91" r="3"/><circle cx="41.1" cy="34.59" r="3"/><circle cx="54.45" cy="20.5" r="1.1" fill-opacity="0.5"/><circle cx="63.78" cy="21.39" r="1.1" fill-opacity="0.5"/><circle cx="70.29" cy="28.14" r="1.1" fill-opacity="0.5"/><circle cx="73.92" cy="36.19" r="1.1" fill-opacity="0.5"/><circle cx="78.49" cy="43.5" r="1.1" fill-opacity="0.5"/><circle cx="81.57" cy="52.37" r="1.1" fill-opacity="0.5"/><circle cx="78.33" cy="61.12" r="1.1" fill-opacity="0.5"/><circle cx="71.74" cy="67.33" r="1.1" fill-opacity="0.5"/><circle cx="66.13" cy="73.67" r="1.1" fill-opacity="0.5"/><circle cx="59.25" cy="80" r="1.1" fill-opacity="0.5"/><circle cx="50" cy="80.97" r="1.1" fill-opacity="0.5"/><circle cx="41.7" cy="76.9" r="1.1" fill-opacity="0.5"/><circle cx="34.14" cy="73.26" r="1.1" fill-opacity="0.5"/><circle cx="25.78" cy="69.31" r="1.1" fill-opacity="0.5"/><circle cx="20.78" cy="61.47" r="1.1" fill-opacity="0.5"/><circle cx="21.45" cy="52.14" r="1.1" fill-opacity="0.5"/><circle cx="22.89" cy="43.81" r="1.1" fill-opacity="0.5"/><circle cx="23.64" cy="34.78" r="1.1" fill-opacity="0.5"/><circle cx="28.47" cy="26.79" r="1.1" fill-opacity="0.5"/><circle cx="37.33" cy="23.68" r="1.1" fill-opacity="0.5"/><circle cx="45.88" cy="22.68" r="1.1" fill-opacity="0.5"/><circle cx="50" cy="6.74" r="0.78" fill-opacity="0.23"/><circle cx="59.45" cy="5.56" r="0.78" fill-opacity="0.23"/><circle cx="68.2" cy="9.11" r="0.78" fill-opacity="0.23"/><circle cx="74.63" cy="16.1" r="0.78" fill-opacity="0.23"/><circle cx="79.52" cy="23.42" r="0.78" fill-opacity="0.23"/><circle cx="84.99" cy="29.8" r="0.78" fill-opacity="0.23"/><circle cx="91.14" cy="36.63" r="0.78" fill-opacity="0.23"/><circle cx="95.18" cy="45.25" r="0.78" fill-opacity="0.23"/><circle cx="94.51" cy="54.68" r="0.78" fill-opacity="0.23"/><circle cx="89.85" cy="62.95" r="0.78" fill-opacity="0.23"/><circle cx="84.41" cy="69.86" r="0.78" fill-opacity="0.23"/><circle cx="80.03" cy="77.04" r="0.78" fill-opacity="0.23"/><circle cx="75.43" cy="85" r="0.78" fill-opacity="0.23"/><circle cx="68.48" cy="91.5" r="0.78" fill-opacity="0.23"/><circle cx="59.31" cy="93.78" r="0.78" fill-opacity="0.23"/><circle cx="50" cy="91.9" r="0.78" fill-opacity="0.23"/><circle cx="41.74" cy="88.86" r="0.78" fill-opacity="0.23"/><circle cx="33.57" cy="86.91" r="0.78" fill-opacity="0.23"/><circle cx="24.57" cy="85" r="0.78" fill-opacity="0.23"/><circle cx="16.24" cy="80.4" r="0.78" fill-opacity="0.23"/><circle cx="11.24" cy="72.38" r="0.78" fill-opacity="0.23"/><circle cx="10.15" cy="62.95" r="0.78" fill-opacity="0.23"/><circle cx="10.49" cy="54.15" r="0.78" fill-opacity="0.23"/><circle cx="9.82" cy="45.78" r="0.78" fill-opacity="0.23"/><circle cx="8.86" cy="36.63" r="0.78" fill-opacity="0.23"/><circle cx="10.65" cy="27.28" r="0.78" fill-opacity="0.23"/><circle cx="16.74" cy="20.05" r="0.78" fill-opacity="0.23"/><circle cx="25.37" cy="16.1" r="0.78" fill-opacity="0.23"/><circle cx="33.84" cy="13.71" r="0.78" fill-opacity="0.23"/><circle cx="41.6" cy="10.48" r="0.78" fill-opacity="0.23"/></g></svg></span><i class="ph ph-sidebar-simple blt-toggle"></i></div>
+    <span class="wordmark">wave</span>
   </button>
   <nav>
     <button class="nav-item active" data-view="home"><i class="ph ph-house"></i> <span data-i18n>Inicio</span></button>
@@ -2170,16 +2243,16 @@
         <input class="sinp" id="setDevName" maxlength="40" autocomplete="off" aria-label="Nombre de este dispositivo" data-i18n-al>
       </div>
       <div class="srow"><i class="ph ph-arrows-left-right"></i>
-        <div class="stx"><div class="stt" data-i18n>Pasar la música aquí al abrir Blyatt</div>
+        <div class="stx"><div class="stt" data-i18n>Pasar la música aquí al abrir Wave</div>
           <div class="sds" data-i18n>Si suena en otro dispositivo, continúa en este.</div></div>
-        <label class="sw"><input type="checkbox" id="setAutoX" aria-label="Pasar la música aquí al abrir Blyatt" data-i18n-al><span></span></label>
+        <label class="sw"><input type="checkbox" id="setAutoX" aria-label="Pasar la música aquí al abrir Wave" data-i18n-al><span></span></label>
       </div>
     </div>
     <div class="sgrp" id="setDesk" hidden>
       <div class="sh" data-i18n>Escritorio</div>
       <div class="srow"><i class="ph ph-power"></i>
         <div class="stx"><div class="stt" data-i18n>Abrir al iniciar Windows</div>
-          <div class="sds" data-i18n>Blyatt se abre solo al encender la PC e iniciar sesión.</div></div>
+          <div class="sds" data-i18n>Wave se abre solo al encender la PC e iniciar sesión.</div></div>
         <label class="sw"><input type="checkbox" id="setAuto" aria-label="Abrir al iniciar Windows" data-i18n-al><span></span></label>
       </div>
       <div class="srow"><i class="ph ph-moon-stars"></i>
@@ -2194,7 +2267,7 @@
       </div>
       <div class="srow"><i class="ph ph-keyboard"></i>
         <div class="stx"><div class="stt" data-i18n>Atajos de teclado globales</div>
-          <div class="sds" data-i18n>Funcionan aunque Blyatt no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.</div></div>
+          <div class="sds" data-i18n>Funcionan aunque Wave no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.</div></div>
         <label class="sw"><input type="checkbox" id="setKeys" aria-label="Atajos de teclado globales" data-i18n-al><span></span></label>
       </div>
       <div class="srow"><i class="ph ph-arrow-circle-up"></i>
@@ -2258,8 +2331,8 @@
 
 <div id="gate" hidden role="dialog" aria-label="Iniciar sesión">
   <div class="gate-box">
-    <img class="gate-logo" src="/assets/blyatt_logo.png" alt="Blyatt">
-    <h1 data-i18n>Bienvenido a Blyatt</h1>
+    <img class="gate-logo" src="/assets/icon-512.png" alt="Wave">
+    <h1 data-i18n>Bienvenido a Wave</h1>
     <p data-i18n>Inicia sesión con tu cuenta de Google para cargar tu música: tus me gusta, playlists, álbumes y artistas de YouTube Music.</p>
     <button id="gateBtn" disabled><i class="ph ph-google-logo" id="gateIco"></i><span id="gateLbl" data-i18n>Comprobando sesión…</span></button>
     <button id="gateAlt" hidden data-i18n>Continuar sin cuenta</button>
@@ -2287,7 +2360,7 @@
       <div><h3 data-i18n>Conectar a un dispositivo</h3><p id="devStatus"></p></div>
     </div>
     <div class="bs-opts" id="devList"></div>
-    <p class="devnote" data-i18n>Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Blyatt abierto.</p>
+    <p class="devnote" data-i18n>Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.</p>
   </div>
 </div>
 
@@ -2362,7 +2435,7 @@ const EN = {
   "Reproduciendo ahora": "Now playing", "A continuación": "Up next", "Recomendaciones": "Recommendations",
   "Letra": "Lyrics", "Nueva playlist": "New playlist", "Configuración": "Settings",
   "Idioma": "Language", "Español": "Spanish", "Inglés": "English", "Más información": "More info",
-  "Nueva versión de Blyatt": "New version of Blyatt", "Reiniciar ahora": "Restart now",
+  "Nueva versión de Wave": "New version of Wave", "Reiniciar ahora": "Restart now",
   "No se encontró letra.": "No lyrics found.",
   "Reproduce una canción para ver su letra.": "Play a song to see its lyrics.", "Buscando letra…": "Looking for lyrics…",
   "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen", "Compuesta por": "Written by",
@@ -2400,11 +2473,11 @@ const EN = {
   "Cuentan la afinación y la letra: el máximo, solo cantándola entera.": "Pitch and lyrics count: the top score takes the whole song.",
   "Afinación al medio tono y justo a tiempo.": "Pitch within a semitone, right on time.",
   "No se encontró ningún micrófono en el PC.": "No microphone found on the PC.",
-  "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.":
-    "Version {v} is ready. If you don't restart now, it will install itself when you close Blyatt.",
+  "La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Wave.":
+    "Version {v} is ready. If you don't restart now, it will install itself when you close Wave.",
   "Buscar actualizaciones": "Check for updates", "Instalar actualización": "Install update",
   "Buscando actualizaciones…": "Checking for updates…", "Instalando actualización…": "Installing update…",
-  "No se pudo buscar actualizaciones": "Couldn't check for updates", "Blyatt está actualizado": "Blyatt is up to date",
+  "No se pudo buscar actualizaciones": "Couldn't check for updates", "Wave está actualizado": "Wave is up to date",
   "Cerrar sesión": "Sign out", "Iniciar sesión con Google": "Sign in with Google",
   "Configuración: próximamente": "Settings: coming soon", "Tu cuenta": "Your account",
   "Reconectar": "Reconnect", "Invitado": "Guest", "Conectar": "Connect",
@@ -2430,8 +2503,8 @@ const EN = {
   "Conectar esta PC con tus dispositivos": "Connect this PC with your devices",
   "PC conectada con tus dispositivos": "PC connected with your devices",
   "Para sincronizar esta PC con tu móvil (Dispositivos), conéctala una vez: te llegará un código a tu email.":
-    "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Blyatt": "Sign in in the Blyatt window",
-  "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Blyatt abierto.": "Devices signed in with your account show up here while Blyatt is open.",
+    "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Wave": "Sign in in the Wave window",
+  "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next",
   "Añadir a Me gusta": "Add to Liked", "Quitar de Me gusta": "Remove from Liked",
   "Añadir a la biblioteca": "Add to library", "Quitar de la biblioteca": "Remove from library",
@@ -2464,14 +2537,14 @@ const EN = {
   "Conectar con Spotify": "Connect to Spotify", "Conectar": "Connect",
   "Pega el Client ID de tu app de Spotify. Créala gratis en developer.spotify.com/dashboard (Create app) con Redirect URI exactamente: http://127.0.0.1:8000/spot/callback":
     "Paste your Spotify app's Client ID. Create one for free at developer.spotify.com/dashboard (Create app) with Redirect URI exactly: http://127.0.0.1:8000/spot/callback",
-  "Autoriza a Blyatt en la pestaña del navegador...": "Authorize Blyatt in the browser tab...",
+  "Autoriza a Wave en la pestaña del navegador...": "Authorize Wave in the browser tab...",
   "Seleccionar todo": "Select all", "Listo": "Done",
   "Buscando...": "Searching...", "Sin resultados": "No results",
   "Cambiar": "Change", "No encontrada": "Not found", "Guardando": "Saving",
   "Importación cancelada": "Import cancelled",
   "Cambiar portada…": "Change cover…", "Quitar portada personalizada": "Remove custom cover",
   "Portada actualizada": "Cover updated", "Portada personalizada quitada": "Custom cover removed",
-  "Portada subida a YT Music": "Cover uploaded to YT Music", "Solo se aplicó en Blyatt": "Only applied in Blyatt",
+  "Portada subida a YT Music": "Cover uploaded to YT Music", "Solo se aplicó en Wave": "Only applied in Wave",
   "No se pudo leer la imagen": "Couldn't read the image",
   "Revisa el resultado en el orden original: toca cualquier canción para cambiarla de versión o buscar las no encontradas.":
     "Review the result in the original order: tap any song to change its version or search the missing ones.",
@@ -2532,9 +2605,9 @@ const EN = {
   "Conectar Alexa": "Connect Alexa",
   "General": "General", "Escritorio": "Desktop",
   "Abrir al iniciar Windows": "Open when Windows starts",
-  "Blyatt se abre solo al encender la PC e iniciar sesión.": "Blyatt opens by itself when you turn on the PC and sign in.",
-  "Blyatt se abrirá al iniciar Windows": "Blyatt will open when Windows starts",
-  "Blyatt ya no se abrirá al iniciar Windows": "Blyatt won't open when Windows starts",
+  "Wave se abre solo al encender la PC e iniciar sesión.": "Wave opens by itself when you turn on the PC and sign in.",
+  "Wave se abrirá al iniciar Windows": "Wave will open when Windows starts",
+  "Wave ya no se abrirá al iniciar Windows": "Wave won't open when Windows starts",
   "No se pudo cambiar el ajuste": "Couldn't change the setting",
   "Minimizar": "Minimize", "Maximizar": "Maximize", "Restaurar": "Restore",
   "Invitar por internet": "Invite over the internet", "Unirse a una fiesta": "Join a party", "Fiesta online · código": "Online party · code",
@@ -2559,14 +2632,14 @@ const EN = {
   "Reproducción": "Playback", "Fundido entre canciones": "Crossfade", "Cada canción se funde con la siguiente.": "Each song fades into the next one.",
   "Desactivado": "Off", "Normalizar volumen": "Normalize volume", "Todas las canciones suenan igual de fuerte.": "All songs play at the same loudness.",
   "Dispositivos": "Devices", "Nombre de este dispositivo": "This device's name", "Nombre guardado": "Name saved",
-  "Pasar la música aquí al abrir Blyatt": "Move the music here when Blyatt opens",
+  "Pasar la música aquí al abrir Wave": "Move the music here when Wave opens",
   "Si suena en otro dispositivo, continúa en este.": "If it's playing on another device, it continues on this one.",
   "Iniciar minimizado": "Start minimized", "Al abrirse con Windows, sin mostrar la ventana.": "When opened by Windows, without showing the window.",
   "Seguir en la bandeja al cerrar": "Keep running in the tray when closed",
   "La música sigue sonando. Para salir: clic derecho en el icono → Salir.": "The music keeps playing. To quit: right-click the icon → Exit.",
   "Atajos de teclado globales": "Global keyboard shortcuts",
-  "Funcionan aunque Blyatt no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.":
-    "They work even when Blyatt isn't in front: Ctrl+Alt+P play or pause, Ctrl+Alt+→/← next or previous, Ctrl+Alt+↑/↓ volume.",
+  "Funcionan aunque Wave no esté delante: Ctrl+Alt+P reproducir o pausar, Ctrl+Alt+→/← siguiente o anterior, Ctrl+Alt+↑/↓ volumen.":
+    "They work even when Wave isn't in front: Ctrl+Alt+P play or pause, Ctrl+Alt+→/← next or previous, Ctrl+Alt+↑/↓ volume.",
   "Atajos activados: Ctrl+Alt+P, →, ←, ↑, ↓": "Shortcuts on: Ctrl+Alt+P, →, ←, ↑, ↓",
   "Buscar actualizaciones automáticamente": "Check for updates automatically",
   "Si lo desactivas, búscalas desde tu menú de usuario.": "If you turn it off, check from your user menu.",
@@ -2601,8 +2674,8 @@ const EN = {
   "La clave de Anthropic no es válida": "The Anthropic key isn't valid",
   "Esa clave no parece de Anthropic (empieza por sk-ant-)": "That doesn't look like an Anthropic key (it starts with sk-ant-)",
   "Generando código…": "Creating code…", "Inicia sesión con Google en esta PC primero": "Sign in with Google on this PC first",
-  "Para crear el código, conecta esta PC con Blyatt una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo».":
-    "To create the code, connect this PC with Blyatt once: you'll get a code by email. Then tap “Link device” again.",
+  "Para crear el código, conecta esta PC con Wave una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo».":
+    "To create the code, connect this PC with Wave once: you'll get a code by email. Then tap “Link device” again.",
   "YouTube no reconoce la sesión de esta PC: vuelve a iniciar sesión con Google": "YouTube doesn't recognize this PC's session: sign in with Google again",
   "Demasiados códigos pendientes. Espera unos minutos.": "Too many pending codes. Wait a few minutes.",
   "Buenos días": "Good morning", "Buenas tardes": "Good afternoon", "Buenas noches": "Good evening",
@@ -2669,7 +2742,7 @@ function setDuck(on) {
   // baja en ~0.35 s hasta el 20 %; sube mas despacio (~1.2 s), sin saltos
   g.setTargetAtTime(on ? 0.2 : 1, t0, on ? 0.12 : 0.4);
 }
-// fundido al pasar la musica entre dispositivos (Blyatt Connect): nodo propio, no toca volumen ni ducking
+// fundido al pasar la musica entre dispositivos (Wave Connect): nodo propio, no toca volumen ni ducking
 const xfNode = AC.createGain(), pzNode = AC.createGain(); gainNode.connect(xfNode); xfNode.connect(pzNode); pzNode.connect(duckNode);
 // pausa / reanudar con un fundido corto (nodo propio): la musica baja en ~0.2 s en vez de cortarse en seco
 const PZ = .2;
@@ -3009,7 +3082,7 @@ if (IOS_WEB) (() => {
     pause: { configurable: true, value: () => { if (real()) el.pause(); } },
   });
 })();
-/* ====== Dispositivos (Blyatt Connect) - estado y fachada remota ======
+/* ====== Dispositivos (Wave Connect) - estado y fachada remota ======
    Si OTRO dispositivo de la cuenta es el que suena ("modo remoto"), la fachada `audio` lee su estado
    (posicion extrapolada, duracion, pausa) y sus play/pause/seek se convierten en ordenes para el: la UI
    existente (barra, vista completa, iconos, pantalla de bloqueo, notificacion) funciona sin cambios. */
@@ -4296,6 +4369,7 @@ async function refreshAuth() {
   let ok = true;
   try { _authSt = await jget("/auth/status"); } catch (e) { ok = false; }
   paintUserChip();
+  window.bootReady && bootReady("auth");
   if (ok) syncGate(false);
   else if (IS_APP) setTimeout(refreshAuth, 3000);   // sin red al abrir: reintenta, la pantalla sigue en "comprobando"
   if (_authSt.logged_in) {
@@ -4529,7 +4603,7 @@ async function linkShow() {
   let r; try { r = await (await fetch("/auth/link/new", { method: "POST" })).json(); } catch (e) { r = { error: t("Sin conexión") }; }
   if (r.error === "need_access") {   // escritorio sin el pase de Cloudflare: el codigo se crea en blyatt.stream
     const ok = await askModal({ title: "Vincular dispositivo", icon: "ph-link", okLabel: "Conectar",
-      message: "Para crear el código, conecta esta PC con Blyatt una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo»." });
+      message: "Para crear el código, conecta esta PC con Wave una vez: te llegará un código a tu email. Luego vuelve a pulsar «Vincular dispositivo»." });
     if (ok) cxLogin();
     return;
   }
@@ -4577,8 +4651,8 @@ async function updPoll() {
   let asked = null;
   try { asked = localStorage.getItem("lightning.updAsked"); localStorage.setItem("lightning.updAsked", _upd.latest); } catch (e) {}
   if (asked === _upd.latest) return;   // una sola vez por version: luego queda en el menu de la cuenta
-  const ok = await askModal({ title: "Nueva versión de Blyatt", icon: "ph-arrow-circle-up", okLabel: "Reiniciar ahora",
-    message: t("La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Blyatt.").replace("{v}", _upd.latest) });
+  const ok = await askModal({ title: "Nueva versión de Wave", icon: "ph-arrow-circle-up", okLabel: "Reiniciar ahora",
+    message: t("La versión {v} está lista. Si no reinicias ahora, se instalará sola al cerrar Wave.").replace("{v}", _upd.latest) });
   if (ok) updApply();
 }
 async function updApply() {
@@ -4598,7 +4672,7 @@ async function updCheck() {
   _upd = d;
   if (d.ready) { try { localStorage.removeItem("lightning.updAsked"); } catch (e) {} updPoll(); }
   else if (d.error) toast("No se pudo buscar actualizaciones");
-  else toast(t("Blyatt está actualizado") + " · v" + d.version);
+  else toast(t("Wave está actualizado") + " · v" + d.version);
 }
 if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
   setTimeout(updPoll, 3000);
@@ -4676,7 +4750,7 @@ function paintSettings() {
     $("setCacheT").textContent = t("Canciones guardadas en este dispositivo");
     $("setCacheU").textContent = _devCache == null ? "…" : _devCache + " " + t(_devCache === 1 ? "canción" : "canciones");
   }
-  $("setVer").textContent = D ? "Blyatt " + (APPINFO.version === "dev" ? "dev" : "v" + APPINFO.version) : "";
+  $("setVer").textContent = D ? "Wave " + (APPINFO.version === "dev" ? "dev" : "v" + APPINFO.version) : "";
 }
 async function openSettings() {
   if (APPINFO.desktop) { try { Object.assign(APPINFO, await jget("/app/info")); } catch (e) {} }
@@ -4711,7 +4785,7 @@ $("setDevName").onchange = () => {
 $("setAutoX").onchange = () => { try { localStorage.setItem("lightning.autoxfer", $("setAutoX").checked ? "1" : ""); } catch (e) {} };
 $("setAuto").onchange = async () => {
   const el = $("setAuto"), want = el.checked; el.disabled = true;
-  await setDesk({ autostart: want }, want ? "Blyatt se abrirá al iniciar Windows" : "Blyatt ya no se abrirá al iniciar Windows");
+  await setDesk({ autostart: want }, want ? "Wave se abrirá al iniciar Windows" : "Wave ya no se abrirá al iniciar Windows");
   el.disabled = false; paintSettings();
 };
 $("setMin").onchange = () => setDesk({ start_min: $("setMin").checked });
@@ -5045,7 +5119,7 @@ async function spotFlow() {
         r = await jget("/spot/login");
       }
       if (r.error) throw r.error;
-      $("imphint").textContent = t("Autoriza a Blyatt en la pestaña del navegador...");
+      $("imphint").textContent = t("Autoriza a Wave en la pestaña del navegador...");
       for (let i = 0; i < 90 && !st.logged_in; i++) {   // 3 min max
         await new Promise(res => setTimeout(res, 2000));
         if ($("impmodal").hidden) return;   // usuario cerro el modal: abandona
@@ -5372,7 +5446,7 @@ function pickCover(entry) {
         // ademas de local: portada REAL en la cuenta de YT Music (playlists propias)
         fetch("/plcover", { method: "POST", body: JSON.stringify({ id: entry.id.replace(/^VL/, ""), data: dataUrl }) })
           .then(r => r.json())
-          .then(d => toast(d.error ? t("Solo se aplicó en Blyatt") + ": " + d.error : t("Portada subida a YT Music")))
+          .then(d => toast(d.error ? t("Solo se aplicó en Wave") + ": " + d.error : t("Portada subida a YT Music")))
           .catch(() => {});
       }
     };
@@ -7294,7 +7368,7 @@ if (!IS_APP && "mediaSession" in navigator) {
     try {
       if (msId !== current.id) {
         msId = current.id;
-        ms.metadata = new MediaMetadata({ title: current.title || "", artist: current.artist || "", album: "Blyatt",
+        ms.metadata = new MediaMetadata({ title: current.title || "", artist: current.artist || "", album: "Wave",
           artwork: current.cover ? [{ src: current.cover, sizes: "512x512" }] : [] });
       }
       ms.playbackState = audio.paused ? "paused" : "playing";
@@ -7313,7 +7387,7 @@ if (!IS_APP && "mediaSession" in navigator) {
   const _most = eng.onState;
   eng.onState = () => { _most(); msPush(); };
 }
-/* ====== Dispositivos (Blyatt Connect): sincronizacion, transferencia y hoja ====== */
+/* ====== Dispositivos (Wave Connect): sincronizacion, transferencia y hoja ====== */
 function cxPick(x) {
   if (!x) return null;
   const o = { id: x.id, title: x.title || "", artist: x.artist || "", cover: x.cover || "", duration: x.duration || "" };
@@ -7497,7 +7571,7 @@ function cxApply(r) {
   (r.cmds || []).forEach(c => { if (c.type === "take") took = true; try { cxExec(c); } catch (e) {} });
   const act = r.active && r.active !== CX.dev ? (r.devices || []).find(d => d.id === r.active && d.online) : null;
   CX.remote = !!act; CX.activeName = act ? act.name : "";
-  if (!CX.autoDone) {   // "Pasar la musica aqui al abrir Blyatt": una vez, con el primer estado del hub
+  if (!CX.autoDone) {   // "Pasar la musica aqui al abrir Wave": una vez, con el primer estado del hub
     CX.autoDone = true;
     let on = false; try { on = localStorage.getItem("lightning.autoxfer") === "1"; } catch (e) {}
     if (on && act && r.state && r.state.playing) setTimeout(() => cxTransfer({ id: CX.dev, name: CX.name }), 300);
@@ -7571,7 +7645,7 @@ async function cxAccessCheck() {
 async function cxLogin() {
   CX.loginAt = Date.now();
   await jget("/connect/login").catch(() => {});
-  toast(t("Inicia sesión en la ventana de Blyatt"));
+  toast(t("Inicia sesión en la ventana de Wave"));
 }
 const _devIcon = (d) => d.type === "desktop" ? "ph-desktop" : d.type === "phone" ? "ph-device-mobile" : "ph-browser";
 function syncCxUI() {

@@ -8,9 +8,9 @@
 
 [Setup]
 AppId={{7CA462B4-C230-4A92-81BD-31E57A84AA92}
-AppName=Blyatt
+AppName=Wave
 AppVersion={#AppVer}
-AppVerName=Blyatt {#AppVer}
+AppVerName=Wave {#AppVer}
 AppPublisher=FrancisL29
 AppPublisherURL=https://github.com/FrancisL29/blyatt-music
 AppUpdatesURL=https://github.com/FrancisL29/blyatt-music/releases
@@ -26,7 +26,7 @@ OutputDir=..\build\installer
 OutputBaseFilename=Blyatt-Setup-{#AppVer}
 SetupIconFile=..\assets\blyatt.ico
 UninstallDisplayIcon={app}\Blyatt.exe
-UninstallDisplayName=Blyatt
+UninstallDisplayName=Wave
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -43,14 +43,17 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; una actualizacion no debe dejar librerias de la version anterior mezcladas con las nuevas
 Type: filesandordirs; Name: "{app}\_internal"
+; la app se llamaba Blyatt: fuera sus accesos directos viejos (los nuevos se llaman Wave)
+Type: files; Name: "{autoprograms}\Blyatt.lnk"
+Type: files; Name: "{autodesktop}\Blyatt.lnk"
 
 [Files]
 Source: "..\build\dist\Blyatt\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "bin\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
 
 [Icons]
-Name: "{autoprograms}\Blyatt"; Filename: "{app}\Blyatt.exe"
-Name: "{autodesktop}\Blyatt"; Filename: "{app}\Blyatt.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Wave"; Filename: "{app}\Blyatt.exe"
+Name: "{autodesktop}\Wave"; Filename: "{app}\Blyatt.exe"; Tasks: desktopicon
 
 [Registry]
 ; "Abrir al iniciar Windows" lo activa la app (Configuracion); al desinstalar se quita
@@ -58,7 +61,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando Microsoft Edge WebView2..."; Check: NeedsWebView2; Flags: waituntilterminated
-Filename: "{app}\Blyatt.exe"; Description: "{cm:LaunchProgram,Blyatt}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Blyatt.exe"; Description: "{cm:LaunchProgram,Wave}"; Flags: nowait postinstall skipifsilent
 ; actualizacion automatica (instalador silencioso lanzado por la app): reabrir Blyatt al terminar
 Filename: "{app}\Blyatt.exe"; Flags: nowait; Check: IsRelaunch
 
@@ -111,7 +114,7 @@ begin
   end
   else
     while CheckForMutexes(AppMutex) do
-      if MsgBox('Blyatt está abierto. Ciérralo y pulsa Reintentar.', mbError, MB_RETRYCANCEL) = IDCANCEL then
+      if MsgBox('Wave está abierto. Ciérralo y pulsa Reintentar.', mbError, MB_RETRYCANCEL) = IDCANCEL then
       begin
         Result := False;
         Exit;
@@ -122,7 +125,7 @@ function InitializeUninstall(): Boolean;
 begin
   Result := True;
   while CheckForMutexes(AppMutex) do
-    if UninstallSilent or (MsgBox('Blyatt está abierto. Ciérralo y pulsa Reintentar.', mbError, MB_RETRYCANCEL) = IDCANCEL) then
+    if UninstallSilent or (MsgBox('Wave está abierto. Ciérralo y pulsa Reintentar.', mbError, MB_RETRYCANCEL) = IDCANCEL) then
     begin
       Result := False;
       Exit;
@@ -132,6 +135,6 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
-    if MsgBox('¿Borrar también tus datos de Blyatt (sesiones iniciadas y caché)?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    if MsgBox('¿Borrar también tus datos de Wave (sesiones iniciadas y caché)?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       DelTree(ExpandConstant('{localappdata}\Blyatt'), True, True, True);
 end;

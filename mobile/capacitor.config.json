@@ -1,6 +1,6 @@
 {
   "appId": "com.blyatt.app",
-  "appName": "Blyatt",
+  "appName": "Wave",
   "webDir": "www",
   "server": {
     "url": "https://blyatt.stream",

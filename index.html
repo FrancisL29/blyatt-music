@@ -1320,7 +1320,11 @@
      portada cuadrada y es mas ancho */
   #player .now img.wide { height: 62px !important; width: auto !important; }
   /* portada ancha: ocupa el sitio de la cuadrada y va centrada en el (el resto de la vista no se mueve) */
-  #npv .np-art:has(#npCover.wide) { min-height: min(100vw - 44px, 48vh); align-items: center; }
+  /* el hueco de la portada es siempre el de una cuadrada (un marcador invisible lo reserva) y la imagen va centrada
+     en el: con un video solo cambia la portada; titulo, progreso, controles e iconos no se mueven */
+  #npv .np-art { display: grid; grid-template-columns: 100%; justify-items: center; align-items: center; }
+  #npv .np-art::before { content: ""; grid-area: 1 / 1; width: min(100%, 48vh); aspect-ratio: 1; }
+  #npv #npCover { grid-area: 1 / 1; }
   #npCover { width: min(100%, 48vh); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #1a1a20;
              box-shadow: 0 20px 55px rgb(0 0 0 / .55); transform-origin: 0 0; }
   .np-info { display: flex; align-items: center; gap: 12px; flex: none; position: relative; }
@@ -1484,7 +1488,10 @@
             padding: 34px 0 calc(6px + var(--sab));
             background: linear-gradient(to top, rgb(0 0 0 / .96) 0%, rgb(0 0 0 / .88) 45%, rgb(0 0 0 / 0) 100%);
             border-top: none; pointer-events: none; }
-    #mnav button { border: none; background: none; color: var(--muted); font-size: 1.45rem;
+    /* la franja de los botones (sin el degradado de arriba, que queda bajo la barra de reproduccion) tapa lo de
+       detras: tocar entre los botones ya no abre lo que pasa por debajo */
+    #mnav::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: calc(52px + var(--sab)); pointer-events: auto; }
+    #mnav button { position: relative; border: none; background: none; color: var(--muted); font-size: 1.45rem;
                    padding: 8px 18px; border-radius: 12px; cursor: pointer; line-height: 1; pointer-events: auto; }
     #mnav button.active { color: var(--accent, #fff); }
     #mnav #muimg { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; }
@@ -7223,9 +7230,10 @@ function nplTargets() {
   const [cov, meta, like, more] = nplEls();
   const vr = npv.getBoundingClientRect(), top = npv.querySelector(".np-top").getBoundingClientRect().bottom + 8;
   const left = vr.left + 22, a = cov.getBoundingClientRect(), m = meta.getBoundingClientRect();
-  const sc = NPL.cover / a.width, ch = a.height * sc;   // video: misma anchura, menos alto
+  // siempre el hueco de una portada cuadrada: con un video (mas bajo) solo cambia la portada, centrada en el hueco
+  const sc = NPL.cover / a.width, ch = NPL.cover, ctop = top + (NPL.cover - a.height * sc) / 2;
   const mx = left + NPL.cover + NPL.gap, my = top + (ch - m.height * NPL.ms) / 2;
-  const out = [[cov, `translate(${left - a.left}px, ${top - a.top}px) scale(${sc})`],
+  const out = [[cov, `translate(${left - a.left}px, ${ctop - a.top}px) scale(${sc})`],
                [meta, `translate(${mx - m.left}px, ${my - m.top}px) scale(${NPL.ms})`]];
   // corazon y tres puntos: a la derecha de la cabecera, centrados con la portada (con la letra van ocultos)
   const bs = 46 * NPL.bs, cy = top + ch / 2, mcx = vr.right - 20 - bs / 2, lcx = mcx - bs - 10;

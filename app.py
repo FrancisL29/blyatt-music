@@ -560,9 +560,13 @@ def artist(browse_id):
 
 def _artist(browse_id):
     data = _yt_browse(browse_id)
-    hdr = (data.get("header", {}) or {}).get("musicImmersiveHeaderRenderer", {}) or {}
+    hd = data.get("header", {}) or {}
+    hdr = hd.get("musicImmersiveHeaderRenderer") or {}
+    vis = hd.get("musicVisualHeaderRenderer") or {}   # perfiles de usuario: otra cabecera (avatar aparte del banner)
+    if not hdr and vis:
+        hdr = vis
     name = _runs_text(hdr.get("title"))
-    image = _largest_thumb(hdr)
+    image = (_largest_thumb(vis.get("foregroundThumbnail")) if vis else "") or _largest_thumb(hdr)
     subtitle = _runs_text(hdr.get("monthlyListenerCount"))   # "89,2 M usuarios mensuales"
     description = _runs_text(hdr.get("description"))
     try:
@@ -929,6 +933,10 @@ def _new_releases():
     return out
 
 
+# huella del certificado con el que se firma el APK (publica: es lo que comprueba Android en assetlinks.json)
+ANDROID_CERT = "95:72:14:AE:42:DC:0A:C4:8C:F4:F5:E9:B5:FA:36:00:54:2A:0F:1E:5F:4D:6F:B1:5F:6C:23:31:37:B4:32:86"
+
+
 def video_meta(video_id):
     """Titulo, artista y duracion reales de un video (endpoint next). La promo del artista solo trae un reclamo."""
     def go():
@@ -947,7 +955,8 @@ def video_meta(video_id):
                     arts.append({"name": rr.get("text", ""), "id": b})
             byline = (_runs_text(it.get("shortBylineText")) or _runs_text(it.get("longBylineText"))).split(" • ")[0].strip()
             return {"title": _runs_text(it.get("title")), "artist": ", ".join(a["name"] for a in arts) or byline,
-                    "artists": arts, "duration": _runs_text(it.get("lengthText"))}
+                    "artists": arts, "duration": _runs_text(it.get("lengthText")),
+                    "cover": _largest_thumb(it.get("thumbnail"))}
         return {}
     try:
         return cached("vmeta:" + video_id, 86400, go)
@@ -4465,6 +4474,20 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        elif u.path == "/songmeta":   # enlace compartido de una cancion: titulo, artista y portada por su id
+            vid = parse_qs(u.query).get("id", [""])[0]
+            m = video_meta(vid) if re.fullmatch(r"[\w-]{11}", vid or "") else {}
+            payload = json.dumps(m or {}).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/.well-known/assetlinks.json":   # Android: los enlaces /s/ de este dominio abren la app
+            payload = json.dumps([{"relation": ["delegate_permission/common.handle_all_urls"],
+                                   "target": {"namespace": "android_app", "package_name": "com.blyatt.app",
+                                              "sha256_cert_fingerprints": [ANDROID_CERT]}}]).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
         elif u.path == "/songid":
             sq = parse_qs(u.query)
             try:

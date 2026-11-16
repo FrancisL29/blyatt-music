@@ -5,6 +5,7 @@ import concurrent.futures
 import difflib
 import hashlib
 import hmac
+import html
 import ipaddress
 import json
 import os
@@ -935,6 +936,46 @@ def _new_releases():
 
 # huella del certificado con el que se firma el APK (publica: es lo que comprueba Android en assetlinks.json)
 ANDROID_CERT = "95:72:14:AE:42:DC:0A:C4:8C:F4:F5:E9:B5:FA:36:00:54:2A:0F:1E:5F:4D:6F:B1:5F:6C:23:31:37:B4:32:86"
+
+
+# ---------- enlaces compartidos (/s/<tipo>/<id>) ----------
+# La ruta /s/ es publica (bypass en Cloudflare Access) para que WhatsApp, Telegram... lean la vista previa: titulo,
+# descripcion y portada (Open Graph). Solo devuelve datos publicos de YouTube Music. A una persona la manda a la app
+# (/?open=...), que si pide el login de Access
+_SHARE_RE = re.compile(r"/s/(song|album|playlist|artist|user)/([\w.-]{2,80})")
+_BOT_RE = re.compile(r"bot|crawler|spider|preview|facebookexternalhit|whatsapp|telegram|slack|discord|skype|"
+                     r"linkedin|embedly|vkshare|pinterest|snapchat|signal|line/|kakaotalk|viber|redditbot", re.I)
+
+
+def _og_img(u):
+    # portada grande (las de googleusercontent llevan el tamano en la url); las de ytimg ya vienen en alta
+    u = u or ""
+    u = re.sub(r"=w\d+-h\d+", "=w800-h800", u)
+    return re.sub(r"=s\d+(?=-|$)", "=s800", u)
+
+
+def share_meta(kind, sid):
+    """Titulo, descripcion y portada de lo compartido (todo cacheado por las funciones de siempre)."""
+    title, desc, img, otype = "", "", "", "website"
+    try:
+        if kind == "song" and re.fullmatch(r"[\w-]{11}", sid):
+            v = video_meta(sid) or {}
+            title, desc = v.get("title", ""), v.get("artist", "")
+            img = v.get("cover") or "https://i.ytimg.com/vi/%s/hqdefault.jpg" % sid
+            otype = "music.song"
+        elif kind in ("album", "playlist"):
+            c = collection(sid) or {}
+            title = c.get("title", "")
+            desc = " · ".join(x for x in ("Álbum" if kind == "album" else "Playlist", c.get("creator", "")) if x)
+            img = c.get("cover", "")
+            otype = "music.album" if kind == "album" else "music.playlist"
+        else:
+            a = artist(sid) or {}
+            title, desc, img = a.get("name", ""), ("Artista" if kind == "artist" else "Perfil"), a.get("image", "")
+            otype = "profile"
+    except Exception:
+        pass
+    return {"title": title, "desc": desc, "img": _og_img(img), "type": otype}
 
 
 def video_meta(video_id):
@@ -4289,8 +4330,10 @@ class H(BaseHTTPRequestHandler):
         return self._json(connect_api(u.path, parse_qs(u.query), d if isinstance(d, dict) else {}))
 
     def do_GET(self):
-        self._setup_bid()
         u = urlparse(self.path)
+        if u.path.startswith("/s/"):   # enlace compartido: publico (Access lo deja pasar) y sin tocar sesiones
+            return self._share_page(u)
+        self._setup_bid()
         if u.path == "/update/status":
             return self._json(dict(UPDATER.status(), enabled=True) if UPDATER else {"enabled": False, "version": VERSION})
         if u.path == "/app/info":   # la pagina se sabe dentro de la app de escritorio (barra propia, ajustes)
@@ -4635,6 +4678,44 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _share_page(self, u):
+        m = _SHARE_RE.fullmatch(u.path)
+        target = "/?open=" + urllib.parse.quote(u.path if m else "/", safe="/")
+        ua = self.headers.get("User-Agent", "")
+        if not _BOT_RE.search(ua):   # una persona: directo a la app (pedira el login de Access si hace falta)
+            self.send_response(302); self.send_header("Location", target)
+            self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", "0"); self.end_headers()
+            return
+        md = share_meta(*m.groups()) if m else {"title": "", "desc": "", "img": "", "type": "website"}
+        e = lambda x: html.escape(x or "", quote=True)
+        title = md["title"] or "Wave"
+        desc = md["desc"] or "Escúchalo en Wave"
+        tags = [
+            '<meta property="og:site_name" content="Wave">',
+            '<meta property="og:type" content="%s">' % e(md["type"]),
+            '<meta property="og:title" content="%s">' % e(title),
+            '<meta property="og:description" content="%s">' % e(desc),
+            '<meta property="og:url" content="%s">' % e("https://blyatt.stream" + u.path),
+            '<meta name="twitter:card" content="summary_large_image">',
+            '<meta name="twitter:title" content="%s">' % e(title),
+            '<meta name="twitter:description" content="%s">' % e(desc),
+        ]
+        if md["img"]:
+            tags += ['<meta property="og:image" content="%s">' % e(md["img"]),
+                     '<meta property="og:image:alt" content="%s">' % e(title),
+                     '<meta name="twitter:image" content="%s">' % e(md["img"])]
+        page = ('<!doctype html><html lang="es"><head><meta charset="utf-8"><title>%s · Wave</title>'
+                '<meta name="viewport" content="width=device-width, initial-scale=1">%s</head>'
+                '<body style="background:#07090c;color:#f2f5f8;font-family:system-ui,sans-serif">'
+                '<p><a href="%s" style="color:#8fd3ff">%s</a></p></body></html>'
+                % (e(title), "".join(tags), e(target), e(title)))
+        payload = page.encode("utf8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers(); self.wfile.write(payload)
 
     def _setup_bid(self):
         _REQ.acct_hdr = ""

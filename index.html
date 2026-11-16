@@ -7793,7 +7793,8 @@ async function shareItem(kind, id, title, sub) {
 async function playSharedSong(id) {
   if (!/^[\w-]{11}$/.test(id)) return;
   let m = {};
-  try { m = await jget("/songmeta?id=" + id); } catch (e) {}
+  // los datos (titulo, portada) no deben retrasar mucho el sonido: como mucho 3 s
+  try { m = await Promise.race([jget("/songmeta?id=" + id), new Promise(r => setTimeout(() => r({}), 3000))]) || {}; } catch (e) {}
   const s = { id, title: m.title || "", artist: m.artist || "", cover: m.cover || `https://i.ytimg.com/vi/${id}/hqdefault.jpg` };
   ["artists", "duration"].forEach(k => { if (m[k]) s[k] = m[k]; });
   playFromList([s], 0);
@@ -7812,11 +7813,13 @@ function openShared(href) {
 }
 // abierta con un enlace: navegador (la ruta /s/...) o app Android (en frio, getLaunchUrl; abierta, appUrlOpen)
 setTimeout(() => {
-  if (/^\/s\//.test(location.pathname)) {
-    const href = location.href;
-    try { history.replaceState(history.state, "", "/"); } catch (e) {}
-    if (!openShared(href)) toast("No se pudo abrir el enlace");
-  }
+  // /s/... directo, o /?open=/s/... (el servidor manda ahi a las personas: la ruta /s/ es publica para las vistas
+  // previas de WhatsApp y compania; la app sigue tras el login)
+  const op = new URLSearchParams(location.search).get("open");
+  const href = /^\/s\//.test(location.pathname) ? location.href : (op && /^\/s\//.test(op) ? op : "");
+  if (!href) return;
+  try { history.replaceState(history.state, "", "/"); } catch (e) {}
+  if (!openShared(href)) toast("No se pudo abrir el enlace");
 }, 700);
 if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
   const AP = Capacitor.Plugins.App;

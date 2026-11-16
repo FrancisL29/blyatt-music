@@ -1519,6 +1519,10 @@
              overflow: hidden; background: rgb(255 255 255 / .08); color: var(--text); text-align: left; cursor: pointer; }
     .rtile:active { background: rgb(255 255 255 / .16); }
     .rtile img, .rtile .rliked { width: 54px; height: 54px; flex: none; object-fit: cover; }
+    /* Recientes del Inicio: un video llena el cuadrado (recorte 1:1 del centro), solo aqui. Con las franjas negras
+       de YouTube (4:3) se amplia y se recorta lo justo para que no se vean */
+    .rtile img.wide { aspect-ratio: 1 !important; width: 54px !important; height: 54px !important; object-fit: cover; }
+    .rtile img.wide.lbx { transform: scale(1.3334); clip-path: inset(12.5%); }
     .rtile .rliked { display: grid; place-items: center; font-size: 1.35rem; color: #fff; background: linear-gradient(135deg, #4f46e5, #a855f7); }
     .rtile .rt { font-size: .8rem; font-weight: 700; line-height: 1.25; overflow: hidden; display: -webkit-box;
                  -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -5854,8 +5858,9 @@ document.addEventListener("load", (e) => {
   const src = im.getAttribute("src") || "";
   if (!COVER_SRC.test(src)) return;   // logos, avatares locales...: fuera
   if (im.closest(NOT_SONG)) return;   // artistas (tambien en Recientes), albumes y playlists: cuadrados
-  const w = im.naturalWidth / im.naturalHeight > 1.3;
+  const ratio = im.naturalWidth / im.naturalHeight, w = ratio > 1.3;
   im.classList.toggle("wide", w);
+  im.classList.toggle("lbx", ratio > 1.28 && ratio < 1.38);   // 4:3 de YouTube: video 16:9 con franjas negras
   if (!src.startsWith("/img?")) _coverWide.set(hiCover(src), w);
 }, true);
 let _mqT = 0;
@@ -7723,6 +7728,29 @@ if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
     else Capacitor.Plugins.App.exitApp();
   });
 }
+/* recorte cuadrado de una miniatura de video (centro de la parte util; 4:3 de YouTube = 16:9 con franjas). Pasa por
+   el proxy /img (mismo origen) para poder leer los pixeles en un canvas */
+const _sqArt = new Map();
+function squareArt(src) {
+  if (_sqArt.has(src)) return _sqArt.get(src);
+  const p = new Promise((res) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const w = im.naturalWidth, h = im.naturalHeight, r = w / h;
+        const useH = r > 1.28 && r < 1.38 ? Math.round(w * 9 / 16) : h, sz = Math.min(w, h, useH);
+        const cv = document.createElement("canvas"); cv.width = cv.height = 512;
+        cv.getContext("2d").drawImage(im, (w - sz) / 2, (h - sz) / 2, sz, sz, 0, 0, 512, 512);
+        cv.toBlob(b => res(b ? URL.createObjectURL(b) : null), "image/jpeg", .9);
+      } catch (e) { res(null); }
+    };
+    im.onerror = () => res(null);
+    im.src = src.startsWith("/") ? src : "/img?u=" + encodeURIComponent(src);
+  });
+  _sqArt.set(src, p);
+  while (_sqArt.size > 20) _sqArt.delete(_sqArt.keys().next().value);
+  return p;
+}
 /* navegador (iPhone, Android Chrome, escritorio): controles del sistema via Media Session */
 if (!IS_APP && "mediaSession" in navigator) {
   const ms = navigator.mediaSession;
@@ -7732,8 +7760,11 @@ if (!IS_APP && "mediaSession" in navigator) {
     try {
       if (msId !== current.id) {
         msId = current.id;
-        ms.metadata = new MediaMetadata({ title: current.title || "", artist: current.artist || "", album: "Wave",
-          artwork: current.cover ? [{ src: current.cover, sizes: "512x512" }] : [] });
+        const meta = { title: current.title || "", artist: current.artist || "", album: "Wave" };
+        ms.metadata = new MediaMetadata(Object.assign({ artwork: current.cover ? [{ src: current.cover, sizes: "512x512" }] : [] }, meta));
+        if (current.cover && isWide(current)) squareArt(current.cover).then(u => {   // video: recorte 1:1 como una portada
+          if (u && msId === current.id) ms.metadata = new MediaMetadata(Object.assign({ artwork: [{ src: u, sizes: "512x512", type: "image/jpeg" }] }, meta));
+        });
       }
       ms.playbackState = audio.paused ? "paused" : "playing";
       if (audio.duration > 0) ms.setPositionState({ duration: audio.duration, playbackRate: 1,

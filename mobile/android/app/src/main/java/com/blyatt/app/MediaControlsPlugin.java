@@ -270,10 +270,22 @@ public class MediaControlsPlugin extends Plugin {
                 c.setConnectTimeout(8000); c.setReadTimeout(8000);
                 try (InputStream in = c.getInputStream()) {
                     Bitmap b = BitmapFactory.decodeStream(in);
+                    if (b != null) b = squareCover(b);
                     if (b != null && url.equals(coverUrl)) { cover = b; render(); }
                 }
             } catch (Exception ignored) {}
         }).start();
+    }
+
+    /* miniatura de video (16:9, o 4:3 con franjas negras de YouTube): recorte cuadrado del centro de la imagen util,
+       como una portada normal. Las portadas cuadradas no se tocan */
+    private static Bitmap squareCover(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        if (w <= 0 || h <= 0 || Math.abs(w - h) <= 2) return b;
+        float r = (float) w / h;
+        int useH = (r > 1.28f && r < 1.38f) ? Math.round(w * 9f / 16f) : h;   // 4:3 con franjas: solo la parte 16:9
+        int s = Math.min(w, Math.min(h, useH));
+        return Bitmap.createBitmap(b, (w - s) / 2, (h - s) / 2, s, s);
     }
 
     private void render() {

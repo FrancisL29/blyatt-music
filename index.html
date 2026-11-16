@@ -1292,7 +1292,8 @@
     body.np-q .npq-ctrls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 2px 20px 12px; flex: none; }
     .npq-b { height: 38px; border: none; border-radius: 999px; background: rgb(255 255 255 / .14); color: rgb(255 255 255 / .92);
              font-size: 1.15rem; display: grid; place-items: center; cursor: pointer; transition: background .2s, color .2s; }
-    .npq-b.on { background: rgb(255 255 255 / .9); color: #121214; }
+    .npq-b.on, .npq-b.shufbtn.on { background: rgb(255 255 255 / .58); color: rgb(0 0 0 / .78); border-color: transparent; }
+    .npq-b.shufbtn::after { display: none; }
     .npq-b:active { transform: scale(.96); }
     /* lista: titulos de seccion como Apple Music y fundido arriba y abajo al desplazarse (mascara fija) */
     body.np-q #qlist { padding: 6px 8px 34px;
@@ -7214,35 +7215,57 @@ function npDragY(v) {
     if (el !== npv && !v) requestAnimationFrame(() => { el.style.transition = ""; });
   });
 }
+// lo que sube a la cabecera compacta: portada, titulo/artista, corazon y tres puntos
+const nplEls = () => [$("npCover"), npv.querySelector(".np-meta"), $("npLike"), $("npMore")];
+function nplReset() { nplEls().forEach(el => { el.getAnimations().forEach(a => a.cancel()); el.style.transform = ""; }); }
+// destino de cada uno, medido sobre su sitio normal (sin transformar); deja puestas las medidas de los paneles
+function nplTargets() {
+  const [cov, meta, like, more] = nplEls();
+  const vr = npv.getBoundingClientRect(), top = npv.querySelector(".np-top").getBoundingClientRect().bottom + 8;
+  const left = vr.left + 22, a = cov.getBoundingClientRect(), m = meta.getBoundingClientRect();
+  const sc = NPL.cover / a.width, ch = a.height * sc;   // video: misma anchura, menos alto
+  const mx = left + NPL.cover + NPL.gap, my = top + (ch - m.height * NPL.ms) / 2;
+  const out = [[cov, `translate(${left - a.left}px, ${top - a.top}px) scale(${sc})`],
+               [meta, `translate(${mx - m.left}px, ${my - m.top}px) scale(${NPL.ms})`]];
+  // corazon y tres puntos: a la derecha de la cabecera, centrados con la portada (con la letra van ocultos)
+  const bs = 46 * NPL.bs, cy = top + ch / 2, mcx = vr.right - 20 - bs / 2, lcx = mcx - bs - 10;
+  [[like, lcx], [more, mcx]].forEach(([b, cx]) => {
+    const r = b.getBoundingClientRect();
+    out.push([b, `translate(${cx - (r.left + r.width / 2)}px, ${cy - (r.top + r.height / 2)}px) scale(${NPL.bs})`]);
+  });
+  npv.style.setProperty("--npq-mw", Math.max(60, Math.round((lcx - bs / 2 - 12 - mx) / NPL.ms)) + "px");
+  // la letra / la cola empiezan justo debajo de la cabecera
+  document.body.style.setProperty("--npl-top", Math.round(top + ch + 16 - vr.top) + "px");
+  if (NPL.mode === "q") npqBot();
+  return out;
+}
+const _nplAnim = (t, opt) => t.map(([el, tr]) => el.animate([{ transform: "none" }, { transform: tr }], opt));
+/* cambia la forma de la portada (cancion <-> video) con la letra o la cola abiertas: la cabecera y los paneles se
+   recolocan con las medidas nuevas (antes las transformaciones de la forma vieja descuadraban todo). Quedan como
+   animaciones terminadas: al salir se deshacen igual que siempre */
+function nplRelayout() {
+  if (!NPL.on || !npOpen || npv.hidden) return;
+  nplReset();
+  _npLyrAnims = _nplAnim(nplTargets(), { duration: NPL.dur, easing: NP_EASE, fill: "forwards" });
+  _npLyrAnims.forEach(a => a.finish());
+}
+if (window.ResizeObserver) {
+  let _nplW = 0, _nplH = 0;
+  new ResizeObserver(([en]) => {
+    const w = Math.round(en.contentRect.width), h = Math.round(en.contentRect.height);
+    if (!w || (w === _nplW && h === _nplH)) return;
+    _nplW = w; _nplH = h;
+    if (NPL.on) requestAnimationFrame(nplRelayout);
+  }).observe($("npCover"));
+}
 function npLyrEnter(mode) {
   mode = mode || "lyr";
   if (!npOpen) return;
   if (NPL.on) { if (NPL.mode !== mode) npModeSwap(mode); return; }
   const lp = nplPanel(mode);
   NPL.on = true; NPL.mode = mode;
-  const cov = $("npCover"), meta = npv.querySelector(".np-meta");
-  [cov, meta].forEach(el => { el.getAnimations().forEach(a => a.cancel()); el.style.transform = ""; });
-  const vr = npv.getBoundingClientRect(), top = npv.querySelector(".np-top").getBoundingClientRect().bottom + 8;
-  const left = vr.left + 22, a = cov.getBoundingClientRect(), m = meta.getBoundingClientRect();
-  const sc = NPL.cover / a.width, ch = a.height * sc;   // video: misma anchura, menos alto
-  const mx = left + NPL.cover + NPL.gap, my = top + (ch - m.height * NPL.ms) / 2;
-  const opt = { duration: NPL.dur, easing: NP_EASE, fill: "forwards" };
-  _npLyrAnims = [
-    cov.animate([{ transform: "none" }, { transform: `translate(${left - a.left}px, ${top - a.top}px) scale(${sc})` }], opt),
-    meta.animate([{ transform: "none" }, { transform: `translate(${mx - m.left}px, ${my - m.top}px) scale(${NPL.ms})` }], opt),
-  ];
-  // corazon y tres puntos: a la derecha de la cabecera, centrados con la portada (con la letra van ocultos)
-  const bs = 46 * NPL.bs, cy = top + ch / 2, mcx = vr.right - 20 - bs / 2, lcx = mcx - bs - 10;
-  [[$("npLike"), lcx], [$("npMore"), mcx]].forEach(([b, cx]) => {
-    b.getAnimations().forEach(x => x.cancel());
-    const r = b.getBoundingClientRect();
-    _npLyrAnims.push(b.animate([{ transform: "none" },
-      { transform: `translate(${cx - (r.left + r.width / 2)}px, ${cy - (r.top + r.height / 2)}px) scale(${NPL.bs})` }], opt));
-  });
-  npv.style.setProperty("--npq-mw", Math.max(60, Math.round((lcx - bs / 2 - 12 - mx) / NPL.ms)) + "px");
-  // la letra empieza justo debajo de la cabecera
-  document.body.style.setProperty("--npl-top", Math.round(top + ch + 16 - vr.top) + "px");
-  if (mode === "q") npqBot();
+  nplReset();
+  _npLyrAnims = _nplAnim(nplTargets(), { duration: NPL.dur, easing: NP_EASE, fill: "forwards" });
   // primero el modo (el panel queda transparente en su sitio) y en el siguiente fotograma se muestra: asi hay un
   // estado de partida y la letra se funde (antes las dos cosas caian en el mismo fotograma y aparecia de golpe)
   lp.style.transition = "none";   // el panel salta a su sitio de partida (transparente) sin transicion
@@ -7405,8 +7428,14 @@ function moreMenu(btn, e) {
   // "ir a..." sale de la vista completa del movil o de la letra a pantalla completa
   const go = (fn) => () => { if (npOpen) requestCloseNp(); if (document.body.classList.contains("lyr-full")) $("lyricsClose").click(); setTimeout(fn, 60); };
   const art = (s.artists || []).find(a => a.id);
-  const up = (m) => { m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
-                      m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px"; };   // hacia arriba desde el boton
+  const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0;
+  const up = (m) => {   // hacia arriba desde el boton; si no cabe encima (barra de estado), debajo
+    m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
+    const h = m.offsetHeight, minTop = Math.max(8, sat + 8);
+    let tp = r.top - h - 8;
+    if (tp < minTop) tp = Math.min(r.bottom + 8, innerHeight - h - 8);
+    m.style.top = Math.max(minTop, tp) + "px";
+  };
   const opts = [
     ["ph-list-plus", "Añadir a playlist", () => { openPlPicker(s, r.left, r.top, null); up($("ctxmenu")); }],
     ["ph-shuffle", shuffle ? "Aleatorio: activado" : "Aleatorio: desactivado", () => { setShuffle(!shuffle); syncNp(); }],
@@ -7434,6 +7463,14 @@ $("npAddpl").onclick = (e) => {
   const m = $("ctxmenu"); m.style.top = Math.max(8, r.top - m.offsetHeight - 8) + "px";
 };
 $("npSeek").addEventListener("input", () => { npSeeking = true; $("npSeek").classList.add("drag"); setFill($("npSeek"), $("npSeek").value / 10); });
+// gesto cancelado (atras del sistema desde el borde, otro dedo...): no llega "change"; sin esto la barra se quedaba
+// gruesa y el progreso dejaba de avanzar hasta volver a tocarla
+const _npSeekReset = (ms) => setTimeout(() => {
+  const k = $("npSeek"); if (!k.classList.contains("drag")) return;
+  npSeeking = false; k.classList.remove("drag"); k.blur();
+}, ms);
+["touchcancel", "pointercancel", "blur"].forEach(ev => $("npSeek").addEventListener(ev, () => _npSeekReset(40)));
+$("npSeek").addEventListener("touchend", () => _npSeekReset(400));   // red de seguridad: "change" llega antes
 $("npSeek").addEventListener("change", () => {
   if (audio.duration) audio.currentTime = ($("npSeek").value / 1000) * audio.duration;
   npSeeking = false; $("npSeek").classList.remove("drag");

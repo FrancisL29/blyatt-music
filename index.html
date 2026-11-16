@@ -817,11 +817,16 @@
   body.qdragging, body.qdragging * { cursor: grabbing !important; user-select: none; }
   /* filas de canciones: mantener pulsado abre el menu (sin el menu de "guardar imagen" de iOS) */
   .swq-row { -webkit-touch-callout: none; }
-  @media (hover: none) { .swq-row { -webkit-user-select: none; user-select: none; } }
+  @media (hover: none) {
+    body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+  }
   /* deslizar una cancion a la derecha: debajo aparece "a la cola" (como Spotify) */
   .swq-ind { position: fixed; z-index: 2; pointer-events: none; display: flex; align-items: center; padding-left: 18px;
              overflow: hidden; border-radius: 8px 0 0 8px; background: rgb(255 255 255 / .1); color: var(--muted); font-size: 1.35rem;
-             transition: background .15s, color .15s; }
+             transition: background .15s, color .15s;
+             -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent 100%);
+                     mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent 100%); }
   .swq-ind i { transition: transform .18s cubic-bezier(.3,1.6,.5,1); }
   .swq-ind.ready { background: var(--accent); color: var(--accent-ink, #fff); }
   .swq-ind.ready i { transform: scale(1.18); }
@@ -1384,6 +1389,7 @@
     /* movil: titulo y artista en una linea y el dispositivo debajo (misma altura de mini player) */
     body.cx-remote #player .now .meta .a { display: none; }
     body.cx-remote #ptitle::after { content: " • " attr(data-art); color: var(--muted); font-weight: 500; }
+    body.cx-remote #ptitle.mq::after, body.cx-remote #ptitle.mqm::after { content: none !important; }
     /* icono de dispositivos junto al corazon cuando hay otro dispositivo (verde si suena en otro) */
     body.cx-multi .right-icons > #devBtn { display: inline-flex; order: -1; font-size: 1.35rem; padding: 8px; }
   }
@@ -2528,6 +2534,7 @@ const EN = {
     "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Wave": "Sign in in the Wave window",
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
+  "Quitar de la cola": "Remove from queue", "Hoy": "Today", "Ayer": "Yesterday", "Antes": "Earlier",
   "Mover": "Move",
   "Añadir a Me gusta": "Add to Liked", "Quitar de Me gusta": "Remove from Liked",
   "Añadir a la biblioteca": "Add to library", "Quitar de la biblioteca": "Remove from library",
@@ -3216,6 +3223,25 @@ function toggleLike(s) {
   if (view === "liked") render(getLiked(), "liked");
   // con sesion de Google: espeja el like en la cuenta de YT Music (fire-and-forget)
   if (_authSt.logged_in) fetch("/rate?id=" + encodeURIComponent(s.id) + "&like=" + (nowLiked ? 1 : 0)).catch(() => {});
+}
+/* historial de la cola: todo lo que suena (aqui o en otro dispositivo mostrado aqui), lo ultimo arriba y sin
+   repetir. "Recientes" (Inicio) sigue siendo su propia lista corta */
+const HIST_KEY = "lightning.playHist", HIST_MAX = 200;
+function getHistory() {
+  const h = store(HIST_KEY, "null");
+  return Array.isArray(h) ? h : getRecents().map(x => Object.assign({}, x));   // primera vez: parte de Recientes
+}
+function histPush(s) {
+  if (!s || !s.id) return;
+  const e = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, at: Date.now() };
+  if (s.artists && s.artists.length) e.artists = s.artists.map(a => ({ name: a.name, id: a.id }));
+  ["duration", "explicit", "album"].forEach(k => { if (s[k]) e[k] = s[k]; });
+  if (isWide(s)) e.wide = true;   // video: miniatura 16:9 tambien en el historial
+  const h = getHistory();
+  if (h[0] && h[0].id === e.id) { if (e.wide) h[0].wide = true; h[0].at = e.at; }
+  else { const k = h.findIndex(x => x.id === e.id); if (k >= 0) h.splice(k, 1); h.unshift(e); }
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, HIST_MAX))); } catch (er) {}
+  if (qMode === "history" && $("queue").classList.contains("show")) renderQueue();
 }
 function pushRecent(s) {
   let list = getRecents().filter(x => x.id !== s.id);
@@ -3919,7 +3945,7 @@ function addToQueue(s) {
   for (let k = qIndex + 1; k < queue.length; k++) if (queue[k]._rec) { at = k; break; }
   queue.splice(at, 0, so); queueChanged(); toast("Añadida a la cola");
 }
-function openTrackMenu(s, songs, i, x, y, li) {
+function openTrackMenu(s, songs, i, x, y, li, extra) {
   const liked = isLiked(s.id);
   const opts = [
     ["ph-play", "Reproducir", () => playFromList(songs, i)],
@@ -3931,6 +3957,7 @@ function openTrackMenu(s, songs, i, x, y, li) {
   // en vista playlist con sesion: quitar pista de la playlist real (solo propias/colaborativas)
   if (view === "collection" && _colKind === "playlist" && _authSt.logged_in && _colId && _colEditable)
     opts.push(["ph-minus-circle", "Quitar de esta playlist", () => removeFromPl(s)]);
+  if (extra) opts.push(...extra);
   showMenu(opts, x, y, li);
 }
 /* menu contextual de tarjetas (artista/album/playlist): guardar en biblioteca + agregar a la cola */
@@ -4761,7 +4788,7 @@ async function linkEntry() {
   return true;
 }
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
-const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.recentCtx", "lightning.heroArts", "lightning.libRecent"];
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.playHist", "lightning.recentCtx", "lightning.heroArts", "lightning.libRecent"];
 async function signOutClean() {
   try { await jget("/auth/logout"); } catch (e) {}
   // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"
@@ -5738,7 +5765,10 @@ function marquee(el) {
   if (!el) return;
   const txt = el.dataset.mq != null && el.querySelector(".mqw") ? el.dataset.mq : el.textContent;
   el.classList.remove("mq"); el.textContent = txt; el.dataset.mq = txt;
-  if (!el.clientWidth || el.scrollWidth <= el.clientWidth + 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  el.classList.add("mqm");   // medir solo el texto (sin el " • artista" que se le pega con musica en otro dispositivo)
+  const over = el.clientWidth && el.scrollWidth > el.clientWidth + 1;
+  el.classList.remove("mqm");
+  if (!over || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const w = el.scrollWidth, gap = 44, d = w + gap;
   const wrap = document.createElement("span"), a = document.createElement("span"), b = document.createElement("span");
   wrap.className = "mqw"; a.textContent = txt; b.textContent = txt; b.setAttribute("aria-hidden", "true");
@@ -5786,6 +5816,13 @@ document.addEventListener("load", (e) => {
 }, true);
 let _mqT = 0;
 addEventListener("resize", () => { clearTimeout(_mqT); _mqT = setTimeout(() => { marquee($("ptitle")); if (npOpen) marquee($("npTitle")); }, 200); });
+if (window.ResizeObserver) {
+  let _mqW = 0;
+  new ResizeObserver(([en]) => {
+    const w = Math.round(en.contentRect.width);
+    if (w && Math.abs(w - _mqW) > 2) { _mqW = w; requestAnimationFrame(() => marquee($("ptitle"))); }
+  }).observe($("ptitle").parentElement);
+}
 function paintPlayer(s) {
   $("pcover").src = s.cover; $("ptitle").textContent = s.title;
   requestAnimationFrame(() => marquee($("ptitle")));
@@ -5801,7 +5838,7 @@ function paintPlayer(s) {
   clearTimeout(paintPlayer._lyrT); paintPlayer._lyrT = setTimeout(prefetchLyrics, 1200);
 }
 function paintNowPlaying(s) {
-  paintPlayer(s);
+  paintPlayer(s); histPush(s);
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
@@ -5856,7 +5893,7 @@ function onPlaybackStarted(s) {
   cxPush(!audio.paused);
   paintPlayer(s);
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
-  applyAccent(s.cover); pushRecent(current); refreshLikeUI(); markPlaying();
+  applyAccent(s.cover); pushRecent(current); histPush(s); refreshLikeUI(); markPlaying();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
@@ -6096,13 +6133,18 @@ function qRow(s, idx, kind) {
   d.querySelector("img").src = s.cover;
   d.querySelector(".t").textContent = s.title;
   d.querySelector(".a").innerHTML = expBadge(s) + esc(s.artist || "");
-  const listOf = () => kind === "history" ? getRecents() : queue;
+  const listOf = () => kind === "history" ? getHistory() : queue;
+  if (s.wide) d.querySelector("img").classList.add("wide");
   d.onclick = () => {
-    if (kind === "history") { const h = getRecents(); playFromList(h, h.findIndex(x => x.id === s.id)); }
+    if (kind === "history") { const h = getHistory(); playFromList(h, Math.max(0, h.findIndex(x => x.id === s.id))); }
     else { qIndex = idx; playSong(s, true); }
     renderQueue();
   };
-  d.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, listOf(), idx, e.clientX, e.clientY, d); };
+  const qExtra = kind === "next" ? [["ph-minus-circle", "Quitar de la cola", () => {
+    const k = queue[idx] === s ? idx : queue.indexOf(s);   // indice fresco (pudo reordenarse)
+    if (k > qIndex) { queue.splice(k, 1); queueChanged(); }
+  }]] : null;
+  d.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, listOf(), idx, e.clientX, e.clientY, d, qExtra); };
   if (kind === "next") {   // reordenar arrastrando el tirador (solo las proximas)
     d.dataset.q = idx;
     const h = d.querySelector(".qhandle");
@@ -6180,10 +6222,22 @@ function renderQueue() {
     vlist(w, rows.length, i => qRow(rows[i], buildIdx(i), "next"), ql);
   };
   if (qMode === "history") {
-    const h = getRecents();
-    if (!h.length) { ql.innerHTML = '<div class="lempty">Nada reciente.</div>'; return; }
-    const w = document.createElement("div"); ql.appendChild(w);
-    vlist(w, h.length, i => qRow(h[i], i, "history"), ql);
+    const h = getHistory();
+    if (!h.length) { ql.innerHTML = '<div class="lempty">' + esc(t("Nada reciente.")) + '</div>'; return; }
+    const day = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const today = day(Date.now()), frag = document.createDocumentFragment();
+    let sec = null;
+    h.forEach((s, i) => {
+      const dd = s.at ? day(s.at) : 0;
+      const label = !dd ? "Antes" : dd === today ? "Hoy" : dd === today - 864e5 ? "Ayer"
+        : new Date(dd).toLocaleDateString(lang === "en" ? "en-US" : "es", { weekday: "long", day: "numeric", month: "long" });
+      if (label !== sec) {
+        sec = label;
+        const hd = document.createElement("div"); hd.className = "qsec"; hd.textContent = t(label); frag.appendChild(hd);
+      }
+      frag.appendChild(qRow(s, i, "history"));
+    });
+    ql.appendChild(frag);
     return;
   }
   if (!current) { ql.innerHTML = '<div class="lempty">La cola está vacía.</div>'; return; }

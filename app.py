@@ -1037,10 +1037,10 @@ def video_meta(video_id):
             byline = (_runs_text(it.get("shortBylineText")) or _runs_text(it.get("longBylineText"))).split(" • ")[0].strip()
             return {"title": _runs_text(it.get("title")), "artist": ", ".join(a["name"] for a in arts) or byline,
                     "artists": arts, "duration": _runs_text(it.get("lengthText")),
-                    "cover": _largest_thumb(it.get("thumbnail"))}
+                    "cover": _largest_thumb(it.get("thumbnail")), "type": _mv_type(it)}
         return {}
     try:
-        return cached("vmeta:" + video_id, 86400, go)
+        return cached("vmeta2:" + video_id, 86400, go)
     except Exception:
         return {}
 
@@ -1561,7 +1561,7 @@ def _unison(vid, t, a, d):
 # toda la letra va adelantada o atrasada. Se busca la cancion del catalogo en YouTube Music (el "art track"), se
 # comparan los ataques de energia de los dos audios (correlacion cruzada, primero a 100 ms y luego a 20 ms) y se
 # devuelve cuanto hay que mover la letra. Solo se aplica si la coincidencia es clara. Resultado guardado en disco.
-_ALIGN_FILE = os.path.join(DATA, "cache", "lyralign.json")
+_ALIGN_FILE = os.path.join(DATA, "cache", "lyralign2.json")
 _ALIGN_LOCK = threading.Lock()
 try:
     with open(_ALIGN_FILE, encoding="utf8") as _f:
@@ -1641,7 +1641,7 @@ def _offset_ms(ref_fp, vid_fp, max_s=60):
     z = (c[k] - mean) / sd
     far = [v for j, v in enumerate(c) if abs(j - k) > 15]   # el segundo mejor, lejos del primero (> 1,5 s)
     ratio = c[k] / max(max(far) if far else 0, 1e-9)
-    if z < 6 or ratio < 1.15:
+    if z < 8 or ratio < 1.3:
         return 0, round(z, 1)
     # 2) fino: tramos de 20 ms alrededor del grueso
     fr, fv = _center(o_r), _center(o_v)
@@ -1652,9 +1652,12 @@ def _offset_ms(ref_fp, vid_fp, max_s=60):
     return best * 20, round(z, 1)
 
 
-def lyrics_align(vid, title, artist):
-    """Cuantos ms hay que mover la letra de `vid` (0 = ya cuadra o no se sabe con seguridad)."""
-    if not re.fullmatch(r"[\w-]{11}", vid or ""):
+def lyrics_align(vid, title, artist, src=""):
+    """Cuantos ms hay que mover la letra de `vid` (0 = ya cuadra o no se sabe con seguridad).
+    Solo para VIDEOS (videoclip, lyric video, subidas): una cancion del catalogo (art track) es la misma grabacion
+    contra la que esta cronometrada la letra; compararla con "otra" version (single/album/remaster) daba desfases
+    falsos. Y nunca con letras de una fuente atada a ese video (unison): esas ya van con su audio"""
+    if not re.fullmatch(r"[\w-]{11}", vid or "") or src == "unison":
         return {"offset": 0}
     hit = _ALIGN.get(vid)
     if hit and (hit.get("ok") or time.time() - hit.get("t", 0) < 6 * 3600):
@@ -1665,10 +1668,11 @@ def lyrics_align(vid, title, artist):
             return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "cached": True}
         off, z, ref, ok = 0, 0.0, "", True
         try:
-            ref = song_id(_qtitle(title), artist) if title else ""
-            if ref and ref != vid:
+            is_video = (video_meta(vid) or {}).get("type") == "video"
+            ref = song_id(_qtitle(title), artist) if (title and is_video) else ""
+            if ref and ref != vid and (video_meta(ref) or {}).get("type") == "atv":
                 off, z = _offset_ms(_audio_file(ref), _audio_file(vid))
-                if abs(off) < 120:   # menos de una silaba: no se nota, no se toca
+                if abs(off) < 250 or abs(off) > 45000:   # minimo: no se nota; enorme: sospechoso (otra cancion)
                     off = 0
         except Exception as e:
             ok = False   # fallo puntual (red, descarga): se reintenta mas tarde
@@ -4685,7 +4689,7 @@ class H(BaseHTTPRequestHandler):
             qa = parse_qs(u.query)
             g = lambda k: qa.get(k, [""])[0]
             try:
-                return self._json(lyrics_align(g("id"), g("title"), g("artist")))
+                return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src")))
             except Exception as e:
                 return self._json({"offset": 0, "error": str(e)})
         elif u.path == "/songmeta":   # enlace compartido de una cancion: titulo, artista y portada por su id

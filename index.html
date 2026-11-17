@@ -2820,20 +2820,32 @@ function imgRetry(img) {
   img.dataset.retry = n + 1;
   const prox = "/img?u=" + encodeURIComponent(raw);
   setTimeout(() => {
-    if (!img.isConnected) return;
     img.src = n === 0 ? prox : n === 1 ? raw + (raw.includes("?") ? "&" : "?") + "r=" + Date.now() : prox + "&r=" + Date.now();
   }, [0, 1500, 5000][n]);
 }
 document.addEventListener("error", (e) => {
   if (e.target instanceof HTMLImageElement && e.target.getAttribute("src")) imgRetry(e.target);
 }, true);
-function imgRescue() {   // las que siguen rotas (o se quedaron a medias): otra ronda
-  document.querySelectorAll("img[data-orig]").forEach(img => {
-    if (img.complete && !img.naturalWidth) { img.dataset.retry = "0"; imgRetry(img); }
+function imgRescue(root, fresh) {   // rotas (aunque el fallo no avisara) o atascadas cargando: otra ronda
+  const now = Date.now();
+  (root || document).querySelectorAll("img").forEach(img => {
+    const src = img.getAttribute("src");
+    if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
+    const broken = img.complete && !img.naturalWidth;
+    if (!img.complete) { if (!img.dataset.seen) img.dataset.seen = now; }
+    const stuck = !img.complete && now - (+img.dataset.seen || now) > 12000;
+    if (!broken && !stuck) return;
+    if (stuck) img.dataset.seen = now;
+    if (fresh) img.dataset.retry = "0";
+    imgRetry(img);
   });
 }
-addEventListener("online", imgRescue);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(imgRescue, 800); });
+// Inicio (sobre todo la cuadricula de Recientes del movil): repaso cada pocos segundos mientras se ve
+setInterval(() => {
+  if (document.visibilityState === "visible" && typeof view !== "undefined" && view === "home") imgRescue($("homeView"));
+}, 4000);
+addEventListener("online", () => imgRescue(null, true));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(() => imgRescue(null, true), 800); });
 
 // iPhone/iPad en Safari o instalada en la pantalla de inicio (no la app nativa de Android)
 const IOS_WEB = !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
@@ -4313,7 +4325,11 @@ function recentTiles() {
 function recentTile(e) {
   const b = document.createElement("button"); b.className = "rtile " + (e.kind || "");
   if (e.kind === "liked") b.innerHTML = '<span class="rliked"><i class="ph-fill ph-heart"></i></span>';
-  else { const im = document.createElement("img"); im.alt = ""; im.src = e.cover || PL_EMPTY_COVER; b.appendChild(im); }
+  else {
+    const im = document.createElement("img"); im.alt = "";
+    im.onerror = () => imgRetry(im);   // falla antes de estar en la pagina: el aviso global no le llega
+    im.src = e.cover || PL_EMPTY_COVER; b.appendChild(im);
+  }
   const tt = document.createElement("span"); tt.className = "rt"; tt.textContent = e.title || ""; b.appendChild(tt);
   b.onclick = () => {
     if (e.kind === "liked") setView("liked");
@@ -6988,17 +7004,16 @@ function prefetchLyrics() {   // lo que suena y lo siguiente, en segundo plano (
   if (LYR.clock || !current) return;
   fetchLyrics(current, true).catch(() => {});
   const n = queue[qIndex + 1]; if (n) fetchLyrics(n).catch(() => {});
-  // con la letra a la vista, tambien su alineacion (la siguiente aparecera ya cuadrada)
-  if ($("lyricsPanel").classList.contains("show")) { fetchAlign(current); if (n) fetchAlign(n); }
+
 }
 /* letra desalineada (videoclip con intro, otra subida...): el servidor compara el audio que suena con el de la
    grabacion del catalogo y dice cuantos ms moverla (0 si ya cuadra o no esta seguro). Se pide al abrir la letra; la
    letra aparece al momento y, si hace falta, se recoloca en cuanto llega (queda guardado: la proxima vez, al instante) */
 const _alignCache = new Map();   // id -> Promise<ms>
-function fetchAlign(s) {
-  if (!s || !s.id) return Promise.resolve(0);
+function fetchAlign(s, src) {
+  if (!s || !s.id || src === "unison") return Promise.resolve(0);   // unison: letra atada a ese mismo video
   if (_alignCache.has(s.id)) return _alignCache.get(s.id);
-  const p = jget(`/lyrics/align?id=${encodeURIComponent(s.id)}&title=${encodeURIComponent(s.title || "")}&artist=${encodeURIComponent(s.artist || "")}`)
+  const p = jget(`/lyrics/align?id=${encodeURIComponent(s.id)}&title=${encodeURIComponent(s.title || "")}&artist=${encodeURIComponent(s.artist || "")}&src=${encodeURIComponent(src || "")}`)
     .then(r => (r && +r.offset) || 0).catch(() => { _alignCache.delete(s.id); return 0; });
   _alignCache.set(s.id, p);
   while (_alignCache.size > 40) _alignCache.delete(_alignCache.keys().next().value);
@@ -7008,8 +7023,8 @@ function shiftLyrics(d, off) {   // mueve toda la letra (lineas y palabras) a un
   const delta = off - (d._shift || 0);
   if (!delta) return false;
   (d.lines || []).forEach(l => {
-    if (typeof l.time === "number") l.time = Math.max(0, l.time + delta);
-    (l.syllabus || []).forEach(w => { if (typeof w.time === "number") w.time = Math.max(0, w.time + delta); });
+    if (typeof l.time === "number") l.time += delta;
+    [l.syllabus, l.bg].forEach(arr => (arr || []).forEach(w => { if (typeof w.time === "number") w.time += delta; }));
   });
   d._shift = off;
   return true;
@@ -7026,7 +7041,7 @@ async function loadLyrics() {
   try {
     const d = await fetchLyrics(current, true);
     if (LYR.for !== id) return;
-    const synced = d && (d.type === "Word" || d.type === "Line") && (d.lines || []).length;
+    const synced = d && (d.type === "Word" || d.type === "Line") && (d.lines || []).length && d.source !== "unison";
     if (synced && _alignCache.has(id)) {   // ya se sabia (precarga): sale cuadrada desde el principio
       const off0 = await Promise.race([_alignCache.get(id), new Promise(r => setTimeout(() => r(null), 60))]);
       if (off0) shiftLyrics(d, off0);
@@ -7034,7 +7049,7 @@ async function loadLyrics() {
     if (LYR.for !== id) return;
     lyrBuild(d);
     startLyricLoop();
-    if (synced) fetchAlign(current).then(off => {
+    if (synced) fetchAlign(current, d.source).then(off => {
       if (LYR.for !== id || !shiftLyrics(d, off)) return;
       lyrBuild(d); startLyricLoop();   // se recoloca en su sitio
     });

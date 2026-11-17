@@ -6989,10 +6989,11 @@ function fetchLyrics(s, isCur) {
   const p = (async () => {
     // escritorio con Dispositivos: la letra la da el servidor (la misma que ve el movil, misma cache); si falla, la local
     if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
-      try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) return r; } catch (e) {}
+      try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) { r._q = qs; r._cx = true; return r; } } catch (e) {}
     }
     const d = await jget("/lyrics?" + qs);
     if (d.error) throw new Error(d.error);
+    d._q = qs;
     return d;
   })();
   _lyrCache.set(qs, p);
@@ -7010,10 +7011,12 @@ function prefetchLyrics() {   // lo que suena y lo siguiente, en segundo plano (
    grabacion del catalogo y dice cuantos ms moverla (0 si ya cuadra o no esta seguro). Se pide al abrir la letra; la
    letra aparece al momento y, si hace falta, se recoloca en cuanto llega (queda guardado: la proxima vez, al instante) */
 const _alignCache = new Map();   // id -> Promise<ms>
-function fetchAlign(s, src) {
+function fetchAlign(s, d) {
+  const src = d && d.source;
   if (!s || !s.id || src === "unison") return Promise.resolve(0);   // unison: letra atada a ese mismo video
   if (_alignCache.has(s.id)) return _alignCache.get(s.id);
-  const p = jget(`/lyrics/align?id=${encodeURIComponent(s.id)}&title=${encodeURIComponent(s.title || "")}&artist=${encodeURIComponent(s.artist || "")}&src=${encodeURIComponent(src || "")}`)
+  const q = (d && d._q) || `title=${encodeURIComponent(s.title || "")}&artist=${encodeURIComponent(s.artist || "")}&id=${encodeURIComponent(s.id)}`;
+  const p = jget(((d && d._cx) ? "/connect/lyrics/align?" : "/lyrics/align?") + q + "&src=" + encodeURIComponent(src || ""))
     .then(r => (r && +r.offset) || 0).catch(() => { _alignCache.delete(s.id); return 0; });
   _alignCache.set(s.id, p);
   while (_alignCache.size > 40) _alignCache.delete(_alignCache.keys().next().value);
@@ -7049,7 +7052,7 @@ async function loadLyrics() {
     if (LYR.for !== id) return;
     lyrBuild(d);
     startLyricLoop();
-    if (synced) fetchAlign(current, d.source).then(off => {
+    if (synced) fetchAlign(current, d).then(off => {
       if (LYR.for !== id || !shiftLyrics(d, off)) return;
       lyrBuild(d); startLyricLoop();   // se recoloca en su sitio
     });

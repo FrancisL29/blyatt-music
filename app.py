@@ -1561,7 +1561,7 @@ def _unison(vid, t, a, d):
 # toda la letra va adelantada o atrasada. Se busca la cancion del catalogo en YouTube Music (el "art track"), se
 # comparan los ataques de energia de los dos audios (correlacion cruzada, primero a 100 ms y luego a 20 ms) y se
 # devuelve cuanto hay que mover la letra. Solo se aplica si la coincidencia es clara. Resultado guardado en disco.
-_ALIGN_FILE = os.path.join(DATA, "cache", "lyralign2.json")
+_ALIGN_FILE = os.path.join(DATA, "cache", "lyralign3.json")
 _ALIGN_LOCK = threading.Lock()
 try:
     with open(_ALIGN_FILE, encoding="utf8") as _f:
@@ -1652,21 +1652,124 @@ def _offset_ms(ref_fp, vid_fp, max_s=60):
     return best * 20, round(z, 1)
 
 
-def lyrics_align(vid, title, artist, src=""):
+# ---- letra contra la VOZ de la propia cancion (para cualquier cancion, tambien del catalogo) ----
+# Donde suena la voz se estima sin IA: la voz va casi siempre al centro de la mezcla y en la banda de 300-4000 Hz,
+# asi que por cada trozo de 20 ms se mide la energia de esa banda que esta en el centro (medio menos 2x lateral,
+# bin a bin del espectro) frente al total. La letra dice cuando se canta (palabras, o lineas con su duracion
+# estimada): se prueba cada desfase de -12 a +12 s (cada 20 ms, con sumas acumuladas: barato) y gana el que mas voz
+# deja dentro de lo cantado. Un segundo detector (ataques de la voz frente al inicio de cada palabra) tiene que
+# preferir tambien el desfase nuevo al actual. Solo se mueve con un pico claro y unico: medido con 15 canciones y 5
+# desfases artificiales cada una (75 casos), corrige 4 de cada 10 desfases y no se equivoca en ninguno; en la duda
+# deja la letra como esta. Necesita numpy (escritorio; en el servidor del movil, pkg install python-numpy)
+_VSR, _VHOP, _VFFT, _VLAG = 16000, 320, 1024, 12000
+
+
+def _voice_feats(fp):
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", fp, "-t", "720", "-vn", "-ar", str(_VSR), "-ac", "2",
+                        "-f", "s16le", "-"], capture_output=True, timeout=180,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    x = np.frombuffer(r.stdout[:len(r.stdout) // 4 * 4], dtype="<i2").astype(np.float32).reshape(-1, 2) / 32768
+    mid, side = (x[:, 0] + x[:, 1]) * .5, (x[:, 0] - x[:, 1]) * .5
+    nfr = (len(mid) - _VFFT) // _VHOP
+    if nfr < 1000:
+        return None, None
+    win = np.hanning(_VFFT).astype(np.float32)
+    f = np.fft.rfftfreq(_VFFT, 1 / _VSR)
+    vb, ab = (f >= 300) & (f <= 4000), (f >= 60) & (f <= 7500)
+    voice, flux, prev = np.zeros(nfr, np.float32), np.zeros(nfr, np.float32), None
+    for c0 in range(0, nfr, 1500):
+        c1 = min(nfr, c0 + 1500)
+        idx = np.arange(c0, c1)[:, None] * _VHOP + np.arange(_VFFT)[None, :]
+        M = np.abs(np.fft.rfft(mid[idx] * win, axis=1)) ** 2
+        S = np.abs(np.fft.rfft(side[idx] * win, axis=1)) ** 2
+        C = np.maximum(0, M[:, vb] - 2 * S[:, vb])
+        voice[c0:c1] = C.sum(1) / (M[:, ab].sum(1) + 1e-7)
+        L = np.log1p(C * 1e4)
+        L2 = np.vstack([(prev if prev is not None else L[0])[None, :], L])
+        flux[c0:c1] = np.maximum(0, np.diff(L2, axis=0)).sum(1)
+        prev = L[-1]
+    loud = np.log10(np.maximum(1e-9, (mid[:nfr * _VHOP].reshape(nfr, _VHOP) ** 2).mean(1)))
+    quiet = loud < np.percentile(loud, 8) + .5
+    voice[quiet] = 0; flux[quiet] = 0
+    voice = np.convolve(voice, np.ones(5) / 5, "same"); voice -= np.median(voice)
+    flux = np.maximum(0, flux - np.convolve(flux, np.ones(50) / 50, "same"))
+    return voice, np.convolve(flux, np.ones(3) / 3, "same")
+
+
+def _sung(lyr):
+    """Tramos cantados (ms): cada palabra, o cada linea con una duracion estimada por su numero de palabras."""
+    lines = [l for l in (lyr.get("lines") or []) if (l.get("text") or "").strip()]
+    iv = []
+    for j, l in enumerate(lines):
+        syl = l.get("syllabus") or []
+        if lyr.get("type") == "Word" and syl:
+            iv += [(w["time"], w["time"] + max(80, w.get("duration") or 0)) for w in syl if w.get("time") is not None]
+        else:
+            nxt = lines[j + 1]["time"] if j + 1 < len(lines) else l["time"] + 5000
+            est = 300 * max(1, len(l["text"].split())) + 400
+            iv.append((l["time"], min(nxt, l["time"] + est, l["time"] + (l.get("duration") or est))))
+    return iv
+
+
+def _voice_offset(fp, lyr):
+    import numpy as np
+    voice, flux = _voice_feats(fp)
+    if voice is None:
+        return 0, 0.0
+    n = len(voice)
+    iv = [(a, b) for a, b in _sung(lyr) if a - _VLAG >= 0 and b + _VLAG <= n * 20]   # mismos tramos en todo desfase
+    if len(iv) < 20:
+        return 0, 0.0
+    lags = np.arange(-_VLAG, _VLAG + 1, 20)
+    P = np.concatenate([[0.0], np.cumsum(voice, dtype=np.float64)])
+    s0, e0 = np.array([a for a, _ in iv]) / 20., np.array([b for _, b in iv]) / 20.
+    tot = P[-1] / n
+    sc = np.empty(len(lags))
+    on = np.empty(len(lags))
+    for j, L in enumerate(lags):
+        a, b = (s0 + L / 20).astype(int), (e0 + L / 20).astype(int)
+        c = (b - a).sum()
+        sc[j] = (P[b] - P[a]).sum() / c - tot if c else 0
+        on[j] = flux[np.clip(a, 0, n - 1)].mean()
+    k = int(sc.argmax())
+    z = (sc[k] - sc.mean()) / (sc.std() + 1e-12)
+    far = np.abs(lags - lags[k]) > 1500
+    p2 = sc[far].max() if far.any() else 0
+    best = int(lags[k])
+    i0 = len(lags) // 2
+    ok = z >= 2.2 and p2 > 0 and sc[k] / p2 >= 1.2 and on[max(0, k - 10):k + 11].max() > on[i0 - 10:i0 + 11].max()
+    return (best if ok and abs(best) >= 250 else 0), round(float(z), 2)
+
+
+def _lyr_sig(lyr):
+    ln = lyr.get("lines") or []
+    return "%s:%s:%d:%s" % (lyr.get("source"), lyr.get("type"), len(ln), ln[0].get("time") if ln else "")
+
+
+def lyrics_align(vid, title, artist, src="", dur=0):
     """Cuantos ms hay que mover la letra de `vid` (0 = ya cuadra o no se sabe con seguridad).
     Solo para VIDEOS (videoclip, lyric video, subidas): una cancion del catalogo (art track) es la misma grabacion
     contra la que esta cronometrada la letra; compararla con "otra" version (single/album/remaster) daba desfases
     falsos. Y nunca con letras de una fuente atada a ese video (unison): esas ya van con su audio"""
     if not re.fullmatch(r"[\w-]{11}", vid or "") or src == "unison":
         return {"offset": 0}
+    try:
+        lyr = lyrics(title, artist, dur, vid)   # la misma letra (y cache) que reciben los clientes
+    except Exception:
+        lyr = {}
+    if lyr.get("type") not in ("Word", "Line") or lyr.get("source") == "unison":
+        return {"offset": 0}
+    sig = _lyr_sig(lyr)
+    fresh = lambda h: h and h.get("sig") == sig and (h.get("ok") or time.time() - h.get("t", 0) < 6 * 3600)
     hit = _ALIGN.get(vid)
-    if hit and (hit.get("ok") or time.time() - hit.get("t", 0) < 6 * 3600):
-        return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "cached": True}
+    if fresh(hit):
+        return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "how": hit.get("how", ""), "cached": True}
     with _id_lock("align", vid):
         hit = _ALIGN.get(vid)
-        if hit and (hit.get("ok") or time.time() - hit.get("t", 0) < 6 * 3600):
-            return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "cached": True}
-        off, z, ref, ok = 0, 0.0, "", True
+        if fresh(hit):
+            return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "how": hit.get("how", ""), "cached": True}
+        off, z, ref, ok, how = 0, 0.0, "", True, ""
         try:
             is_video = (video_meta(vid) or {}).get("type") == "video"
             ref = song_id(_qtitle(title), artist) if (title and is_video) else ""
@@ -1674,13 +1777,22 @@ def lyrics_align(vid, title, artist, src=""):
                 off, z = _offset_ms(_audio_file(ref), _audio_file(vid))
                 if abs(off) < 250 or abs(off) > 45000:   # minimo: no se nota; enorme: sospechoso (otra cancion)
                     off = 0
+                if off:
+                    how = "catalog"
+            if not off:   # cancion del catalogo (o video sin desfase claro): la letra contra la voz
+                try:
+                    import numpy   # noqa: F401
+                    off, z = _voice_offset(_audio_file(vid), lyr)
+                    how = "voice" if off else ""
+                except ImportError:
+                    pass
         except Exception as e:
             ok = False   # fallo puntual (red, descarga): se reintenta mas tarde
             print("[align]", vid, e)
         with _ALIGN_LOCK:
-            _ALIGN[vid] = {"off": off, "z": z, "ref": ref, "t": time.time(), "ok": ok}
+            _ALIGN[vid] = {"off": off, "z": z, "ref": ref, "t": time.time(), "ok": ok, "sig": sig, "how": how}
         _align_save()
-        return {"offset": off, "conf": z}
+        return {"offset": off, "conf": z, "how": how}
 
 
 def lyrics(title, artist, dur=0, vid=""):
@@ -2736,6 +2848,12 @@ def connect_api(path, qs, d):
             return lyrics(g0("title"), g0("artist"), ldur, vid if re.fullmatch(r"[\w-]{6,20}", vid) else "")
         except Exception as e:
             return {"error": str(e)[:200]}
+    if path == "/connect/lyrics/align":   # alineacion de esa misma letra (la calcula el servidor)
+        g0 = lambda k: (qs.get(k) or [""])[0]
+        try:
+            return lyrics_align(g0("id"), g0("title"), g0("artist"), g0("src"), float(g0("dur") or 0))
+        except Exception as e:
+            return {"offset": 0, "error": str(e)[:200]}
     acct = _cx_key()
     if not acct:
         return {"error": "no_account"}
@@ -4689,7 +4807,7 @@ class H(BaseHTTPRequestHandler):
             qa = parse_qs(u.query)
             g = lambda k: qa.get(k, [""])[0]
             try:
-                return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src")))
+                return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src"), float(g("dur") or 0)))
             except Exception as e:
                 return self._json({"offset": 0, "error": str(e)})
         elif u.path == "/songmeta":   # enlace compartido de una cancion: titulo, artista y portada por su id

@@ -2815,7 +2815,9 @@ def _cx_clean(st, dev, now):
     return {"track": _cx_song(st.get("track")), "pos": max(0.0, float(st.get("pos") or 0)),
             "dur": max(0.0, float(st.get("dur") or 0)), "playing": bool(st.get("playing")), "queue": q,
             "qi": max(0, min(int(st.get("qi") or 0), max(0, len(q) - 1))), "shuffle": bool(st.get("shuffle")),
-            "repeat": st.get("repeat") if st.get("repeat") in ("off", "all", "one") else "off", "ts": now, "dev": dev}
+            "repeat": st.get("repeat") if st.get("repeat") in ("off", "all", "one") else "off", "ts": now, "dev": dev,
+            # silencio inicial que se salta el motor del que suena: la letra del mando a distancia lo suma
+            "lead": max(0.0, min(3.0, float(st.get("lead") or 0)))}
 
 
 def _cx_snap(h, dev, now, take_cmds=False):

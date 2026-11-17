@@ -3110,6 +3110,10 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
 /* fachada compatible con el codigo existente (currentTime/duration/paused/volume/play/pause) */
 const audio = {
   get currentTime() { return Math.min(eng.dur, eng.playing ? AC.currentTime - eng.start : eng.offset); },
+  // el motor arranca en el audio real (se salta el silencio/entrada muy suave del principio, hasta 2 s) y su
+  // currentTime cuenta desde ahi. La letra esta cronometrada desde el principio del archivo: tiempo de la letra =
+  // currentTime + lead (sin esto, en canciones con entrada suave la letra iba hasta ~1-2 s adelantada)
+  get lead() { return (eng.buf && eng.buf._lead) || 0; },
   set currentTime(t) {
     t = Math.max(0, Math.min(t, eng.dur || 0));
     if (eng.playing && eng.buf) { _stop(); _startBuf(eng.buf, t); scheduleGaplessNext(); }
@@ -3259,7 +3263,7 @@ function cxPos() {
 }
 (() => {
   const base = {};
-  ["currentTime", "duration", "paused"].forEach(k => base[k] = Object.getOwnPropertyDescriptor(audio, k));
+  ["currentTime", "duration", "paused", "lead"].forEach(k => base[k] = Object.getOwnPropertyDescriptor(audio, k));
   const bplay = audio.play, bpause = audio.pause;
   audio._lpause = () => bpause.call(audio);   // pausa el motor local aunque estemos en modo remoto
   Object.defineProperties(audio, {
@@ -3267,6 +3271,7 @@ function cxPos() {
       get() { return CX.remote ? cxPos() : base.currentTime.get.call(audio); },
       set(v) { if (CX.remote) cxCmd({ type: "seek", pos: v }); else base.currentTime.set.call(audio, v); } },
     duration: { configurable: true, get() { return CX.remote ? (cxSt().dur || 0) : base.duration.get.call(audio); } },
+    lead: { configurable: true, get() { return CX.remote ? (+cxSt().lead || 0) : base.lead.get.call(audio); } },
     paused: { configurable: true, get() { return CX.remote ? !cxSt().playing : base.paused.get.call(audio); } },
     play: { configurable: true, writable: true, value() { if (CX.remote) cxCmd({ type: "play" }); else bplay.call(audio); } },
     pause: { configurable: true, writable: true, value() { if (CX.remote) cxCmd({ type: "pause" }); else bpause.call(audio); } },
@@ -6609,7 +6614,7 @@ function lyrBuild(d) {
     }
     const start = Math.min(l.time, ...words.map(w => w.s)),
           end = words.length ? Math.max(start + 400, ...words.map(w => w.e)) : start + (l.duration || 2000);
-    el.onclick = () => { if (LYR.clock) return; lyrUnfree(false); audio.currentTime = start / 1000; if (audio.paused) audio.play(); };
+    el.onclick = () => { if (LYR.clock) return; lyrUnfree(false); audio.currentTime = Math.max(0, start / 1000 - (+audio.lead || 0)); if (audio.paused) audio.play(); };
     body.appendChild(el);
     LYR.items.push({ kind: "line", start, end, el, words });
     const next = lines[i + 1];
@@ -6674,12 +6679,31 @@ function lyrSetActive(i) {
   if (cur) cur.el.classList.add("active");
   if (!LYR.free && i >= 0) lyrMove(i, true);
 }
+/* lo que el motor procesa no es lo que ya se oye: el sonido sale por el altavoz o los auriculares con retraso
+   (Android ~0,1-0,3 s; Bluetooth hasta ~0,5 s o mas). getOutputTimestamp dice que instante del motor esta sonando
+   AHORA; la letra se cuadra con eso (suavizado para que no tiemble). Sin el, con auriculares Bluetooth la letra
+   iba hasta ~1 s adelantada */
+let _outLag = 0;
+function outLag() {
+  if (IOS_WEB || CX.remote) return 0;
+  let lag = 0;
+  try {
+    const ts = AC.getOutputTimestamp && AC.getOutputTimestamp();
+    if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
+      lag = AC.currentTime - (ts.contextTime + (performance.now() - ts.performanceTime) / 1000);
+    } else lag = (AC.outputLatency || 0) + (AC.baseLatency || 0);
+  } catch (e) { lag = 0; }
+  if (!(lag >= 0 && lag < 1.5)) return _outLag;   // lectura rara: se mantiene la anterior
+  _outLag = _outLag ? _outLag * .94 + lag * .06 : lag;
+  return _outLag;
+}
 function tickLyrics() {
   if (!LYR.items.length) return;
   const ck = LYR.clock;   // karaoke: otro reloj (su propio reproductor); si no, el de la musica
   const paused = ck ? ck.paused() : audio.paused;
   if (paused !== LYR.paused) { LYR.paused = paused; $("lyricsPanel").classList.toggle("lyr-paused", LYR.paused); }
-  const t = (ck ? ck.time() : audio.currentTime) * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
+  // tiempo de la letra = lo que se OYE: posicion del motor + silencio inicial que se salto - retraso de salida
+  const t = (ck ? ck.time() : audio.currentTime + (+audio.lead || 0) - outLag()) * 1000 + 90;   // ~90 ms de adelanto: el ojo espera ver la palabra justo al cantarla
   let i = LYR.ai;
   if (i < 0 || t < LYR.items[i].start) {   // salto atras/seek: busqueda binaria
     let lo = 0, hi = LYR.items.length - 1; i = -1;
@@ -8032,7 +8056,7 @@ function cxPick(x) {
 const cxUnpick = (arr) => (arr || []).map(x => { const o = Object.assign({}, x); if (o.rec) { o._rec = true; delete o.rec; } return o; });
 function cxState() {
   const st = Math.max(0, qIndex - 20);
-  return { track: cxPick(current), pos: audio.currentTime || 0, dur: audio.duration || 0, playing: !audio.paused,
+  return { track: cxPick(current), pos: audio.currentTime || 0, dur: audio.duration || 0, playing: !audio.paused, lead: +audio.lead || 0,
            queue: queue.slice(st, qIndex + 300).map(cxPick), qi: Math.max(0, qIndex - st), shuffle, repeat };
 }
 function cxPush(claim) {   // el que suena publica su estado (claim: acaba de empezar a sonar aqui)

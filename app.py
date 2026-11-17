@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Buscador de YouTube Music sin API key. Proxy + estaticos en stdlib."""
+import array
 import base64
 import concurrent.futures
 import difflib
@@ -8,6 +9,7 @@ import hmac
 import html
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -301,7 +303,45 @@ def _ytm_search_raw(query, params=None):
         return json.loads(r.read())
 
 
+_VIDEOS_FILTER = "EgWKAQIQAWoKEAkQChAFEAMQBA=="
+DJSET_MIN = 20 * 60   # una sesion de DJ real: mas de 20 min (los "mixes" de 3 min y los temas sueltos fuera)
+
+
+def _secs_of(d):
+    try:
+        p = [int(x) for x in str(d or "").split(":")]
+    except ValueError:
+        return 0
+    return p[0] * 3600 + p[1] * 60 + p[2] if len(p) == 3 else p[0] * 60 + p[1] if len(p) == 2 else 0
+
+
+def dj_sets(query):
+    """Sesiones de DJ reales del genero/artista buscado: videos largos (Boiler Room, Cercle, festivales...).
+    Dos busquedas en paralelo ("<q> dj set" y "<q> live set") y solo lo que dura mas de 20 minutos."""
+    q = (query or "").strip()
+    qs = [(q + " dj set").strip(), (q + " live set").strip(), (q + " boiler room").strip()] if q else ["dj set", "boiler room", "live set"]
+    with concurrent.futures.ThreadPoolExecutor(3) as ex:
+        res = list(ex.map(lambda x: _safe(lambda: parse_results(_ytm_search_raw(x, _VIDEOS_FILTER)), []), qs))
+    out, seen = [], set()
+    for i in range(max(len(r) for r in res) if res else 0):   # intercaladas: lo mejor de cada busqueda arriba
+        for r in res:
+            if i < len(r):
+                it = r[i]
+                if it.get("id") and it["id"] not in seen and _secs_of(it.get("duration")) >= DJSET_MIN:
+                    seen.add(it["id"]); it["wide"] = True; it["type"] = "video"; out.append(it)
+    return out
+
+
+def _safe(fn, default):
+    try:
+        return fn()
+    except Exception:
+        return default
+
+
 def _search(query, filt):
+    if filt == "djsets":
+        return dj_sets(query)
     if not filt:
         return search_all(query)   # "Todo": secciones priorizadas por coincidencia
     data = _ytm_search_raw(query, _FILTERS.get(filt))
@@ -1513,6 +1553,130 @@ def _unison(vid, t, a, d):
         return {"type": "Static", "source": "unison", "low": low,
                 "lines": [{"time": 0, "duration": 0, "text": x, "syllabus": []} for x in txt.split("\n")]}
     return None
+
+
+# ---------- letra desalineada: desfase entre el video que suena y la grabacion del catalogo ----------
+# Las letras sincronizadas (palabra a palabra o por linea) vienen cronometradas contra la grabacion del catalogo
+# (Deezer, lrc.red, NetEase... por ISRC). Si lo que suena es el videoclip u otra subida (intro, silencio, dialogo)
+# toda la letra va adelantada o atrasada. Se busca la cancion del catalogo en YouTube Music (el "art track"), se
+# comparan los ataques de energia de los dos audios (correlacion cruzada, primero a 100 ms y luego a 20 ms) y se
+# devuelve cuanto hay que mover la letra. Solo se aplica si la coincidencia es clara. Resultado guardado en disco.
+_ALIGN_FILE = os.path.join(DATA, "cache", "lyralign.json")
+_ALIGN_LOCK = threading.Lock()
+try:
+    with open(_ALIGN_FILE, encoding="utf8") as _f:
+        _ALIGN = json.load(_f)
+except Exception:
+    _ALIGN = {}
+
+
+def _align_save():
+    try:
+        with _ALIGN_LOCK:
+            items = sorted(_ALIGN.items(), key=lambda kv: kv[1].get("t", 0))[-3000:]
+            tmp = _ALIGN_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf8") as f:
+                json.dump(dict(items), f)
+            os.replace(tmp, _ALIGN_FILE)
+    except Exception:
+        pass
+
+
+def _audio_file(vid):
+    fp = _audio_path(vid)
+    with _id_lock("dl", vid):
+        if os.path.isfile(fp) and not _mp4_ok(fp):
+            os.remove(fp)
+        if os.path.isfile(fp):
+            os.utime(fp)
+        else:
+            audio_fetch(vid)
+    return fp
+
+
+def _onsets(fp):
+    """Ataques de energia cada 20 ms (subidas del logaritmo de la energia), de los primeros 12 minutos."""
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", fp, "-t", "720", "-vn", "-ac", "1", "-ar", "4000",
+                        "-f", "s16le", "-"], capture_output=True, timeout=180,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    a = array.array("h")
+    a.frombytes(r.stdout[:len(r.stdout) // 2 * 2])
+    if sys.byteorder == "big":
+        a.byteswap()
+    F = 80   # 20 ms a 4 kHz
+    lg = [math.log1p(sum(map(abs, a[i:i + F]))) for i in range(0, len(a) - F, F)]
+    return [0.0] + [max(0.0, lg[i] - lg[i - 1]) for i in range(1, len(lg))]
+
+
+def _xcorr(ref, vid, lags):
+    """Correlacion normalizada de ref[i] con vid[i + lag] para cada lag (listas ya centradas)."""
+    out = []
+    n1, n2 = len(ref), len(vid)
+    for L in lags:
+        i0, i1 = max(0, -L), min(n1, n2 - L)
+        if i1 - i0 < 50:
+            out.append(0.0)
+            continue
+        out.append(sum(map(float.__mul__, ref[i0:i1], vid[i0 + L:i1 + L])) / (i1 - i0))
+    return out
+
+
+def _center(x):
+    m = sum(x) / (len(x) or 1)
+    return [v - m for v in x]
+
+
+def _offset_ms(ref_fp, vid_fp, max_s=60):
+    o_r, o_v = _onsets(ref_fp), _onsets(vid_fp)
+    if len(o_r) < 500 or len(o_v) < 500:
+        return 0, 0.0
+    # 1) grueso: tramos de 100 ms, +-60 s
+    dec = lambda o: _center([sum(o[i:i + 5]) for i in range(0, len(o) - 5, 5)])
+    cr, cv = dec(o_r), dec(o_v)
+    lags = list(range(-max_s * 10, max_s * 10 + 1))
+    c = _xcorr(cr, cv, lags)
+    k = max(range(len(c)), key=c.__getitem__)
+    mean = sum(c) / len(c)
+    sd = math.sqrt(sum((v - mean) ** 2 for v in c) / len(c)) or 1e-9
+    z = (c[k] - mean) / sd
+    far = [v for j, v in enumerate(c) if abs(j - k) > 15]   # el segundo mejor, lejos del primero (> 1,5 s)
+    ratio = c[k] / max(max(far) if far else 0, 1e-9)
+    if z < 6 or ratio < 1.15:
+        return 0, round(z, 1)
+    # 2) fino: tramos de 20 ms alrededor del grueso
+    fr, fv = _center(o_r), _center(o_v)
+    base = lags[k] * 5
+    fl = list(range(base - 8, base + 9))
+    f = _xcorr(fr, fv, fl)
+    best = fl[max(range(len(f)), key=f.__getitem__)]
+    return best * 20, round(z, 1)
+
+
+def lyrics_align(vid, title, artist):
+    """Cuantos ms hay que mover la letra de `vid` (0 = ya cuadra o no se sabe con seguridad)."""
+    if not re.fullmatch(r"[\w-]{11}", vid or ""):
+        return {"offset": 0}
+    hit = _ALIGN.get(vid)
+    if hit and (hit.get("ok") or time.time() - hit.get("t", 0) < 6 * 3600):
+        return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "cached": True}
+    with _id_lock("align", vid):
+        hit = _ALIGN.get(vid)
+        if hit and (hit.get("ok") or time.time() - hit.get("t", 0) < 6 * 3600):
+            return {"offset": hit.get("off", 0), "conf": hit.get("z", 0), "cached": True}
+        off, z, ref, ok = 0, 0.0, "", True
+        try:
+            ref = song_id(_qtitle(title), artist) if title else ""
+            if ref and ref != vid:
+                off, z = _offset_ms(_audio_file(ref), _audio_file(vid))
+                if abs(off) < 120:   # menos de una silaba: no se nota, no se toca
+                    off = 0
+        except Exception as e:
+            ok = False   # fallo puntual (red, descarga): se reintenta mas tarde
+            print("[align]", vid, e)
+        with _ALIGN_LOCK:
+            _ALIGN[vid] = {"off": off, "z": z, "ref": ref, "t": time.time(), "ok": ok}
+        _align_save()
+        return {"offset": off, "conf": z}
 
 
 def lyrics(title, artist, dur=0, vid=""):
@@ -4517,6 +4681,13 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        elif u.path == "/lyrics/align":   # desfase de la letra del video que suena (ver lyrics_align)
+            qa = parse_qs(u.query)
+            g = lambda k: qa.get(k, [""])[0]
+            try:
+                return self._json(lyrics_align(g("id"), g("title"), g("artist")))
+            except Exception as e:
+                return self._json({"offset": 0, "error": str(e)})
         elif u.path == "/songmeta":   # enlace compartido de una cancion: titulo, artista y portada por su id
             vid = parse_qs(u.query).get("id", [""])[0]
             m = video_meta(vid) if re.fullmatch(r"[\w-]{11}", vid or "") else {}

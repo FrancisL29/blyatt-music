@@ -2022,6 +2022,7 @@
       <button class="tab" data-filter="albums" data-i18n>Álbumes</button>
       <button class="tab" data-filter="playlists" data-i18n>Playlists</button>
       <button class="tab" data-filter="profiles" data-i18n>Perfiles</button>
+      <button class="tab" data-filter="djsets" data-i18n>DJ sets</button>
     </div>
   </div>
   <h2 id="heading" style="display:none"></h2>
@@ -2507,7 +2508,8 @@ const EN = {
   "Playlist fija": "Pinned playlist", "Cuenta": "Account", "Volver": "Back",
   "Buscar canciones, artistas o álbumes...": "Search songs, artists or albums...",
   "Todo": "All", "Canciones": "Songs", "Artistas": "Artists", "Álbumes": "Albums",
-  "Playlists": "Playlists", "Perfiles": "Profiles", "Cola": "Queue", "En cola": "Queue",
+  "Playlists": "Playlists", "Perfiles": "Profiles", "DJ sets": "DJ sets",
+  "No hay DJ sets para esta búsqueda.": "No DJ sets for this search.", "Cola": "Queue", "En cola": "Queue",
   "Reproduciendo ahora": "Now playing", "A continuación": "Up next", "Recomendaciones": "Recommendations",
   "Letra": "Lyrics", "Nueva playlist": "New playlist", "Configuración": "Settings",
   "Idioma": "Language", "Español": "Spanish", "Inglés": "English", "Más información": "More info",
@@ -2798,13 +2800,40 @@ function setLang(l) {
 }
 
 // fallback de caratulas: si una img de googleusercontent/ytimg falla (429/red), reintenta via proxy /img (cache + allowlist backend)
+/* portadas que no cargan (sobre todo al abrir la app movil: la red o el servidor aun despertando y muchas imagenes
+   a la vez). Antes habia un unico intento por el proxy y, si tambien fallaba, la imagen se quedaba vacia para
+   siempre. Ahora: 1) por el proxy (mismo origen), 2) la original otra vez al rato, 3) el proxy otra vez mas tarde.
+   Y al volver la conexion o la app al frente se reintentan las que sigan rotas */
+const IMG_OK_HOST = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com)$/;
+function imgRetry(img) {
+  const cur = img.getAttribute("src") || "";
+  if (!cur || cur.startsWith("data:") || cur.startsWith("blob:")) return;
+  // la misma <img> puede haber pasado a otra portada (barra, vista...): entonces se empieza de cero
+  const o = img.dataset.orig;
+  const mine = o && (cur === o || cur.startsWith("/img?u=" + encodeURIComponent(o)) || cur.startsWith(o + "?r=") || cur.startsWith(o + "&r="));
+  if (!mine) { img.dataset.retry = "0"; img.dataset.orig = cur.startsWith("/img?u=") ? decodeURIComponent(cur.slice(7).split("&r=")[0]) : cur; }
+  const raw = img.dataset.orig;
+  let host = "";
+  try { host = new URL(raw, location.origin).hostname; } catch (e) {}
+  const n = +(img.dataset.retry || 0);
+  if (n >= 3 || !IMG_OK_HOST.test(host)) return;
+  img.dataset.retry = n + 1;
+  const prox = "/img?u=" + encodeURIComponent(raw);
+  setTimeout(() => {
+    if (!img.isConnected) return;
+    img.src = n === 0 ? prox : n === 1 ? raw + (raw.includes("?") ? "&" : "?") + "r=" + Date.now() : prox + "&r=" + Date.now();
+  }, [0, 1500, 5000][n]);
+}
 document.addEventListener("error", (e) => {
-  const img = e.target;
-  if (!(img instanceof HTMLImageElement) || img.dataset.proxied || !img.src) return;
-  if (img.src.indexOf("/img?u=") !== -1) return;
-  img.dataset.proxied = "1";
-  img.src = "/img?u=" + encodeURIComponent(img.src);
+  if (e.target instanceof HTMLImageElement && e.target.getAttribute("src")) imgRetry(e.target);
 }, true);
+function imgRescue() {   // las que siguen rotas (o se quedaron a medias): otra ronda
+  document.querySelectorAll("img[data-orig]").forEach(img => {
+    if (img.complete && !img.naturalWidth) { img.dataset.retry = "0"; imgRetry(img); }
+  });
+}
+addEventListener("online", imgRescue);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(imgRescue, 800); });
 
 // iPhone/iPad en Safari o instalada en la pantalla de inicio (no la app nativa de Android)
 const IOS_WEB = !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
@@ -3308,13 +3337,13 @@ function toggleLibrary(entry) {
   if (!entry || !entry.id) return;
   let list = getLibrary();
   const saving = !list.some(x => x.id === entry.id);
-  if (!saving) { list = list.filter(x => x.id !== entry.id); toast("Quitado de tu biblioteca"); }
-  else { list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "", creator: entry.creator || "", ts: Date.now() }); toast("Guardado en tu biblioteca"); }
+  if (!saving) { list = list.filter(x => x.id !== entry.id); _libGone.set(entry.id, Date.now()); toast("Quitado de tu biblioteca"); }
+  else { _libGone.delete(entry.id); list.unshift({ id: entry.id, kind: entry.kind, title: entry.title || "", subtitle: entry.subtitle || "", cover: entry.cover || "", creator: entry.creator || "", ts: Date.now() }); toast("Guardado en tu biblioteca"); }
   localStorage.setItem("lightning.library", JSON.stringify(list));
   renderLibrary();
   document.querySelectorAll(".savebtn").forEach(b => { if (b._sync) b._sync(); });
   // con sesion de Google: espeja el guardado en la biblioteca de YT Music (fire-and-forget)
-  if (_authSt.logged_in && entry.kind) fetch("/libsave?id=" + encodeURIComponent(entry.id) + "&kind=" + entry.kind + "&save=" + (saving ? 1 : 0)).catch(() => {});
+  if (_authSt.logged_in && entry.kind) fetch("/libsave?id=" + encodeURIComponent(entry.id) + "&kind=" + entry.kind + "&save=" + (saving ? 1 : 0)).then(libResync, () => {});
 }
 function bumpLibrary(s) {
   // escuchar una cancion sube su artista/album (y la coleccion abierta) al principio de la biblioteca
@@ -3358,7 +3387,25 @@ function libSortMenu(btn) {
     renderLibrary(); if (document.body.dataset.mv === "lib") openMobileLibrary(false);
   }]), r.left, r.bottom + 6);
 }
+// la cuadricula de la biblioteca del movil no la pinta renderLibrary: cualquier cambio la repinta tambien
+let _mlibT = 0;
+function mlibRefresh() {
+  clearTimeout(_mlibT);
+  _mlibT = setTimeout(() => {
+    if (document.body.dataset.mv !== "lib") return;
+    const st = _main.scrollTop; openMobileLibrary(false); _main.scrollTop = st;
+  }, 50);
+}
+// tras editar (guardar/quitar, crear, renombrar, borrar): se confirma contra la cuenta unos segundos despues
+let _libRsT = 0;
+function libResync() {
+  clearTimeout(_libRsT);
+  _libRsT = setTimeout(() => { if (_authSt.logged_in) syncYtLibrary(true, "", true); }, 5000);
+}
+// quitadas aqui hace poco: YouTube tarda en reflejarlo y la sincronizacion las volvia a meter
+const _libGone = new Map();
 function renderLibrary() {
+  mlibRefresh();
   const box = $("libList"); box.innerHTML = "";
   const sb = $("libSort"); if (sb) sb.title = t("Ordenar por") + ": " + libSortName();
   libSorted().forEach(e => {
@@ -4745,6 +4792,7 @@ async function syncYtLibrary(force = false, parts = "", quiet = false) {
         if (it.cover && ex.cover !== it.cover) { ex.cover = it.cover; nB++; }
         return;
       }
+      if (Date.now() - (_libGone.get(it.browseId) || 0) < 10 * 60000) return;   // quitada aqui: YT aun no se entero
       lib.push({ id: it.browseId, kind: it.kind, title: it.title || "", subtitle: it.subtitle || "", cover: it.cover || "", editable: it.editable, creator: it.creator || "", yt: 1,
                  ts: _firstSyncing ? 0 : Date.now() });
       haveB.add(it.browseId); nB++;
@@ -4846,7 +4894,7 @@ async function linkEntry() {
   return true;
 }
 // datos de la CUENTA guardados en el dispositivo (los ajustes como idioma o paneles se conservan)
-const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.playHist", "lightning.recentCtx", "lightning.heroArts", "lightning.libRecent"];
+const ACCOUNT_KEYS = ["lightning.liked", "lightning.library", "lightning.recents", "lightning.playHist", "lightning.queueState", "lightning.recentCtx", "lightning.heroArts", "lightning.libRecent"];
 async function signOutClean() {
   try { await jget("/auth/logout"); } catch (e) {}
   // app movil: el login de Google vive en el WebView de la app; si no se cierra, "Iniciar sesion"
@@ -5099,13 +5147,14 @@ $("plgo").onclick = async () => {
       if (d.error) throw d.error;
       const lib = getLibrary(); const hit = lib.find(x => x.id === _plEdit.id);
       if (hit) { hit.title = title; localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); }
+      libResync();
       toast("Playlist actualizada");
     } else {
       const d = await (await fetch("/plcreate?title=" + encodeURIComponent(title) + "&desc=" + encodeURIComponent(desc) + "&privacy=" + getPriv())).json();
       if (d.error || !d.id) throw d.error || "YT Music no devolvió id";
       const entry = { id: "VL" + d.id, kind: "playlists", title, subtitle: "Playlist", cover: PL_EMPTY_COVER, ts: Date.now(), editable: true, creator: _authSt.name || "Tú" };
       const lib = getLibrary(); lib.unshift(entry);
-      localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary();
+      localStorage.setItem("lightning.library", JSON.stringify(lib)); renderLibrary(); libResync();
       toast("Playlist creada en tu cuenta");
       openCollection(entry.id, true, entry);
     }
@@ -5725,7 +5774,7 @@ async function deletePl(entry) {
     const d = await (await fetch("/pldelete?id=" + encodeURIComponent(entry.id.replace(/^VL/, "")))).json();
     if (d.error) throw d.error;
     localStorage.setItem("lightning.library", JSON.stringify(getLibrary().filter(x => x.id !== entry.id)));
-    renderLibrary();
+    _libGone.set(entry.id, Date.now()); renderLibrary(); libResync();
     if (view === "collection" && _colId === entry.id) setView("home");   // la vista abierta era la borrada
     toast("Playlist eliminada");
   } catch (e) { toast("" + e); }
@@ -5902,7 +5951,32 @@ function paintNowPlaying(s) {
   applyAccent(s.cover); refreshLikeUI(); markPlaying();   // resalta y cambia acento de inmediato
 }
 let _loadTimer = null;
+/* cola guardada en el dispositivo: al reabrir la app vuelve la cola entera, la cancion y por donde iba (pausada) */
+const QSTATE_KEY = "lightning.queueState";
+const qPick = (x) => {
+  const o = { id: x.id, title: x.title, artist: x.artist, cover: x.cover };
+  ["artists", "duration", "explicit", "wide", "_rec", "album"].forEach(k => { if (x[k]) o[k] = x[k]; });
+  return o;
+};
+let _qSaveT = 0;
+function qSave(now) {
+  clearTimeout(_qSaveT);
+  const go = () => {
+    if (CX.remote || !current || !queue.length || !queue[qIndex]) return;
+    try {
+      const st = Math.max(0, qIndex - 30);
+      localStorage.setItem(QSTATE_KEY, JSON.stringify({ q: queue.slice(st, qIndex + 300).map(qPick), i: qIndex - st,
+        t: Math.floor(audio.currentTime || 0), at: Date.now() }));
+    } catch (e) {}
+  };
+  if (now) go(); else _qSaveT = setTimeout(go, 400);
+}
+setInterval(() => { if (current && !audio.paused) qSave(true); }, 15000);   // por donde va
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") qSave(true); });
+addEventListener("pagehide", () => qSave(true));
+let _resumePos = 0;   // posicion guardada de la cancion restaurada: se usa al darle a play
 function queueChanged() {   // cualquier edicion de la cola (a continuacion, anadir, quitar, reordenar)
+  qSave();
   if (CX.remote) {
     const st = Math.max(0, qIndex - 20);
     cxCmd({ type: "queue", queue: queue.slice(st, qIndex + 300).map(cxPick), qi: qIndex - st });
@@ -5952,7 +6026,7 @@ function onPlaybackStarted(s) {
   cxPush(!audio.paused);
   paintPlayer(s);
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
-  applyAccent(s.cover); pushRecent(current); histPush(s); refreshLikeUI(); markPlaying();
+  applyAccent(s.cover); pushRecent(current); histPush(s); refreshLikeUI(); markPlaying(); qSave();
   if ($("queue").classList.contains("show")) renderQueue();
   if ($("lyricsPanel").classList.contains("show")) { lyricsFor = null; loadLyrics(); }
   scheduleGaplessNext();
@@ -6033,7 +6107,11 @@ function markPlaying() {
 }
 function togglePlay() {
   if (CX.remote) { audio.paused ? audio.play() : audio.pause(); return; }
-  if (current && !eng.buf) { playSong(current, true); return; }   // arranque en frio: la ultima cancion restaurada aun no esta cargada
+  if (current && !eng.buf) {   // arranque en frio: la cancion restaurada aun no esta cargada (sigue por donde iba)
+    if (_resumePos > 2) { _cxSeek = _resumePos; _cxAutoplay = true; _cxFade = false; _cxSeekAt = performance.now(); }
+    _resumePos = 0;
+    playSong(queue[qIndex] && queue[qIndex].id === current.id ? queue[qIndex] : current, true); return;
+  }
   audio.paused ? audio.play() : audio.pause();
 }
 
@@ -6226,7 +6304,11 @@ function qDragStart(e, d, idx) {
   const line = document.createElement("div"); line.className = "qdrop"; line.hidden = true;
   ql.append(ghost, line);
   d.classList.add("dragging"); document.body.classList.add("qdragging");
-  try { h.setPointerCapture(e.pointerId); } catch (er) {}
+  // la captura va a la LISTA (no al tirador): al subir, la lista virtualizada quita la fila arrastrada del DOM y
+  // con ella el tirador; con la captura en el tirador se perdian los eventos (no se podia soltar y la lista seguia
+  // subiendo sola). La lista vive todo el arrastre
+  const cap = ql;
+  try { cap.setPointerCapture(e.pointerId); } catch (er) {}
   if (navigator.vibrate) try { navigator.vibrate(8); } catch (er) {}
   let y = e.clientY, to = null, toRec = false, raf = 0;
   const place = () => {
@@ -6255,10 +6337,19 @@ function qDragStart(e, d, idx) {
     if (v) { ql.scrollTop += v; place(); }
     raf = requestAnimationFrame(tick);
   };
-  const move = (ev) => { y = ev.clientY; place(); };
+  let ended = false;
+  const move = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
+    if (ev.pointerType === "mouse" && !ev.buttons) { up(); return; }   // se solto fuera de la ventana
+    y = ev.clientY; place();
+  };
+  const evs = [["pointermove", move], ["pointerup", (ev) => { if (ev.pointerId === e.pointerId) up(); }],
+               ["pointercancel", (ev) => { if (ev.pointerId === e.pointerId) up(); }], ["lostpointercapture", () => up()]];
   const up = () => {
+    if (ended) return; ended = true;
     cancelAnimationFrame(raf);
-    h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); h.removeEventListener("pointercancel", up);
+    evs.forEach(([n, f]) => { cap.removeEventListener(n, f); document.removeEventListener(n, f); });
+    try { cap.releasePointerCapture(e.pointerId); } catch (er) {}
     ghost.remove(); line.remove(); d.classList.remove("dragging"); document.body.classList.remove("qdragging");
     if (to == null || to === idx || to === idx + 1 || !queue[idx]) return;
     const keep = ql.scrollTop;
@@ -6269,7 +6360,8 @@ function qDragStart(e, d, idx) {
     queueChanged();
     ql.scrollTop = keep;
   };
-  h.addEventListener("pointermove", move); h.addEventListener("pointerup", up); h.addEventListener("pointercancel", up);
+  // en la lista (captura) y en el documento (por si el navegador no respeta la captura): lo primero que llegue
+  evs.forEach(([n, f]) => { cap.addEventListener(n, f); if (n !== "lostpointercapture") document.addEventListener(n, f); });
   place(); raf = requestAnimationFrame(tick);
 }
 function renderQueue() {
@@ -6896,6 +6988,31 @@ function prefetchLyrics() {   // lo que suena y lo siguiente, en segundo plano (
   if (LYR.clock || !current) return;
   fetchLyrics(current, true).catch(() => {});
   const n = queue[qIndex + 1]; if (n) fetchLyrics(n).catch(() => {});
+  // con la letra a la vista, tambien su alineacion (la siguiente aparecera ya cuadrada)
+  if ($("lyricsPanel").classList.contains("show")) { fetchAlign(current); if (n) fetchAlign(n); }
+}
+/* letra desalineada (videoclip con intro, otra subida...): el servidor compara el audio que suena con el de la
+   grabacion del catalogo y dice cuantos ms moverla (0 si ya cuadra o no esta seguro). Se pide al abrir la letra; la
+   letra aparece al momento y, si hace falta, se recoloca en cuanto llega (queda guardado: la proxima vez, al instante) */
+const _alignCache = new Map();   // id -> Promise<ms>
+function fetchAlign(s) {
+  if (!s || !s.id) return Promise.resolve(0);
+  if (_alignCache.has(s.id)) return _alignCache.get(s.id);
+  const p = jget(`/lyrics/align?id=${encodeURIComponent(s.id)}&title=${encodeURIComponent(s.title || "")}&artist=${encodeURIComponent(s.artist || "")}`)
+    .then(r => (r && +r.offset) || 0).catch(() => { _alignCache.delete(s.id); return 0; });
+  _alignCache.set(s.id, p);
+  while (_alignCache.size > 40) _alignCache.delete(_alignCache.keys().next().value);
+  return p;
+}
+function shiftLyrics(d, off) {   // mueve toda la letra (lineas y palabras) a un desfase total `off` ms
+  const delta = off - (d._shift || 0);
+  if (!delta) return false;
+  (d.lines || []).forEach(l => {
+    if (typeof l.time === "number") l.time = Math.max(0, l.time + delta);
+    (l.syllabus || []).forEach(w => { if (typeof w.time === "number") w.time = Math.max(0, w.time + delta); });
+  });
+  d._shift = off;
+  return true;
 }
 async function loadLyrics() {
   if (LYR.clock) return;   // modo karaoke: la letra es la de la cancion del karaoke
@@ -6909,8 +7026,18 @@ async function loadLyrics() {
   try {
     const d = await fetchLyrics(current, true);
     if (LYR.for !== id) return;
+    const synced = d && (d.type === "Word" || d.type === "Line") && (d.lines || []).length;
+    if (synced && _alignCache.has(id)) {   // ya se sabia (precarga): sale cuadrada desde el principio
+      const off0 = await Promise.race([_alignCache.get(id), new Promise(r => setTimeout(() => r(null), 60))]);
+      if (off0) shiftLyrics(d, off0);
+    }
+    if (LYR.for !== id) return;
     lyrBuild(d);
     startLyricLoop();
+    if (synced) fetchAlign(current).then(off => {
+      if (LYR.for !== id || !shiftLyrics(d, off)) return;
+      lyrBuild(d); startLyricLoop();   // se recoloca en su sitio
+    });
   } catch (e) {
     if (LYR.for !== id) return;
     $("lbody").innerHTML = '<div class="lempty">' + esc(t("No se encontró letra.")) + "</div>"; lyricsFor = LYR.for = null;
@@ -7709,6 +7836,11 @@ async function runSearch() {
     const res = await fetch("/search?q=" + encodeURIComponent(q) + "&filter=" + searchFilter);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
+    if (searchFilter === "djsets" && Array.isArray(data) && !data.length) {
+      $("r").innerHTML = ""; $("empty").style.display = "block";
+      $("empty").innerHTML = '<i class="ph ph-music-notes"></i>' + esc(t("No hay DJ sets para esta búsqueda."));
+      return;
+    }
     lastResults = data; render(data, "buscar");
   } catch (err) { $("r").innerHTML = ""; $("empty").style.display = "block";
     $("empty").innerHTML = '<i class="ph ph-warning"></i>Error: ' + err.message; }
@@ -7724,6 +7856,20 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
 renderLibrary();
 // al iniciar, el player muestra la ultima cancion escuchada (pausada; togglePlay hace el arranque en frio)
 (() => {
+  // la cola entera tal cual se dejo (si la hay); si no, la ultima cancion escuchada
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(QSTATE_KEY) || "null"); } catch (e) {}
+  if (st && Array.isArray(st.q) && st.q.length) {
+    const i = Math.min(Math.max(0, st.i | 0), st.q.length - 1), s = st.q[i];
+    if (s && s.id) {
+      queue = st.q; qIndex = i;
+      current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, artists: s.artists, explicit: s.explicit, duration: s.duration };
+      if (s.wide) current.wide = true;
+      _resumePos = +st.t || 0;
+      paintPlayer(s); applyAccent(s.cover); refreshLikeUI();
+      return;
+    }
+  }
   const s = getRecents()[0];
   if (!s || !s.id) return;
   current = { id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration };

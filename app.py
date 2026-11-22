@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import webbrowser
@@ -950,6 +951,86 @@ def _album_versions(browse_id):
                         "cover": _largest_thumb(it.get("thumbnailRenderer", {})),
                         "explicit": _is_explicit(it.get("subtitleBadges"))})
     return out
+
+
+def trending():
+    """Canciones en tendencia ahora (estante "Tendencias" de Explorar en YouTube Music, del pais de la cuenta)."""
+    return cached("trend", 1800, _trending)
+
+
+def _trending():
+    data = _yt_browse("FEmusic_explore")
+    for sh in _find_all_renderers(data, "musicCarouselShelfRenderer", []):
+        hd = (sh.get("header") or {}).get("musicCarouselShelfBasicHeaderRenderer") or {}
+        title = _runs_text(hd.get("title"))
+        items = [c.get("musicResponsiveListItemRenderer") for c in (sh.get("contents") or [])]
+        items = [x for x in items if x]
+        if items and re.search(r"tenden|trend", title, re.I):
+            out, seen = [], set()
+            for it in items:
+                r = _parse_item(it)
+                if r and r.get("id") and r["id"] not in seen:
+                    seen.add(r["id"]); out.append(r)
+            return out
+    return []
+
+
+# ---------- canciones sin publicar (unreleased) de un artista ----------
+# No estan en el catalogo: las suben fans a YouTube (filtraciones, snippets). Se buscan videos con "unreleased" en
+# el titulo y el nombre del artista, de duracion de cancion (1-9 min: fuera recopilatorios de una hora), sin
+# reacciones, "type beats", tutoriales ni karaokes. El titulo se limpia (sin el artista ni la etiqueta)
+_UNREL_BAD = re.compile(r"type beat|reaction|reacts?|tutorial|karaoke|how to|lyrics? breakdown|podcast|interview|"
+                        r"\bmix\b|megamix|compilation|playlist|full album|all unreleased|top \d+|ranking|"
+                        r"\bai\b|\bia\b|a\.i\.|suno|udio|#\w|\bfake\b|\bconcept\b|\bfan[ -]?made\b|extended|sped up|slowed", re.I)
+_UNREL_TAG = re.compile(r"\s*[\(\[\{]?\s*(?:\*\s*)?(?:unreleased|leaked?|snippet|cdq|hq|og|full(?: song)?|new)"
+                        r"(?:\s+(?:song|track|version|snippet|leak))?\s*(?:\*\s*)?[\)\]\}]?", re.I)
+
+
+def _unrel_title(t, name):
+    t2 = re.sub(r"^\s*" + re.escape(name) + r"\s*[-–—:|]\s*", "", t, flags=re.I)
+    t2 = _UNREL_TAG.sub(" ", t2)
+    t2 = re.sub(r"[\(\[\{]\s*[\)\]\}]", " ", t2)
+    t2 = re.sub(r"\s*/\s*(?:leak|snippet)\b", " ", t2, flags=re.I)
+    for o, c in ("()", "[]", "{}"):   # parentesis que se quedaron cojos al quitar la etiqueta
+        while t2.count(c) > t2.count(o) and c in t2:
+            i = t2.rfind(c); t2 = t2[:i] + t2[i + 1:]
+        while t2.count(o) > t2.count(c) and o in t2:
+            i = t2.rfind(o); t2 = t2[:i] + t2[i + 1:]
+    t2 = re.sub(r"\s{2,}", " ", t2).strip(" -–—|:/")
+    return t2 or t
+
+
+def unreleased(name):
+    name = (name or "").strip()
+    if not name:
+        return []
+    return cached("unrel:" + name.lower(), 3 * 3600, lambda: _unreleased(name))
+
+
+def _unreleased(name):
+    qs = [name + " unreleased", name + " unreleased song", name + " unreleased leak"]
+    with concurrent.futures.ThreadPoolExecutor(3) as ex:
+        res = list(ex.map(lambda q: _safe(lambda: parse_results(_ytm_search_raw(q, _VIDEOS_FILTER)), []), qs))
+    norm = lambda x: re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", x or "").encode("ascii", "ignore").decode().lower())
+    nn = norm(name)
+    out, seen = [], set()
+    for i in range(max((len(r) for r in res), default=0)):
+        for r in res:
+            if i >= len(r):
+                continue
+            it = r[i]
+            t = it.get("title") or ""
+            if not it.get("id") or it["id"] in seen or not re.search(r"\bunreleased\b", t, re.I) or _UNREL_BAD.search(t):
+                continue
+            if nn and nn not in norm(t) and nn not in norm(it.get("artist")):
+                continue
+            if not 90 <= _secs_of(it.get("duration")) <= 9 * 60:
+                continue
+            seen.add(it["id"])
+            out.append({"id": it["id"], "title": _unrel_title(t, name), "artist": name, "cover": it.get("cover", ""),
+                        "duration": it.get("duration", ""), "wide": True, "type": "video", "unreleased": True,
+                        "uploader": it.get("artist", "")})
+    return out[:40]
 
 
 def new_releases():
@@ -4779,6 +4860,12 @@ class H(BaseHTTPRequestHandler):
                 self.send_response(502); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
+        elif u.path in ("/trending", "/unreleased"):
+            try:
+                d = trending() if u.path == "/trending" else unreleased(parse_qs(u.query).get("artist", [""])[0][:80])
+                return self._json(d)
+            except Exception as e:
+                return self._json({"error": str(e)[:200]})
         elif u.path == "/newreleases":
             try:
                 payload = json.dumps(new_releases()).encode()

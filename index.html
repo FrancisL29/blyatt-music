@@ -749,11 +749,12 @@
             font-weight: 700; letter-spacing: .04em; white-space: nowrap; pointer-events: none; opacity: 0;
             transition: opacity .4s ease, transform .4s ease;
             background: linear-gradient(100deg, rgb(255 255 255 / .38) 0%, rgb(255 255 255 / .38) 38%, rgb(255 255 255 / .95) 50%,
-                        rgb(255 255 255 / .38) 62%, rgb(255 255 255 / .38) 100%) 0 0 / 250% 100% no-repeat;
+                        rgb(255 255 255 / .38) 62%, rgb(255 255 255 / .38) 100%) 100% 0 / 300% 100% no-repeat;
             -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
             animation: mixShine 2.2s linear infinite; animation-play-state: paused; }
   body.mixing .mixlbl { opacity: 1; transform: translate(-50%, 0); animation-play-state: running; }
-  @keyframes mixShine { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+  /* de 100 % a 0 %: la imagen (3 veces la palabra) siempre la cubre y el brillo cruza de izquierda a derecha */
+  @keyframes mixShine { from { background-position: 100% 0; } to { background-position: 0% 0; } }
   .np-times { position: relative; }
   .np-times .mixlbl { top: 50%; transform: translate(-50%, -40%); }
   body.mixing .np-times .mixlbl { transform: translate(-50%, -50%); }
@@ -3158,6 +3159,7 @@ function _kill(n) {
   if (!n) return; n.onended = null; try { n.stop(); } catch (e) {} n.disconnect();
   if (n._g) { n._n.disconnect(); n._g.disconnect(); }
   if (n._fx) { const f = n._fx; [f.full, f.side, f.low, f.mid, f.high, f.hp, f.lp, f.send, f.delay, f.fb, f.wet, ...f.vk].forEach(x => { try { x.disconnect(); } catch (e) {} }); }
+  if (n._loops) { n._loops.forEach(x => { try { x.stop(); } catch (e) {} try { x.disconnect(); } catch (e) {} }); n._loops = null; }
 }
 // vuelve a dejar el plato neutro (una mezcla programada que se anula: cambio de cola, salto, pausa...)
 function fxReset(n) {
@@ -3174,6 +3176,7 @@ function _clearGapless() {
   }
   if (eng.node && eng.gInfo && eng.gInfo.mix) {
     fxReset(eng.node); eng.rseg = null; eng.node._tail = 0;
+    if (eng.node._loops) { eng.node._loops.forEach(x => { try { x.stop(); } catch (e) {} try { x.disconnect(); } catch (e) {} }); eng.node._loops = null; }
     const g = eng.node._g.gain, t0 = Math.max(AC.currentTime, eng.gInfo.o0 || 0);
     try { g.cancelScheduledValues(t0); if (AC.currentTime >= (eng.gInfo.o0 || 0)) g.setValueAtTime(1, AC.currentTime); } catch (e) {}
   }
@@ -3368,11 +3371,47 @@ function automixSchedule(buf, song, voc) {
   // cuando canta la entrante (contenido) y cuanto de su intro se usa
   let vIn = voc && voc.vIn != null ? voc.vIn - leadB : B.introT - leadB;
   if (!(vIn > 0)) vIn = 0;
+  // estribillo de la entrante: la agresiva entra ahi (las intros suelen ser largas o distintas, como hacen los DJ en
+  // las fiestas); el bucle cae ahi en cualquier nivel
+  const chC = AUTOMIX === "light" ? null : chorusTime(buf, voc && voc.lyr);
+  if (AUTOMIX === "aggr" && chC != null) vIn = chC;
+  // estilo: mezcla larga, bucle que se va acortando hasta la caida, o corte con efecto
+  const pick = (a) => a[(Math.random() * a.length) | 0];
+  const canLoop = AUTOMIX !== "light" && A.conf > 1.15;
+  const wantLoop = canLoop && (match ? Math.random() < (AUTOMIX === "aggr" ? .4 : .25) : Math.random() < (AUTOMIX === "aggr" ? .35 : .5));
   const beatB = B.per, curve = (up) => { const c = new Float32Array(64); for (let i = 0; i < 64; i++) { const x = i / 63 * Math.PI / 2; c[i] = up ? Math.sin(x) : Math.cos(x); } return c; };
   const ramp = (prm, v0, t0, v1, t1, exp) => { try { prm.setValueAtTime(v0, t0); exp ? prm.exponentialRampToValueAtTime(v1, t1) : prm.linearRampToValueAtTime(v1, t1); } catch (e) {} };
   let when, tV, segs = null, style, offUsed = 0, o0 = null;   // o0: primer cambio programado en la saliente
   try {
-    if (match) {
+    if (wantLoop) {
+      /* BUCLE: la saliente repite su ultimo compas y el bucle se va acortando (4 golpes x2, 2 x2, 1 x2, medio x4:
+         16 golpes de subida) mientras se le van los graves y crece; en el ultimo golpe se manda al eco y entra la
+         siguiente DE GOLPE en su estribillo (o donde canta) */
+      style = "loop";
+      const bt = A.per, bar = 4 * bt, p0 = A.phase - leadA;
+      let Ls = p0 + Math.floor((endC - bar - p0) / bar) * bar;   // el ultimo compas entero de su musica
+      if (Ls < cNow + 4) return (_kill(inn), false);
+      const tLs = now + (Ls - cNow), tDrop = tLs + 16 * bt;
+      out._loops = [];
+      let t = tLs;
+      for (const [lb, reps] of [[4, 2], [2, 2], [1, 2], [.5, 4]]) {
+        const ls = AC.createBufferSource(); ls.buffer = eng.buf; ls.loop = true;
+        ls.loopStart = leadA + Ls; ls.loopEnd = leadA + Ls + lb * bt;
+        ls.connect(out._n); ls.start(t, leadA + Ls); ls.stop(t + lb * bt * reps);
+        out._loops.push(ls); t += lb * bt * reps;
+      }
+      try { out.stop(tLs); } catch (e) {}
+      ramp(of.hp.frequency, 10, tLs + 8 * bt, 1100, tDrop, true);           // se le van los graves al acortarse
+      ramp(of.high.gain, 0, tLs + 8 * bt, 4, tDrop);                         // y brilla mas (tension)
+      of.delay.delayTime.setValueAtTime(Math.min(1.9, bt / 2), now); of.fb.gain.setValueAtTime(.45, now);
+      ramp(of.send.gain, 0, tDrop - bt, .85, tDrop - .02);
+      const og = out._g.gain; og.cancelScheduledValues(Math.max(now, tLs));
+      og.setValueAtTime(1, tDrop - .04); og.linearRampToValueAtTime(0, tDrop); out._tail = 3;
+      const dropC = chC != null ? chC : vIn;
+      when = tDrop; tV = tDrop + bt; offUsed = dropC; o0 = tLs;
+      inn.start(when, leadB + dropC);
+      inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueAtTime(0, when); inn._g.gain.linearRampToValueAtTime(1, when + .03);
+    } else if (match) {
       style = "blend";
       let Lin = Math.max(P.min, Math.min(P.max, vIn));    // intro de la entrante que se mezcla
       let off = Math.max(0, vIn - Lin);
@@ -3415,7 +3454,7 @@ function automixSchedule(buf, song, voc) {
       try { out.stop(tV + .08); } catch (e) {}
     } else {
       // tempos que no casan: corte con efecto en un golpe de la saliente, la entrante 2 compases antes de su voz
-      style = P.cuts[(Math.random() * P.cuts.length) | 0];
+      style = pick(P.cuts);
       const pre = Math.min(vIn, 8 * beatB), off = Math.max(0, vIn - pre);
       const p0 = A.phase - leadA, cCut0 = Math.max(cNow + 1.5, endC - (style === "fade" ? 4 : 1.5));
       const cCut = grid ? p0 + Math.round((cCut0 - p0) / A.per) * A.per : cCut0;
@@ -3462,7 +3501,7 @@ function automixSchedule(buf, song, voc) {
   eng.rseg = segs;   // reloj/letra de la saliente durante su frenada
   eng.gNode = inn;
   eng.gInfo = { buf, song, when, X: Math.max(.1, (tV || when + 1) - when), cut: true, mix: true, style, off: offUsed, o0: o0 == null ? when : o0 };
-  eng.mixWins = (eng.mixWins || []).filter(w => w.b > now).concat([{ a: Math.min(when, segs ? segs[0].t0 : when), b: Math.max(tV || when, when + 1) }]);
+  eng.mixWins = (eng.mixWins || []).filter(w => w.b > now).concat([{ a: Math.min(when, o0 == null ? when : o0, segs ? segs[0].t0 : when), b: Math.max(tV || when, when + 1) }]);
   _scheduleBoundary();
   return true;
 }
@@ -3471,10 +3510,39 @@ async function mixVocals(song) {
   try {
     const d = await Promise.race([fetchLyrics(song).catch(() => null), new Promise(r => setTimeout(() => r(null), 1500))]);
     const l = d && (d.lines || []).find(x => (x.text || "").replace(/[♪♫♬~\s]/g, "") && typeof x.time === "number");
-    return { vIn: l ? l.time / 1000 : null };
-  } catch (e) { return { vIn: null }; }
+    return { vIn: l ? l.time / 1000 : null, lyr: d };
+  } catch (e) { return { vIn: null, lyr: null }; }
+}
+/* donde empieza el estribillo (contenido, en un golpe): primero por la letra (la primera linea que se repite,
+   seguida de otra que tambien se repite, pasado el segundo 15); si no, por la energia (el primer cambio de frase
+   desde el 18 % donde la energia sube claramente). Null si no se encuentra o cae demasiado tarde */
+function chorusTime(buf, lyr) {
+  let B; try { B = mixInfo(buf); } catch (e) { return null; }
+  const lead = buf._lead || 0, dur = buf._eff || buf.duration;
+  let t = null;
+  if (lyr && (lyr.lines || []).length > 6) {
+    const nz = (x) => (x || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+    const ls = lyr.lines.filter(l => typeof l.time === "number" && nz(l.text).split(" ").length >= 3);
+    const cnt = new Map(); ls.forEach(l => { const k = nz(l.text); cnt.set(k, (cnt.get(k) || 0) + 1); });
+    for (let i = 0; i < ls.length - 1; i++) {
+      if (ls[i].time / 1000 < 15) continue;
+      if (cnt.get(nz(ls[i].text)) >= 2 && cnt.get(nz(ls[i + 1].text)) >= 2) { t = ls[i].time / 1000; break; }
+    }
+  }
+  if (t == null && B.env && B.conf > 1.15) {
+    const env = B.env, ph = 16 * B.per, avg = (a, b) => { let x = 0, n = 0; for (let i = Math.max(0, a | 0); i < Math.min(env.length, b | 0); i++) { x += env[i]; n++; } return n ? x / n : 0; };
+    for (let tf = B.phase + Math.ceil((env.length * .18 - B.phase) / ph) * ph; tf < env.length * .6; tf += ph) {
+      const before = avg(tf - 8, tf), after = avg(tf, tf + 8);
+      if (after > before * 1.35 && after > B.med * 1.1) { t = tf; break; }
+    }
+  }
+  if (t == null) return null;
+  let c = t - lead;
+  if (B.conf > 1.15) { const p0 = ((B.phase - lead) % B.per + B.per) % B.per; c = p0 + Math.floor((c - p0 + .25) / B.per) * B.per; }
+  return c > 8 && c < dur * .65 ? c : null;
 }
 async function engScheduleNext(song) {       // programa la siguiente pista de forma gapless
+  if (eng.gInfo && eng.gInfo.mix && AC.currentTime >= (eng.gInfo.o0 || eng.gInfo.when) - .3) return;   // mezcla en marcha
   _clearGapless();
   if (!song || !eng.playing) return;
   let buf; try { buf = await getBuffer(song.id); } catch (e) { return; }

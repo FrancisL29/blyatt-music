@@ -143,7 +143,10 @@
   body.app-hidden *, body.app-hidden *::before, body.app-hidden *::after { animation-play-state: paused !important; }
   /* secciones de Inicio y del artista fuera de la pantalla: el navegador no las pinta hasta acercarse (mismo aspecto,
      menos trabajo al desplazarse); auto recuerda su alto real para que el scroll no salte */
-  @media (max-width: 820px) { #homeView .home-sec, #artistView .ashelf { content-visibility: auto; contain-intrinsic-size: auto 340px; } }
+  @media (max-width: 820px) {
+    #homeView .home-sec, #artistView .ashelf { content-visibility: auto; contain-intrinsic-size: auto 340px;
+      margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+  }
   /* sin "deslizar para recargar" del navegador (Safari 16+, Chrome Android): deslizar hacia abajo es minimizar o cerrar */
   html, body { overscroll-behavior-y: none; }
   body {
@@ -316,7 +319,41 @@
   .user-chip .ucov img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .user-chip #uname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   body.sb-collapsed .user-chip { padding-left: 13px; }
-  #gmodal, #plmodal, #askmodal, #impmodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #gmodal, #plmodal, #askmodal, #impmodal, #vermodal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: flex; align-items: center; justify-content: center; }
+  #vermodal[hidden] { display: none; }
+  /* versiones de un album: tarjeta flotante con la portada del original arriba y las versiones en cuadricula */
+  #vermodal { animation: verFade .22s ease; }
+  @keyframes verFade { from { background: rgb(0 0 0 / 0); } }
+  #vermodal .gbox { width: min(720px, 94vw); max-height: 86vh; display: flex; flex-direction: column; padding: 22px 24px 24px;
+                    animation: verPop .3s cubic-bezier(.16,1,.3,1); }
+  @keyframes verPop { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+  .verhead { display: flex; align-items: center; gap: 14px; padding-right: 34px; margin-bottom: 18px; }
+  .verhead img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: #1a1a20; flex: none;
+                 box-shadow: 0 8px 24px rgb(0 0 0 / .45); }
+  .verhead .vk { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .verhead .vn { font-size: 1.2rem; font-weight: 800; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .verhead .vs { color: var(--muted); font-size: .86rem; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .verhead > div { min-width: 0; }
+  .vergrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; overflow-y: auto;
+             overscroll-behavior: contain; margin: 0 -6px; padding: 2px 6px 4px; scrollbar-width: thin; }
+  .vercard { border: none; background: none; color: inherit; font: inherit; text-align: left; padding: 8px; border-radius: 12px;
+             cursor: pointer; min-width: 0; transition: background .15s; }
+  .vercard:hover, .vercard:focus-visible { background: rgb(255 255 255 / .07); outline: none; }
+  .vercard img { width: 100%; aspect-ratio: 1; border-radius: 8px; object-fit: cover; background: #1a1a20; display: block;
+                 box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
+  .vercard .vt { font-weight: 700; font-size: .9rem; margin-top: 9px; display: -webkit-box; -webkit-line-clamp: 2;
+                 -webkit-box-orient: vertical; overflow: hidden; }
+  .vercard .va { color: var(--muted); font-size: .8rem; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vercard.sk img, .vercard.sk .vt, .vercard.sk .va { color: transparent; }
+  .verempty { color: var(--muted); text-align: center; padding: 34px 10px; }
+  @media (max-width: 820px) {   /* movil: hoja inferior, dos columnas */
+    #vermodal { align-items: flex-end; }
+    #vermodal .gbox { width: 100%; max-width: none; max-height: 88vh; box-sizing: border-box; border-radius: 24px 24px 0 0;
+                      padding: 26px 16px calc(16px + var(--sab)); animation: impSheet .34s cubic-bezier(.16,1,.3,1); }
+    #vermodal .gbox::before { content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+                              width: 40px; height: 4px; border-radius: 99px; background: rgb(255 255 255 / .22); }
+    .vergrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  }
   #askmodal { z-index: 40; }
   body.kara-on #askmodal { z-index: 60; }   /* tambien sobre el karaoke (fiesta online) */   /* askModal puede abrirse SOBRE impmodal (p.ej. pedir Client ID) */
   #gmodal[hidden], #plmodal[hidden], #askmodal[hidden], #impmodal[hidden] { display: none; }
@@ -2190,6 +2227,14 @@
   </div>
 </div>
 
+<div id="vermodal" hidden role="dialog" aria-modal="true" aria-labelledby="verName">
+  <div class="gbox">
+    <button class="gclose" id="verclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
+    <div class="verhead"><img id="verCover" alt=""><div><div class="vk" data-i18n>Otras versiones</div>
+      <div class="vn" id="verName"></div><div class="vs" id="verSub"></div></div></div>
+    <div class="vergrid" id="verGrid"></div>
+  </div>
+</div>
 <div id="askmodal" hidden>
   <div class="gbox">
     <button class="gclose" id="askclose" aria-label="Cerrar"><i class="ph ph-x"></i></button>
@@ -2601,7 +2646,8 @@ const EN = {
     "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Wave": "Sign in in the Wave window",
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
-  "Quitar de la cola": "Remove from queue", "Modo rendimiento": "Performance mode",
+  "Quitar de la cola": "Remove from queue", "Ver otras versiones": "See other versions",
+  "Otras versiones": "Other versions", "Este álbum no tiene otras versiones.": "This album has no other versions.", "Modo rendimiento": "Performance mode",
   "Modo rendimiento: activado": "Performance mode: on", "Modo rendimiento activado": "Performance mode on",
   "Modo rendimiento desactivado": "Performance mode off", "Compartir": "Share", "Enlace copiado": "Link copied",
   "No se pudo abrir el enlace": "Couldn't open the link", "Hoy": "Today", "Ayer": "Yesterday", "Antes": "Earlier",
@@ -3703,11 +3749,60 @@ const versionsCache = new Map();   // browseId -> Promise<array>
 function fetchVersions(browseId) {
   if (versionsCache.has(browseId)) return versionsCache.get(browseId);
   const p = fetch("/versions?id=" + encodeURIComponent(browseId)).then(r => r.json())
-    .then(d => Array.isArray(d) ? d : []).catch(() => []);
+    .then(d => Array.isArray(d) ? d : []).then(v => { _versN.set(browseId, v.length); return v; })
+    .catch(() => { versionsCache.delete(browseId); return []; });
   versionsCache.set(browseId, p);
   return p;
 }
-function attachVersions(card, browseId) {
+// se saben las versiones de antemano (para ofrecer la opcion en el menu solo si hay). Antes salia un globo al pasar
+// el raton o al tocar; ahora se ven desde el menu de la tarjeta (clic derecho / mantener pulsado) en su ventana
+const _versN = new Map();   // album -> cuantas versiones (cuando se sabe)
+function attachVersions(card, browseId) { fetchVersions(browseId); }
+function openVersions(it) {
+  const id = it.browseId || it.id; if (!id) return;
+  const m = $("vermodal"), grid = $("verGrid");
+  $("verCover").src = it.ccover || it.cover || "";
+  $("verName").textContent = it.title || "";
+  $("verSub").textContent = it.subtitle || it.creator || "";
+  grid.innerHTML = "";
+  for (let i = 0; i < 4; i++) {   // esqueletos mientras llegan
+    const c = document.createElement("div"); c.className = "vercard sk";
+    c.innerHTML = '<img alt="" class="shimmer"><div class="vt shimmer">·</div><div class="va shimmer">·</div>';
+    grid.appendChild(c);
+  }
+  m.hidden = false;
+  if (!m._hist) { m._hist = true; m._prev = history.state; pushHist({ t: "vermodal" }); }
+  fetchVersions(id).then(vers => {
+    if (m.hidden || $("verName").textContent !== (it.title || "")) return;
+    grid.innerHTML = "";
+    if (!vers.length) { grid.innerHTML = '<div class="verempty">' + esc(t("Este álbum no tiene otras versiones.")) + "</div>"; return; }
+    vers.forEach((v, i) => {
+      const c = document.createElement("button"); c.className = "vercard"; c.type = "button";
+      c.innerHTML = '<img alt=""><div class="vt"></div><div class="va"></div>';
+      c.querySelector("img").src = v.cover || "";
+      c.querySelector(".vt").textContent = v.title || "";
+      c.querySelector(".va").innerHTML = expBadge(v) + esc(v.subtitle || "");
+      c.onclick = () => { closeVersions(true); openCollection(v.browseId, true, { kind: "album", title: v.title, subtitle: v.subtitle, cover: v.cover }); };
+      c.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); openCardMenu(Object.assign({ kind: "albums" }, v), e.clientX, e.clientY, c); };
+      grid.appendChild(c);
+      if (!i) setTimeout(() => { if (!m.hidden && matchMedia("(hover: hover)").matches) c.focus({ preventScroll: true }); }, 60);
+    });
+  });
+}
+function closeVersions(viaNav) {
+  const m = $("vermodal"); if (m.hidden) return;
+  m.hidden = true;
+  if (!m._hist) return;
+  m._hist = false;
+  if (history.state && history.state.t === "vermodal") {
+    // cerrada a mano: se consume su entrada (atras); al ir a una version, la entrada vuelve a ser la vista de antes
+    if (viaNav) { try { history.replaceState(m._prev || null, ""); } catch (e) {} } else history.back();
+  }
+}
+$("verclose").onclick = () => closeVersions();
+$("vermodal").addEventListener("click", (e) => { if (e.target === $("vermodal")) closeVersions(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("vermodal").hidden) closeVersions(); });
+function _oldVersionsPopover(card, browseId) {   // (globo antiguo, ya no se usa)
   fetchVersions(browseId).then(vers => {
     if (!vers.length || !card.isConnected) return;
     const box = document.createElement("div"); box.className = "versions";
@@ -4114,6 +4209,11 @@ function openCardMenu(it, x, y, el) {
       saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
+  if (entry.kind === "albums" && /^MPRE/.test(entry.id)) {
+    if (!_versN.has(entry.id)) fetchVersions(entry.id);   // la ventana ya la tendra cargada
+    if (_versN.get(entry.id) !== 0)
+      opts.push(["ph-books", "Ver otras versiones", () => openVersions(Object.assign({}, it, { browseId: entry.id, title: it.title || entry.title, cover: it.cover || entry.cover }))]);
+  }
   opts.push(["ph-export", "Compartir", share]);
   if (entry.kind === "playlists" && libE) {
     // portada custom es LOCAL (YT no expone subirla): disponible para toda playlist guardada
@@ -4629,8 +4729,8 @@ addEventListener("online", () => { if (!_authSt.logged_in) refreshAuth(); });
   document.addEventListener("touchstart", (e) => {
     g = null; cancelLp();
     if (e.touches.length !== 1) return;
-    const row = e.target.closest && e.target.closest(".swq-row");
-    if (!row || !row._song || e.target.closest(".qhandle, input, textarea, select")) return;
+    const row = e.target.closest && e.target.closest(".swq-row, .ccard, li.card, .brow, .rtile, .arel, .vercard");
+    if (!row || (row.classList.contains("swq-row") && !row._song) || e.target.closest(".qhandle, input, textarea, select")) return;
     const t0 = e.touches[0];
     g = { row, x0: t0.clientX, y0: t0.clientY, dx: 0, on: false, dead: false, ind: null };
     lpT = setTimeout(() => {   // mantener pulsado
@@ -4670,6 +4770,7 @@ addEventListener("online", () => { if (!_authSt.logged_in) refreshAuth(); });
       if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) { g.dead = true; return; }   // scroll vertical
       if (dx < -10 || g.x0 < 24) { g.dead = true; return; }   // a la izquierda / borde (gesto atras de iOS)
       if (!(dx > 14 && dx > Math.abs(dy) * 1.4)) return;
+      if (!g.row._song) { g.dead = true; return; }   // tarjetas: solo mantener pulsado (el carrusel se desplaza)
       g.on = true; g.x0 += 14;
       g.row.style.animation = "none"; g.row.style.transition = "none"; g.row.style.willChange = "transform";
       g.ind = document.createElement("div"); g.ind.className = "swq-ind"; g.ind.innerHTML = '<i class="ph ph-queue"></i>';
@@ -5849,6 +5950,9 @@ function applyHist(s) {
 $("backBtn").onclick = () => history.back();
 $("iosBack").onclick = () => history.back();
 window.addEventListener("popstate", (e) => {
+  const vm = $("vermodal");
+  if (!vm.hidden) { vm._hist = false; vm.hidden = true; return; }   // atras con la ventana de versiones: solo se cierra
+  if (e.state && e.state.t === "vermodal") return;   // "adelante" hacia ella: no se reabre sola
   if (npOpen) { closeNp(_npCloseKind); _npCloseKind = null; return; }   // la vista de debajo ya esta pintada
   if (e.state && e.state.t === "np") return;   // "adelante" hacia la vista completa: no se reabre sola
   applyHist(e.state);
@@ -7987,6 +8091,7 @@ if (!matchMedia("(max-width: 820px)").matches) $("q").focus();
 // app Capacitor: boton fisico "atras" de Android navega el historial de la app
 if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
   Capacitor.Plugins.App.addListener("backButton", () => {
+    if (!$("vermodal").hidden) { closeVersions(); return; }
     const sp = document.querySelector(".sidepanel.show");
     if (sp) { sp.classList.remove("show"); $("lyricsBtn").classList.remove("on"); $("queueBtn").classList.remove("on"); if (npOpen) syncNp(); return; }
     if (history.length > 1) history.back();

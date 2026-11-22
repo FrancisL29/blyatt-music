@@ -1508,6 +1508,36 @@ def _lhttp(url, data=None, hdr=None, timeout=8, raw=False):
     return b if raw else json.loads(b)
 
 
+_MG_CLEAN = re.compile(r"\s*[\(\[][^\)\]]*(feat|ft\.|con |with |remaster|version|versión|video|official|oficial|"
+                       r"lyric|audio|live|en vivo|edit|mix)[^\)\]]*[\)\]]", re.I)
+
+
+def mix_genre(title, artist):
+    """Generos del album en Deezer (publico, sin clave): "Techno/House", "Rap/Hip Hop", "Latin Music", "Pop"...
+    El analisis del audio a veces confunde (hard techno con bombo distorsionado -> pop); esto lo corrige."""
+    t = _MG_CLEAN.sub("", title or "").strip()[:120]
+    a = (artist or "").split(",")[0].split("&")[0].strip()[:80]
+    if not t:
+        return {"genres": []}
+
+    def prod():
+        try:
+            res = _lhttp("https://api.deezer.com/search?" + urlencode({"q": 'artist:"%s" track:"%s"' % (a, t), "limit": 3})).get("data") or []
+            if not res:
+                res = _lhttp("https://api.deezer.com/search?" + urlencode({"q": "%s %s" % (t, a), "limit": 3})).get("data") or []
+            for hit in res[:2]:
+                alb = (hit.get("album") or {}).get("id")
+                if not alb:
+                    continue
+                g = [x.get("name") for x in ((_lhttp("https://api.deezer.com/album/%s" % alb) or {}).get("genres") or {}).get("data", []) if x.get("name")]
+                if g:
+                    return {"genres": g[:4]}
+        except Exception:
+            pass
+        return {"genres": []}
+    return cached("mixgenre:" + t.lower() + "|" + a.lower(), 30 * 86400, prod)
+
+
 def _lmatch(t, a, d, ht, ha, hd, tol=3.5):
     """Es la misma grabacion? Titulo normalizado igual y duracion +-tol s (otra version desincroniza la letra).
     El artista suma pero no es obligatorio: algunos catalogos lo traen en otro alfabeto (バッド・バニー)."""
@@ -5090,6 +5120,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src"), float(g("dur") or 0)))
             except Exception as e:
                 return self._json({"offset": 0, "error": str(e)})
+        elif u.path == "/mixgenre":   # genero de catalogo (Deezer) para el Automix: segunda opinion junto al audio
+            qa = parse_qs(u.query)
+            return self._json(mix_genre(qa.get("title", [""])[0], qa.get("artist", [""])[0]))
         elif u.path == "/songmeta":   # enlace compartido de una cancion: titulo, artista y portada por su id
             vid = parse_qs(u.query).get("id", [""])[0]
             m = video_meta(vid) if re.fullmatch(r"[\w-]{11}", vid or "") else {}

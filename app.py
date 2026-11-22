@@ -1001,10 +1001,98 @@ def _unrel_title(t, name):
 
 
 def unreleased(name):
+    """{songs, albums} sin publicar del artista. Los NOMBRES salen de Genius (la comunidad documenta ahi las
+    filtraciones, demos y snippets: canciones del artista sin fecha de lanzamiento) y cada uno se busca despues en
+    YouTube; se completa con subidas que dicen "unreleased" en el titulo. Albumes: playlists de YouTube que las
+    recopilan (unreleased / leaks / vault). Todo cacheado unas horas: la primera vez tarda unos segundos"""
     name = (name or "").strip()
     if not name:
+        return {"songs": [], "albums": []}
+    return cached("unrel2:" + name.lower(), 6 * 3600, lambda: _unreleased2(name))
+
+
+_GENIUS_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0 Safari/537.36", "Accept": "application/json"}
+_UNREL_SKIP = re.compile(r"discography|tracklist|\[.*list\]|annotated|interview|concert|\btour\b|\bedit\)|"
+                         r"\blive\b|instrumental|acapella|a cappella", re.I)
+_norm = lambda x: re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", x or "").encode("ascii", "ignore").decode().lower())
+
+
+def _genius(path, **q):
+    u = "https://genius.com/api/" + path + ("?" + urlencode(q) if q else "")
+    with urllib.request.urlopen(urllib.request.Request(u, headers=_GENIUS_UA), timeout=12) as r:
+        return json.loads(r.read()).get("response") or {}
+
+
+def _genius_unreleased(name):
+    """Canciones del artista en Genius sin fecha de lanzamiento (las publicadas siempre la tienen), por visitas."""
+    res = _genius("search/multi", per_page=5, q=name)
+    arts = [h["result"] for sec in res.get("sections", []) if sec.get("type") == "artist" for h in sec.get("hits", [])]
+    if not arts:
         return []
-    return cached("unrel:" + name.lower(), 3 * 3600, lambda: _unreleased(name))
+    nn = _norm(name)
+    art = next((a for a in arts if _norm(a.get("name")) == nn), arts[0])
+    if _norm(art.get("name")) != nn and nn not in _norm(art.get("name")):
+        return []
+    aid = art["id"]
+    jobs = [("artists/%d/songs" % aid, dict(sort="popularity", per_page=50, page=p)) for p in range(1, 11)]
+    jobs += [("search/song", dict(per_page=20, page=p, q=name + " " + w)) for w in ("unreleased", "leak", "snippet") for p in (1, 2)]
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+        outs = list(ex.map(lambda j: _safe(lambda: _genius(j[0], **j[1]), {}), jobs))
+    songs = {}
+    for o in outs:
+        lst = o.get("songs") or [h["result"] for sec in o.get("sections", []) for h in sec.get("hits", [])]
+        for x in lst:
+            if (x.get("primary_artist") or {}).get("id") != aid or x.get("release_date_for_display") or x.get("instrumental"):
+                continue
+            if _UNREL_SKIP.search(x.get("title") or ""):
+                continue
+            songs[x["id"]] = x
+    lst = sorted(songs.values(), key=lambda x: -((x.get("stats") or {}).get("pageviews") or 0))
+    return [re.sub(r"\s*\*+\s*", " ", x["title"]).strip() for x in lst]
+
+
+def _yt_unreleased(name, title):
+    """La subida de YouTube de una cancion sin publicar (por su nombre de Genius)."""
+    core = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", title).strip() or title
+    nc, nn = _norm(core), _norm(name)
+    if len(nc) < 2:
+        return None
+    for q in (name + " " + core + " unreleased", name + " " + core):
+        for it in _safe(lambda: parse_results(_ytm_search_raw(q, _VIDEOS_FILTER)), [])[:8]:
+            t = it.get("title") or ""
+            if not it.get("id") or _UNREL_BAD.search(t) or nc not in _norm(t):
+                continue
+            if nn not in _norm(t) and nn not in _norm(it.get("artist")):
+                continue
+            if not 60 <= _secs_of(it.get("duration")) <= 10 * 60:
+                continue
+            return {"id": it["id"], "title": title, "artist": name, "cover": it.get("cover", ""),
+                    "duration": it.get("duration", ""), "wide": True, "type": "video", "unreleased": True,
+                    "uploader": it.get("artist", "")}
+    return None
+
+
+def _unreleased2(name):
+    try:
+        titles = _genius_unreleased(name)[:28]
+    except Exception as e:
+        print("[unreleased] genius", name, e)
+        titles = []
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+        found = list(ex.map(lambda t: _safe(lambda: _yt_unreleased(name, t), None), titles))
+        pl = ex.submit(lambda: _safe(lambda: parse_browse(_ytm_search_raw(name + " unreleased", _FILTERS["playlists"]), "playlists"), []))
+        extra = ex.submit(lambda: _safe(lambda: _unreleased(name), []))
+        pl, extra = pl.result(), extra.result()
+    songs, seen = [], set()
+    for s in [x for x in found if x] + extra:   # primero las de Genius (por visitas), luego las de YouTube
+        if s["id"] not in seen:
+            seen.add(s["id"]); songs.append(s)
+    nn = _norm(name)
+    albums = [dict(p, kind="playlists") for p in pl
+              if re.search(r"unreleased|leak|vault|snippet|scrapped|unrel", p.get("title") or "", re.I)
+              and nn in _norm(p.get("title"))][:10]
+    return {"songs": songs[:40], "albums": albums}
 
 
 def _unreleased(name):

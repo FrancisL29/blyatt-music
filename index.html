@@ -4053,27 +4053,28 @@ function renderArtist(d) {
     }
     av.appendChild(el);
   });
-  // canciones sin publicar (subidas de fans): se piden aparte y aparecen tras las mas escuchadas si las hay
+  // sin publicar (unreleased): albumes (recopilaciones) y canciones en un carrusel como el resto, tras "Actuaciones
+  // en directo". Se pide aparte (la primera vez tarda unos segundos: Genius + YouTube) y solo aparece si hay algo
   if (d.name && !(_artistSeed && _artistSeed.kind === "profiles")) {
-    const aid = _artistId;
-    jget("/unreleased?artist=" + encodeURIComponent(d.name)).then(list => {
-      if (!Array.isArray(list) || !list.length || _artistId !== aid || view !== "artist") return;
+    const aid = _artistId, name = d.name;
+    jget("/unreleased?artist=" + encodeURIComponent(name)).then(r => {
+      const songs = Array.isArray(r) ? r : (r && r.songs) || [], albums = (r && r.albums) || [];
+      if ((!songs.length && !albums.length) || _artistId !== aid || view !== "artist") return;
+      const items = albums.map(a => Object.assign({}, a, { kind: "playlists" }))
+        .concat(songs.map(s => Object.assign({}, s, { subtitle: s.duration ? "Unreleased • " + s.duration : "Unreleased" })));
       const el = document.createElement("section"); el.className = "ashelf unrel";
-      const h = document.createElement("h3"); h.className = "static";
-      h.innerHTML = '<span></span><span class="unrel-k"></span>';
-      h.firstChild.textContent = "Unreleased"; h.lastChild.textContent = t("Sin publicar");
+      const h = document.createElement("h3");
+      h.innerHTML = '<span></span><span class="unrel-k"></span><i class="ph ph-caret-right chev"></i>';
+      h.firstChild.textContent = "Unreleased"; h.children[1].textContent = t("Sin publicar");
+      h.onclick = () => showGrid("Unreleased · " + name, items, true);   // ver todo
       el.appendChild(h);
-      const ul = document.createElement("ul"); ul.className = "asongs";
-      const show = (n) => { ul.innerHTML = ""; list.slice(0, n).forEach((s, i) => ul.appendChild(songLi(s, list, i))); };
-      show(8); el.appendChild(ul);
-      if (list.length > 8) {
-        const more = document.createElement("button"); more.className = "unrel-more"; more.textContent = t("Mostrar más");
-        more.onclick = () => { show(list.length); more.remove(); };
-        el.appendChild(more);
-      }
-      const songs = av.querySelector(".ashelf .asongs");
-      const after = songs && songs.closest(".ashelf");
-      if (after && after.nextSibling) av.insertBefore(el, after.nextSibling); else av.appendChild(el);
+      const car = document.createElement("div"); car.className = "arow";
+      items.forEach(it => car.appendChild(itemCard(it)));
+      el.appendChild(car);
+      const shelves = [...av.querySelectorAll(".ashelf")];
+      const title = (x) => (x.querySelector("h3") || {}).textContent || "";
+      const after = shelves.find(x => /directo|live/i.test(title(x))) || shelves.find(x => /v[ií]deos/i.test(title(x)));
+      if (after) av.insertBefore(el, after.nextSibling); else av.appendChild(el);
     }).catch(() => {});
   }
 }

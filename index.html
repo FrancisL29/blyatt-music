@@ -128,6 +128,8 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }   /* tactil: sin el rectangulo de toque de Android (el feedback es el scale de :active) */
   :focus:not(:focus-visible) { outline: none; }   /* sin anillo de foco tras tocar; con teclado se mantiene */
   html, body { height: 100%; margin: 0; }
+  /* DJ Lara desactivada por ahora: fuera su entrada de la biblioteca, sus botones y su seccion de ajustes */
+  body.dj-off #djLib, body.dj-off #djBtn, body.dj-off #npDj, body.dj-off #setDj { display: none !important; }
   /* ===== modo rendimiento (PC): todo funciona igual pero sin nada que gaste CPU/GPU de mas. Sin animaciones ni
      transiciones, sin desenfoques ni sombras ni grano, sin fondos animados ni capas extra: la tarjeta grafica y el
      procesador quedan para el juego o la otra app. La musica no se toca ===== */
@@ -2352,6 +2354,11 @@
           <div class="sds" data-i18n>Cada canción se funde con la siguiente.</div></div>
         <div class="srng"><input type="range" id="setXf" min="0" max="12" step="1" aria-label="Fundido entre canciones" data-i18n-al><span id="setXfV"></span></div>
       </div>
+      <div class="srow"><i class="ph ph-shuffle-angular"></i>
+        <div class="stx"><div class="stt" data-i18n>Automix</div>
+          <div class="sds" data-i18n>Mezcla cada canción con la siguiente como un DJ: golpes alineados e intercambio de graves.</div></div>
+        <label class="sw"><input type="checkbox" id="setAutomix" aria-label="Automix" data-i18n-al><span></span></label>
+      </div>
       <div class="srow"><i class="ph ph-speaker-simple-high"></i>
         <div class="stx"><div class="stt" data-i18n>Normalizar volumen</div>
           <div class="sds" data-i18n>Todas las canciones suenan igual de fuerte.</div></div>
@@ -2654,7 +2661,8 @@ const EN = {
     "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Wave": "Sign in in the Wave window",
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
-  "Quitar de la cola": "Remove from queue", "No se encontró en YouTube": "Not found on YouTube", "Ver otras versiones": "See other versions",
+  "Quitar de la cola": "Remove from queue", "Automix": "Automix",
+  "Mezcla cada canción con la siguiente como un DJ: golpes alineados e intercambio de graves.": "Mixes each song into the next like a DJ: beat-matched with a bass swap.", "No se encontró en YouTube": "Not found on YouTube", "Ver otras versiones": "See other versions",
   "Otras versiones": "Other versions", "Este álbum no tiene otras versiones.": "This album has no other versions.", "Modo rendimiento": "Performance mode",
   "Modo rendimiento: activado": "Performance mode: on", "Modo rendimiento activado": "Performance mode on",
   "Modo rendimiento desactivado": "Performance mode off", "Compartir": "Share", "Enlace copiado": "Link copied",
@@ -3093,17 +3101,21 @@ const _ng = (buf) => PLAY.norm && buf && buf._ng || 1;
 // cada pista lleva su propio volumen: n._n normalizacion y n._g fundido entre canciones (separados: cambiar uno
 // no pisa la curva programada del otro)
 function _src(buf) {
-  const n = AC.createBufferSource(), nn = AC.createGain(), g = AC.createGain();
-  n.buffer = buf; nn.gain.value = _ng(buf); n.connect(nn); nn.connect(g); g.connect(srcBus); n._n = nn; n._g = g;
+  const n = AC.createBufferSource(), nn = AC.createGain(), g = AC.createGain(), hp = AC.createBiquadFilter();
+  // paso alto por fuente (transparente a 10 Hz): Automix lo sube para quitar los graves al entrar/salir
+  hp.type = "highpass"; hp.frequency.value = 10; hp.Q.value = .7;
+  n.buffer = buf; nn.gain.value = _ng(buf); n.connect(nn); nn.connect(hp); hp.connect(g); g.connect(srcBus);
+  n._n = nn; n._g = g; n._hp = hp;
   return n;
 }
-function _kill(n) { if (!n) return; n.onended = null; try { n.stop(); } catch (e) {} n.disconnect(); if (n._g) { n._n.disconnect(); n._g.disconnect(); } }
+function _kill(n) { if (!n) return; n.onended = null; try { n.stop(); } catch (e) {} n.disconnect(); if (n._g) { n._n.disconnect(); n._g.disconnect(); if (n._hp) n._hp.disconnect(); } }
 function _clearGapless() {
   _kill(eng.gNode);
   if (eng.gInfo && eng.gInfo.X && eng.node && eng.node._g) {   // el fundido de salida ya programado: se anula
     const g = eng.node._g.gain, w = eng.gInfo.when;
     try { g.cancelScheduledValues(w); if (AC.currentTime >= w) g.setValueAtTime(1, AC.currentTime); } catch (e) {}
   }
+  if (eng.node && eng.node._hp) { try { const f = eng.node._hp.frequency; f.cancelScheduledValues(0); f.setValueAtTime(10, AC.currentTime); } catch (e) {} }
   eng.gNode = null; eng.gInfo = null;
 }
 function _stop() {
@@ -3117,7 +3129,7 @@ function _startBuf(buf, offset) {
   const lead = buf._lead || 0, eff = buf._eff || buf.duration;
   const n = _src(buf);
   n.start(0, lead + offset);                 // arranca en el audio real (omite el silencio de priming)
-  eng.node = n; eng.buf = buf; eng.dur = eff; eng.start = AC.currentTime - offset; eng.offset = offset; eng.playing = true;
+  eng.node = n; eng.buf = buf; eng.dur = eff; eng.start = AC.currentTime - offset; eng.offset = offset; eng.playing = true; eng.tc = null;
   try { n.stop(eng.start + eff); } catch (e) {}   // corta antes del padding final
   _watchEnd(n);
   _scheduleBoundary();
@@ -3127,7 +3139,7 @@ function _startBuf(buf, offset) {
 // El setTimeout de _scheduleBoundary queda solo como respaldo; el guard evita doble avance.
 function _watchEnd(n) { n.onended = () => { if (eng.node === n && eng.playing) _onBoundary(); }; }
 // cambio de pista: al terminar la actual o, con fundido, cuando entra la siguiente (la UI cambia ahi)
-const _boundaryAt = () => eng.gInfo ? eng.gInfo.when : eng.start + eng.dur;
+const _boundaryAt = () => eng.gInfo ? eng.gInfo.when : eng.start + eng.dur - mixTotal(eng.tc);
 function _scheduleBoundary() {
   if (eng.endTimer) clearTimeout(eng.endTimer);
   eng.endTimer = setTimeout(_onBoundary, Math.max(0, (_boundaryAt() - AC.currentTime) * 1000) + 40);
@@ -3145,8 +3157,9 @@ function _onBoundary() {
       }
     }
     eng.node = eng.gNode; eng.buf = g.buf; eng.dur = g.buf._eff || g.buf.duration; eng.start = g.when; eng.offset = 0;
+    eng.tc = g.tc || null;   // Automix: la entrante pudo entrar con el tempo de la anterior (y volver a 1 poco a poco)
     eng.gNode = null; eng.gInfo = null;
-    try { eng.node.stop(eng.start + eng.dur); } catch (e) {}   // corta antes del padding de esta pista
+    try { eng.node.stop(eng.start + eng.dur - mixTotal(eng.tc)); } catch (e) {}   // corta antes del padding de esta pista
     _watchEnd(eng.node);
     _scheduleBoundary();
     if (eng.onAdvance) eng.onAdvance(g.song);   // actualizar UI/cola (sin tocar el audio: ya avanzo solo)
@@ -3157,6 +3170,122 @@ async function engLoad(id) {                 // carga y reproduce desde 0 (lanza
   const buf = await getBuffer(id);
   _stop(); _startBuf(buf, 0); if (eng.onState) eng.onState();
 }
+/* ====== Automix: transiciones como un DJ (como el AutoMix de Apple Music o el de Spotify) ======
+   De cada cancion se saca (una vez, del audio ya descodificado) su tempo y su rejilla de golpes (autocorrelacion de
+   los ataques de energia) y donde se apaga su musica (el final real, sin el fundido largo ni el silencio). La mezcla:
+     - termina cuando la musica de la actual se apaga y empieza 8-16 golpes antes, justo en un golpe suyo
+     - la siguiente entra con su primer golpe encima de ese golpe (golpes alineados); si los tempos son casi iguales
+       (+-3,5 %) entra al tempo de la actual y vuelve al suyo en 8 s (inapreciable), asi los golpes no se separan
+     - entra sin graves (paso alto a 350 Hz) mientras sube; a mitad de la mezcla se intercambian los graves: la
+       entrante los recupera y la saliente los pierde mientras baja (igual potencia: el volumen no se hunde)
+   Sin rejilla fiable, la misma mezcla con filtros sin alinear golpes. Dentro de un album sigue siendo gapless */
+function mixInfo(buf) {
+  if (buf._mix) return buf._mix;
+  const sr = buf.sampleRate, N = buf.length, H = Math.max(1, Math.round(sr / 100));   // 100 tramos por segundo
+  const c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
+  const nf = Math.floor(N / H), e = new Float32Array(nf);
+  for (let f = 0, i = 0; f < nf; f++) {
+    let s = 0; const lim = i + H;
+    for (; i < lim; i += 2) { const v = c0[i] + c1[i]; s += v * v; }   // una de cada dos muestras: sobra precision
+    e[f] = s;
+  }
+  const o = new Float32Array(nf);   // ataques: subidas del logaritmo de la energia
+  for (let f = 1; f < nf; f++) o[f] = Math.max(0, Math.log(e[f] + 1e-6) - Math.log(e[f - 1] + 1e-6));
+  // tempo: autocorrelacion de los ataques en 70-180 BPM sobre un minuto del centro de la cancion
+  const a0 = Math.max(1, Math.floor(nf / 2) - 3000), a1 = Math.min(nf - 200, a0 + 6000);
+  let best = 0, bl = 0, sum = 0, cnt = 0;
+  const acf = (L) => { let s = 0; for (let f = a0; f < a1; f++) s += o[f] * o[f + L]; return s; };
+  const vals = {};
+  for (let L = 33; L <= 86; L++) { const v = acf(L); vals[L] = v; sum += v; cnt++; if (v > best) { best = v; bl = L; } }
+  let period = bl;
+  if (bl > 33 && bl < 86) {   // ajuste fino (parabola entre vecinos)
+    const y0 = vals[bl - 1], y1 = vals[bl], y2 = vals[bl + 1], den = y0 - 2 * y1 + y2;
+    if (den) period = bl + .5 * (y0 - y2) / den;
+  }
+  let bpm = 6000 / period;
+  while (bpm < 85) bpm *= 2;
+  while (bpm > 170) bpm /= 2;
+  const conf = cnt ? best / (sum / cnt) : 0;   // pico frente a la media: >1.15 = rejilla clara
+  // ajuste fino del tempo y la fase contra TODA la cancion (con un minuto, el tempo salia con +-1 % de error y en
+  // 16 golpes los bombos ya se separaban): se prueba +-2 % en pasos de 0,05 % y gana la rejilla que cae sobre mas
+  // ataques de principio a fin
+  const f0 = Math.floor(nf * .05), f1 = Math.floor(nf * .95), base = 6000 / bpm;
+  let perF = base, ph = 0, phs = -1;
+  for (let k = -40; k <= 40; k++) {
+    const pf = base * (1 + k * .0005);
+    for (let p = 0; p < pf; p += 1) {
+      let s = 0; for (let f = f0 + p; f < f1; f += pf) s += o[Math.round(f)];
+      if (s > phs) { phs = s; ph = p; perF = pf; }
+    }
+  }
+  bpm = 6000 / perF;
+  const per = perF / 100;
+  const phase = ((f0 + ph) / 100) % per;   // segundos (tiempo del archivo) del primer golpe de la rejilla
+  // donde se apaga la musica: ultimo segundo con energia > 12 % de la mediana (fuera fundidos largos y silencios)
+  const sorted = Array.from(e).sort((x, y) => x - y), med = sorted[Math.floor(nf / 2)] || 1e-6;
+  let outro = nf - 1;
+  for (let f = nf - 1; f > nf / 2; f -= 10) { let s = 0; for (let k = 0; k < 100 && f - k >= 0; k++) s += e[f - k]; if (s / 100 > med * .12) { outro = f; break; } }
+  buf._mix = { bpm, per, phase, conf, outroT: outro / 100 };
+  return buf._mix;
+}
+// Automix activado (por defecto); en el iPhone suena por <audio> y no aplica
+let AUTOMIX = true;
+try { AUTOMIX = localStorage.getItem("lightning.automix") !== "0"; } catch (e) {}
+function setAutomix(on) { AUTOMIX = !!on; try { localStorage.setItem("lightning.automix", on ? "1" : "0"); } catch (e) {} if (current) scheduleGaplessNext(); }
+// contenido extra que avanzo la cancion por sonar a otro tempo durante la mezcla (para el reloj, la letra y el fin)
+function mixExtra(t) {
+  const c = eng.tc; if (!c || t <= c.when) return 0;
+  const x1 = Math.min(t, c.t1) - c.when;
+  let s = (c.r - 1) * x1;
+  if (t > c.t1) { const x = Math.min(t, c.t2) - c.t1, R = c.t2 - c.t1; s += (c.r - 1) * (x - x * x / (2 * R)); }
+  return s;
+}
+const mixTotal = (c) => c ? (c.r - 1) * ((c.t1 - c.when) + (c.t2 - c.t1) / 2) : 0;
+// planifica y programa la mezcla actual -> buf (devuelve false si no hay sitio: se usa el fundido normal)
+function automixSchedule(buf, song) {
+  if (!eng.node || !eng.node._hp) return false;
+  let A, B;
+  try { A = mixInfo(eng.buf); B = mixInfo(buf); } catch (e) { return false; }
+  const now = AC.currentTime, leadA = eng.buf._lead || 0, leadB = buf._lead || 0;
+  const endCtx = eng.start + eng.dur;
+  const tEnd = Math.min(endCtx, eng.start + Math.max(4, A.outroT - leadA) + .4);   // fin real de su musica
+  const grid = A.conf > 1.15 && B.conf > 1.15;
+  const r = grid && Math.abs(A.bpm / B.bpm - 1) <= .035 ? A.bpm / B.bpm : 1;
+  let L = Math.max(5, Math.min(14, (grid && r !== 1 ? 16 : 8) * A.per, eng.dur / 3, (buf._eff || buf.duration) / 3));
+  let tStart = tEnd - L;
+  if (grid) {   // al golpe de la actual mas cercano (antes)
+    const g0 = eng.start + (A.phase - leadA);
+    tStart = g0 + Math.floor((tStart - g0) / A.per) * A.per;
+    L = tEnd - tStart;
+  }
+  // primer golpe de la entrante (tiempo de contenido, desde su audio real)
+  let b0 = 0;
+  if (grid) { b0 = B.phase - leadB; while (b0 < 0) b0 += B.per; }
+  const when = tStart - b0 / r;
+  if (when < now + .3 || L < 3) return false;
+  const n = _src(buf), mid = tStart + L * .5, sw = Math.max(.6, L * .15);
+  n.start(when, leadB);
+  const curve = (up) => { const c = new Float32Array(64); for (let i = 0; i < 64; i++) { const x = i / 63 * Math.PI / 2; c[i] = up ? Math.sin(x) : Math.cos(x); } return c; };
+  try {
+    // entrante: sube hasta mitad de la mezcla, sin graves hasta el intercambio
+    n._g.gain.setValueAtTime(0, now); n._g.gain.setValueAtTime(0, when);
+    n._g.gain.setValueCurveAtTime(curve(true), Math.max(when, tStart - .01), Math.max(.5, mid - Math.max(when, tStart - .01)));
+    n._hp.frequency.setValueAtTime(350, now); n._hp.frequency.setValueAtTime(350, mid);
+    n._hp.frequency.exponentialRampToValueAtTime(12, mid + sw);
+    if (r !== 1) {   // al tempo de la actual y de vuelta al suyo sin que se note
+      n.playbackRate.setValueAtTime(r, now); n.playbackRate.setValueAtTime(r, tEnd);
+      n.playbackRate.linearRampToValueAtTime(1, tEnd + 8);
+    }
+    // saliente: igual hasta la mitad; luego pierde los graves y baja hasta el final de su musica
+    const og = eng.node._g.gain, oh = eng.node._hp.frequency;
+    og.cancelScheduledValues(mid); og.setValueAtTime(og.value || 1, mid); og.setValueCurveAtTime(curve(false), mid, Math.max(.5, tEnd - mid));
+    oh.cancelScheduledValues(now); oh.setValueAtTime(12, mid); oh.exponentialRampToValueAtTime(400, mid + sw);
+  } catch (e) { _kill(n); return false; }
+  eng.gNode = n;
+  eng.gInfo = { buf, song, when, X: Math.max(.1, tEnd - when), tc: r !== 1 ? { when, t1: tEnd, t2: tEnd + 8, r } : null };
+  _scheduleBoundary();
+  return true;
+}
 async function engScheduleNext(song) {       // programa la siguiente pista de forma gapless
   _clearGapless();
   if (!song || !eng.playing) return;
@@ -3166,6 +3295,11 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
   if (end <= AC.currentTime) return;         // ya muy tarde
   // fundido: la siguiente entra X s antes del final (como mucho un tercio de cada cancion); sin el, gapless exacto
   const inAlbum = _albumRun && current && _albumRun.has(current.id) && _albumRun.has(song.id);
+  if (AUTOMIX && !inAlbum && !IOS_WEB && repeat !== "one") {
+    await new Promise(r => setTimeout(r, 0));   // el analisis (una vez por cancion) fuera del arranque
+    if (!eng.playing || eng.gInfo) return;
+    if (automixSchedule(buf, song)) return;
+  }
   let X = inAlbum ? 0 : Math.min(PLAY.xf, eng.dur / 3, (buf._eff || buf.duration) / 3), when = end - X;
   if (X && when < AC.currentTime + .05) { when = AC.currentTime + .05; X = Math.max(0, end - when); }   // ya empezado
   const n = _src(buf);
@@ -3183,7 +3317,7 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
 }
 /* fachada compatible con el codigo existente (currentTime/duration/paused/volume/play/pause) */
 const audio = {
-  get currentTime() { return Math.min(eng.dur, eng.playing ? AC.currentTime - eng.start : eng.offset); },
+  get currentTime() { return Math.min(eng.dur, eng.playing ? AC.currentTime - eng.start + mixExtra(AC.currentTime) : eng.offset); },
   // el motor arranca en el audio real (se salta el silencio/entrada muy suave del principio, hasta 2 s) y su
   // currentTime cuenta desde ahi. La letra esta cronometrada desde el principio del archivo: tiempo de la letra =
   // currentTime + lead (sin esto, en canciones con entrada suave la letra iba hasta ~1-2 s adelantada)
@@ -4058,26 +4192,42 @@ function renderArtist(d) {
   // en directo". Se pide aparte (la primera vez tarda unos segundos: Genius + YouTube) y solo aparece si hay algo
   if (d.name && !(_artistSeed && _artistSeed.kind === "profiles")) {
     const aid = _artistId, name = d.name;
-    jget("/unreleased?artist=" + encodeURIComponent(name)).then(r => {
+    let el = null, car = null, all = [];
+    const have = new Set();
+    const paint = (r) => {
       const songs = Array.isArray(r) ? r : (r && r.songs) || [], albums = (r && r.albums) || [], more = (r && r.more) || [];
-      if ((!songs.length && !albums.length) || _artistId !== aid || view !== "artist") return;
+      if (_artistId !== aid || view !== "artist") return;
       const items = albums.map(a => Object.assign({}, a, { kind: "playlists" }))
         .concat(songs.map(s => Object.assign({}, s, { subtitle: s.duration ? "Unreleased • " + s.duration : "Unreleased" })));
       // "ver todo": ademas, el resto de nombres documentados (se buscan en YouTube al tocarlos)
-      const all = items.concat(more.map(m => ({ title: m.title, cover: m.cover, subtitle: "Unreleased", _unres: true, artist: name })));
-      const el = document.createElement("section"); el.className = "ashelf unrel";
-      const h = document.createElement("h3");
-      h.innerHTML = '<span></span><span class="unrel-k"></span><i class="ph ph-caret-right chev"></i>';
-      h.firstChild.textContent = "Unreleased"; h.children[1].textContent = t("Sin publicar");
-      h.onclick = () => showGrid("Unreleased · " + name, all, true);   // ver todo (todos los documentados)
-      el.appendChild(h);
-      const car = document.createElement("div"); car.className = "arow";
-      items.forEach(it => car.appendChild(itemCard(it)));
-      el.appendChild(car);
-      const shelves = [...av.querySelectorAll(".ashelf")];
-      const title = (x) => (x.querySelector("h3") || {}).textContent || "";
-      const after = shelves.find(x => /directo|live/i.test(title(x))) || shelves.find(x => /v[ií]deos/i.test(title(x)));
-      if (after) av.insertBefore(el, after.nextSibling); else av.appendChild(el);
+      all = items.concat(more.map(m => ({ title: m.title, cover: m.cover, subtitle: "Unreleased", _unres: true, artist: name })));
+      if (!items.length) return;
+      if (!el) {
+        el = document.createElement("section"); el.className = "ashelf unrel";
+        const h = document.createElement("h3");
+        h.innerHTML = '<span></span><span class="unrel-k"></span><i class="ph ph-caret-right chev"></i>';
+        h.firstChild.textContent = "Unreleased"; h.children[1].textContent = t("Sin publicar");
+        h.onclick = () => showGrid("Unreleased · " + name, all, true);   // ver todo (todos los documentados)
+        el.appendChild(h);
+        car = document.createElement("div"); car.className = "arow";
+        el.appendChild(car);
+        const shelves = [...av.querySelectorAll(".ashelf")];
+        const title = (x) => (x.querySelector("h3") || {}).textContent || "";
+        const after = shelves.find(x => /directo|live/i.test(title(x))) || shelves.find(x => /v[ií]deos/i.test(title(x)));
+        if (after) av.insertBefore(el, after.nextSibling); else av.appendChild(el);
+      }
+      // lo nuevo se anade al final (los albumes que falten, antes de las canciones): lo que ya se ve no se mueve
+      const firstSong = car.querySelector(".ccard.video");
+      items.forEach(it => {
+        const k = it.browseId || it.id; if (!k || have.has(k)) return;
+        have.add(k);
+        const c = itemCard(it);
+        if (it.browseId && firstSong) car.insertBefore(c, firstSong); else car.appendChild(c);
+      });
+    };
+    jget("/unreleased?fast=1&artist=" + encodeURIComponent(name)).then(r => {
+      paint(r);
+      if (r && r.partial) return jget("/unreleased?artist=" + encodeURIComponent(name)).then(paint);
     }).catch(() => {});
   }
 }
@@ -4483,7 +4633,7 @@ function openMobileLibrary(push = true) {
   c.querySelector(".a").textContent = getLiked().length + " " + t("canciones");
   c.onclick = () => setView("liked");
   grid.prepend(c);
-  c.after(djLibCard());   // DJ Lara, justo despues de Me gusta
+  if (!DJ_OFF) c.after(djLibCard());   // DJ Lara, justo despues de Me gusta
   const sb = document.createElement("button"); sb.className = "mlibsort";
   sb.innerHTML = '<i class="ph ph-sliders-horizontal"></i><span></span>';
   sb.querySelector("span").textContent = libSortName();
@@ -5236,7 +5386,8 @@ function paintSettings() {
   $("setPlay").hidden = IOS_WEB;
   $("setXf").value = PLAY.xf; setFill($("setXf"), PLAY.xf / 12 * 100);
   $("setXfV").textContent = PLAY.xf ? PLAY.xf + " s" : t("Desactivado");
-  _setChk("setNorm", PLAY.norm);
+  _setChk("setNorm", PLAY.norm); _setChk("setAutomix", AUTOMIX);
+  $("setXf").closest(".srow").style.opacity = AUTOMIX ? ".45" : "";   // con Automix el fundido fijo no se usa
   $("setDevName").value = CX.name;
   _setChk("setAutoX", localStorage.getItem("lightning.autoxfer") === "1");
   const D = APPINFO.desktop, st = APPINFO.settings || {};
@@ -5281,6 +5432,7 @@ $("setLang").onclick = (e) => { const b = e.target.closest("button[data-l]"); if
 $("setXf").oninput = () => { const v = +$("setXf").value; setFill($("setXf"), v / 12 * 100); $("setXfV").textContent = v ? v + " s" : t("Desactivado"); };
 $("setXf").onchange = () => setXfade($("setXf").value);
 $("setNorm").onchange = () => setNorm($("setNorm").checked);
+$("setAutomix").onchange = () => { setAutomix($("setAutomix").checked); paintSettings(); };
 $("setDevName").onchange = () => {
   const v = $("setDevName").value.trim().slice(0, 40); if (!v) { $("setDevName").value = CX.name; return; }
   CX.name = v; try { localStorage.setItem("lightning.devname", v); } catch (e) {}
@@ -7052,6 +7204,8 @@ const FLUID_TAU = Math.PI * 2;
 // letra integrada en la vista Reproduciendo del movil (npLyrEnter/npLyrExit): estado y medidas de la cabecera
 var NPL = { on: false, mode: null, drag: false, cover: 58, gap: 12, ms: .8, bs: .78, dur: 480 };   // bs: escala de corazon/3 puntos arriba   // gap: portada-titulo en la cabecera
 // mode: "lyr" (letra: se van los controles) o "q" (cola: los controles se quedan debajo de la lista)
+const DJ_OFF = true;   // DJ Lara desactivada por ahora (movil y PC)
+document.body.classList.toggle("dj-off", DJ_OFF);
 /* modo rendimiento (solo PC: en el movil la app ya va ligera y no tiene sentido) */
 const PERF = { on: false };
 const FLUIDS = [];   // fondos animados vivos: se paran y reanudan al cambiar el modo
@@ -7896,8 +8050,8 @@ function moreMenu(btn, e) {
     ["ph-shuffle", shuffle ? "Aleatorio: activado" : "Aleatorio: desactivado", () => { setShuffle(!shuffle); syncNp(); }],
     [repeat === "one" ? "ph-repeat-once" : "ph-repeat", rep, () => { $("repeat").click(); syncNp(); }],
     ["ph-moon", sleepActive() ? "Temporizador (activo)" : "Temporizador", openSleepSheet],
-    ["ph-radio", DJ.on ? "DJ Lara" : "Radio con DJ Lara", () => DJ.on ? djMenu(btn) : djStart(true)],
   ];
+  if (!DJ_OFF) opts.push(["ph-radio", DJ.on ? "DJ Lara" : "Radio con DJ Lara", () => DJ.on ? djMenu(btn) : djStart(true)]);
   opts.push(["ph-export", "Compartir", () => shareItem("song", s.id, s.title, s.artist)]);
   if (art) opts.push(["ph-user", "Ir al artista", go(() => openArtist(art.id, true, { title: art.name }))]);
   if (s.album && s.album.id) opts.push(["ph-image", "Ir al álbum", go(() => openCollection(s.album.id, true, { kind: "album", title: s.album.name }))]);
@@ -10020,6 +10174,7 @@ function djMenu(el) {
            Math.min(r.left, innerWidth - 240), r.bottom + 6);
 }
 async function djStart(open) {
+  if (DJ_OFF) return;   // DJ Lara desactivada por ahora
   if (DJ.busy) return;
   djLoadStatus().then(() => { if (DJ.st && DJ.st.ai_error) toast(DJ.st.ai_error); });   // p. ej. sin saldo en Anthropic
   if (CX.remote) { toast("Pon la música en este dispositivo para escuchar al DJ"); return; }

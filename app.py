@@ -1008,7 +1008,33 @@ def unreleased(name):
     name = (name or "").strip()
     if not name:
         return {"songs": [], "albums": []}
-    return cached("unrel2:" + name.lower(), 6 * 3600, lambda: _unreleased2(name))
+    key = "unrel2:" + name.lower()
+    with _id_lock("unrel", name.lower()):   # la fase rapida ya pudo lanzarla: se espera a esa, no se repite
+        return cached(key, 6 * 3600, lambda: _unreleased2(name))
+
+
+def unreleased_fast(name):
+    """Primera tanda en ~2 s: las playlists que los recopilan y las subidas con "unreleased" en el titulo. A la vez
+    arranca en segundo plano la busqueda completa (Genius + YouTube), que el cliente pide a continuacion."""
+    name = (name or "").strip()
+    if not name:
+        return {"songs": [], "albums": []}
+    hit = _CACHE.get("unrel2:" + name.lower())
+    if hit and time.time() - hit[0] < 6 * 3600:
+        return hit[1]
+    threading.Thread(target=lambda: _safe(lambda: unreleased(name), None), daemon=True).start()
+    return cached("unrelf:" + name.lower(), 6 * 3600, lambda: _unreleased_fast(name))
+
+
+def _unreleased_fast(name):
+    nn = _norm(name)
+    with concurrent.futures.ThreadPoolExecutor(3) as ex:
+        pl_f = ex.submit(lambda: _safe(lambda: parse_browse(_ytm_search_raw(name + " unreleased", _FILTERS["playlists"]), "playlists"), []))
+        ex_f = ex.submit(lambda: _safe(lambda: _unreleased(name), []))
+        pls = [dict(p, kind="playlists") for p in pl_f.result() if p.get("browseId") and nn in _norm(p.get("title"))
+               and re.search(r"unreleased|leak|vault|snippet|scrapped|unrel", p.get("title") or "", re.I)]
+        songs = ex_f.result()
+    return {"songs": songs[:30], "albums": pls[:12], "more": [], "partial": True}
 
 
 _GENIUS_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -5011,7 +5037,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"error": str(e)[:200]})
         elif u.path in ("/trending", "/unreleased"):
             try:
-                d = trending() if u.path == "/trending" else unreleased(parse_qs(u.query).get("artist", [""])[0][:80])
+                qa = parse_qs(u.query)
+                art = qa.get("artist", [""])[0][:80]
+                d = trending() if u.path == "/trending" else (unreleased_fast(art) if qa.get("fast") else unreleased(art))
                 return self._json(d)
             except Exception as e:
                 return self._json({"error": str(e)[:200]})

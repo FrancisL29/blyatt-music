@@ -757,7 +757,9 @@
             background: rgb(0 0 0 / .78); color: #fff; font: 11px/1.45 ui-monospace, Consolas, Menlo, monospace;
             white-space: pre-wrap; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); pointer-events: none;
             border: 1px solid rgb(255 255 255 / .12); }
-  body.devtools #devmix { display: block; }
+  /* solo en la vista de reproduccion (movil); en el PC, que no la tiene, con la letra abierta */
+  body.devtools.np-open #devmix { display: block; }
+  @media (min-width: 821px) { body.devtools:has(#lyricsPanel.show) #devmix { display: block; } }
   #devmix.fold #devmixTxt { display: none; }
   #devmix .dm-row { display: flex; gap: 6px; margin-top: 6px; }
   #devmix.fold .dm-row { margin-top: 0; }
@@ -3596,8 +3598,7 @@ function automixSchedule(buf, song, voc, vocA) {
   if (AUTOMIX === "light") tech = match && !live ? "blend" : "fade";
   else if (match && !live) {
     tech = "blend";
-    if (club && hasDrop && r1 < P.loopP) tech = "roll";
-    else if (!club && hasDrop && AUTOMIX === "aggr" && r1 < .15) tech = "loop";
+    if (!club && hasDrop && AUTOMIX === "aggr" && r1 < .15) tech = "loop";
   } else if (grid && urban && !live && Math.abs(k - 1) > .12) tech = "cut";
   else tech = !live && E_last(A) > 1.1 ? "echo" : "wash";
   /* VOZ PRIMERO / INSTRUMENTAL PRIMERO, decididos por la letra (donde canta cada una), como un DJ con stems:
@@ -3714,8 +3715,8 @@ function automixSchedule(buf, song, voc, vocA) {
       // cambio de graves: en un compas de la mitad (house/techno: cada 8 golpes)
       const swU = club ? 2 * barB : barB;
       const midT = when + W(Math.max(barB, Math.min(Lin - barB, Math.round(Lin * .5 / swU) * swU)));
-      /* VOZ SOLA con IA (separador de voz del karaoke, en el PC): se pide una vez por pareja el trozo que hace falta y
-         se vuelve a planificar con ella; si no hay (movil, sin modelo), filtros */
+      /* VOZ AISLADA (en el propio reproductor, movil y PC): se calcula una vez por pareja el trozo que hace falta y se
+         vuelve a planificar con ella; si fallara, filtros */
       const ST = eng._stems && eng._stems.k === pairK ? eng._stems : null;
       const needA = mode === "ins" ? [Math.max(0, cAt(midT - sw) - .5), Math.min(eng.dur, lastA.e + 2 * A.per)] : null;
       const needB = mode === "vox" ? [Math.max(0, off - .3), off + Lov + .6] : null;
@@ -3723,7 +3724,7 @@ function automixSchedule(buf, song, voc, vocA) {
       if ((askA || askB) && STEMS.ok !== false) { eng._stemNeed = { k: pairK, A: askA ? needA : null, B: askB ? needB : null }; _kill(inn); return "stems"; }
       const cover = (x, nd) => x && nd && x.c0 <= nd[0] + .02 && x.c1 >= nd[1] - .02 ? x : null;
       const stA = cover(ST && ST.A, needA), stB = cover(ST && ST.B, needB);
-      style = (mode === "vox" ? "voz primero" : mode === "ins" ? "instrumental primero" : "mezcla EQ") + (stA || stB ? " · voz IA" : "");
+      style = (mode === "vox" ? "voz primero" : mode === "ins" ? "instrumental primero" : "mezcla EQ") + (stA || stB ? " · voz aislada" : "");
       segs = [{ t0: tR, t1: tS, r0: 1, r1: kA }, { t0: tS, t1: Infinity, r0: kA, r1: kA }];
       if (kA !== 1) {
         out.playbackRate.setValueAtTime(1, tR); out.playbackRate.linearRampToValueAtTime(kA, tS);
@@ -3733,7 +3734,7 @@ function automixSchedule(buf, song, voc, vocA) {
       inn.start(when, leadB + off); offUsed = off; o0 = tR;
       const og = out._g.gain;
       if (mode === "vox") {
-        /* VOZ PRIMERO: la voz de la entrante (sola, con IA; si no, sus medios) canta sobre la instrumental de la
+        /* VOZ PRIMERO: la voz de la entrante (aislada; si no, sus medios) canta sobre la instrumental de la
            saliente; esa instrumental, cuando se le acaba la musica, sigue en bucle (sus ultimos 1-2 compases, a
            tempo). En el cambio de frase entra el resto de la entrante (el ultimo compas sube por debajo) y la base de
            la saliente pierde los graves y se desvanece despacio, otra frase entera */
@@ -3771,7 +3772,7 @@ function automixSchedule(buf, song, voc, vocA) {
         tOut = tSw + FO;
       } else if (mode === "ins") {
         /* INSTRUMENTAL PRIMERO: la instrumental de la entrante sube bajo la saliente (sin graves); en un compas se
-           cambian las instrumentales: la entrante con todo y la saliente se queda en su voz (sola, con IA; si no,
+           cambian las instrumentales: la entrante con todo y la saliente se queda en su voz (aislada; si no,
            sin graves ni brillo); al acabar su ultima linea su voz se va con un eco corto y canta la entrante */
         const up = Math.max(1, Math.min(W(Lin) * .5, W(8 * beatB)));
         inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueCurveAtTime(curve(true), when, up);
@@ -3920,31 +3921,85 @@ function vocSpans(voc, lead) {
     return { s: s0, e, text: l.text || "", ws };
   });
 }
-/* voz separada (IA) de un trozo: solo en la app de escritorio, con el modelo del karaoke ya descargado. Se manda el
-   audio tal cual esta descodificado aqui y vuelve la voz con las mismas muestras (se funde con el original) */
-const STEMS = { ok: null };
-async function stemsReady() {
-  if (STEMS.ok !== null) return STEMS.ok;
-  try { STEMS.ok = !!(await jget("/mixstem/ok")).ok; } catch (e) { STEMS.ok = false; }
-  return STEMS.ok;
+/* VOZ AISLADA de un trozo, en el propio reproductor (igual en el movil que en el PC; en un hilo aparte, sin trabar
+   nada). Como se conoce el compas exacto (el tempo de la cancion), la base se puede estimar como REPET: la
+   instrumental se repite compas a compas y la voz no, asi que la mediana de ese mismo instante en los 4 compases de
+   antes y los 4 de despues es la base, y lo que sobresale de ella es la voz. Ademas, por cada franja de frecuencia:
+     - lo que suena igual en los dos canales (la voz va al centro; guitarras, coros abiertos, efectos... a los lados)
+     - la banda de la voz (90 Hz - 11 kHz con bordes suaves: fuera el bajo y el brillo de los platos)
+   El resultado sale del mismo audio (mismas muestras, mono al centro) y se funde con el original sin desfase */
+function _isoWorker() {
+  onmessage = (e) => {
+    const { L, R, sr, id, bar, o0, o1, os = 2, cp = 3, mk = 1.3 } = e.data, n = L.length, N = 2048, H = 512, B = N / 2 + 1, Pf = bar * sr / H;
+    const win = new Float32Array(N); for (let i = 0; i < N; i++) win[i] = .5 - .5 * Math.cos(2 * Math.PI * i / N);
+    const nfr = Math.ceil(n / H) + 3, pre = N - H;
+    const MR = new Float32Array(nfr * B), MI = new Float32Array(nfr * B), MG = new Float32Array(nfr * B);
+    const wb = new Float32Array(B);
+    for (let k = 0; k < B; k++) { const f = k * sr / N; wb[k] = f < 90 ? 0 : f < 180 ? (f - 90) / 90 : f < 7000 ? 1 : f < 11000 ? 1 - (f - 7000) / 4000 : 0; }
+    const lr = new Float64Array(N), li = new Float64Array(N), rr = new Float64Array(N), ri = new Float64Array(N);
+    for (let f = 0; f < nfr; f++) {
+      const s0 = f * H - pre;
+      for (let i = 0; i < N; i++) { const j = s0 + i, ok = j >= 0 && j < n, w = win[i]; lr[i] = ok ? L[j] * w : 0; rr[i] = ok ? R[j] * w : 0; li[i] = 0; ri[i] = 0; }
+      _fft(lr, li); _fft(rr, ri);
+      for (let k = 0; k < B; k++) {
+        const a = lr[k], b = li[k], c = rr[k], d = ri[k], pl = a * a + b * b, pr = c * c + d * d;
+        let m = pl + pr > 1e-14 ? 2 * (a * c + b * d) / (pl + pr) : 0;   // 1 = igual en los dos canales (centro)
+        if (m < 0) m = 0; m = Math.pow(m, cp);
+        const g = m * wb[k] * .5, x = (a + c) * g, y = (b + d) * g, q = f * B + k, mx = (a + c) * .5 * wb[k], my = (b + d) * .5 * wb[k];
+        MR[q] = x; MI[q] = y; MG[q] = Math.sqrt(mx * mx + my * my);
+      }
+    }
+    // medianas de 9 (red de ordenacion): en el tiempo (lo sostenido) y en la frecuencia (lo de golpe)
+    const t = new Float32Array(9);
+    const op = (x, y) => { if (t[x] > t[y]) { const z = t[x]; t[x] = t[y]; t[y] = z; } };
+    const med = () => { op(1, 2); op(4, 5); op(7, 8); op(0, 1); op(3, 4); op(6, 7); op(1, 2); op(4, 5); op(7, 8); op(0, 3); op(5, 8); op(4, 7); op(3, 6); op(1, 4); op(2, 5); op(4, 7); op(4, 2); op(6, 4); op(4, 2); return t[4]; };
+    const xr = new Float64Array(N), xi = new Float64Array(N), out = new Float32Array(n);
+    for (let f = 0; f < nfr; f++) {
+      for (let k = 0; k < B; k++) {
+        const q = f * B + k;
+        if (!MG[q]) { xr[k] = 0; xi[k] = 0; continue; }
+        // la base: mediana del mismo instante del compas en los 4 compases de antes y de despues (y este)
+        for (let u = 0; u < 9; u++) { let ff = Math.round(f + (u - 4) * Pf); if (ff < 0 || ff >= nfr) ff = f; t[u] = MG[ff * B + k]; }
+        const bg = Math.min(os * med(), MG[q]), v = MG[q] - bg, msk = v * v / (v * v + bg * bg + 1e-20);   // os: resta algo de mas
+        xr[k] = MR[q] * msk; xi[k] = -MI[q] * msk;   // conjugado: la inversa con la misma FFT
+      }
+      for (let k = B; k < N; k++) { xr[k] = xr[N - k]; xi[k] = -xi[N - k]; }
+      _fft(xr, xi);
+      const s0 = f * H - pre;
+      for (let i = 0; i < N; i++) { const j = s0 + i; if (j >= 0 && j < n) out[j] += xr[i] / N * win[i] / 1.5 * mk; }   // mk: lo que la resta le quita a la voz
+    }
+    const y = out.slice(o0, o1);
+    postMessage({ id, y }, [y.buffer]);
+  };
 }
-async function mixStem(buf, c0, c1) {
-  if (!buf || !(await stemsReady())) return null;
-  const sr = buf.sampleRate, lead = buf._lead || 0;
+const STEMS = { ok: null };
+let _isoW = null, _isoN = 0;
+const _isoP = new Map();
+function isoWorker() {
+  if (_isoW) return _isoW;
+  try {
+    const src = _fft.toString() + "\n(" + _isoWorker.toString() + ")();";
+    _isoW = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    _isoW.onmessage = (e) => { const r = _isoP.get(e.data.id); if (r) { _isoP.delete(e.data.id); r(e.data.y); } };
+    _isoW.onerror = () => { STEMS.ok = false; _isoP.forEach(r => r(null)); _isoP.clear(); try { _isoW.terminate(); } catch (e) {} _isoW = null; };
+  } catch (e) { STEMS.ok = false; _isoW = null; }
+  return _isoW;
+}
+async function mixStem(buf, c0, c1, tune) {
+  if (!buf || STEMS.ok === false) return null;
+  const w = isoWorker(); if (!w) return null;
+  let I; try { I = mixInfo(buf); } catch (e) { return null; }
+  const sr = buf.sampleRate, lead = buf._lead || 0, bar = 4 * I.per;
   const a = Math.max(0, Math.floor((c0 + lead) * sr)), b = Math.min(buf.length, Math.ceil((c1 + lead) * sr)), n = b - a;
   if (n < sr) return null;
-  const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, pcm = new Int16Array(n * 2);
-  for (let i = 0; i < n; i++) { pcm[2 * i] = Math.max(-1, Math.min(1, L[a + i])) * 32767; pcm[2 * i + 1] = Math.max(-1, Math.min(1, R[a + i])) * 32767; }
-  try {
-    const r = await fetch("/mixstem?sr=" + sr, { method: "POST", body: pcm.buffer, headers: { "Content-Type": "application/octet-stream", "X-Blyatt": "1" } });
-    if (r.status === 404) { STEMS.ok = false; return null; }
-    if (!r.ok) return null;
-    const v = new Int16Array(await r.arrayBuffer());
-    if (v.length !== n * 2) return null;
-    const vb = AC.createBuffer(2, n, sr), l = vb.getChannelData(0), rr = vb.getChannelData(1);
-    for (let i = 0; i < n; i++) { l[i] = v[2 * i] / 32768; rr[i] = v[2 * i + 1] / 32768; }
-    return { buf: vb, c0: a / sr - lead, c1: b / sr - lead };
-  } catch (e) { return null; }
+  // se analiza con 4 compases mas a cada lado (los vecinos de la mediana) y se devuelve solo el trozo pedido
+  const A0 = Math.max(0, a - Math.ceil(4.2 * bar * sr)), B0 = Math.min(buf.length, b + Math.ceil(4.2 * bar * sr));
+  const L = buf.getChannelData(0).slice(A0, B0), R = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)).slice(A0, B0);
+  const id = ++_isoN;
+  const y = await new Promise(res => { _isoP.set(id, res); w.postMessage(Object.assign({ L, R, sr, id, bar, o0: a - A0, o1: b - A0 }, tune || {}), [L.buffer, R.buffer]); });
+  if (!y || y.length !== n) return null;
+  const vb = AC.createBuffer(2, n, sr); vb.copyToChannel(y, 0); vb.copyToChannel(y, 1);
+  return { buf: vb, c0: a / sr - lead, c1: b / sr - lead };
 }
 /* genero del catalogo (Deezer: "Techno/House", "Rap/Hip Hop", "Latin Music"...) como segunda opinion del audio */
 const _mgCache = new Map();
@@ -4018,7 +4073,7 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
     if (!eng.playing || eng.gInfo || _gaplessSong() !== song || current !== cur) return;
     try { famFix(mixInfo(eng.buf), gA); famFix(mixInfo(buf), gB); } catch (e) {}
     let r = automixSchedule(buf, song, voc, vocA);
-    if (r === "stems") {   // voz primero / instrumental primero: la voz sola con IA (una vez por pareja) y se replanifica
+    if (r === "stems") {   // voz primero / instrumental primero: la voz aislada (una vez por pareja) y se replanifica
       const nd = eng._stemNeed, tmo = new Promise(res => setTimeout(() => res(null), 25000));
       const [sA, sB] = await Promise.all([nd.A ? Promise.race([mixStem(eng.buf, nd.A[0], nd.A[1]), tmo]) : null,
                                           nd.B ? Promise.race([mixStem(buf, nd.B[0], nd.B[1]), tmo]) : null]);

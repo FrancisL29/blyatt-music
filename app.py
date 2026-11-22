@@ -5120,14 +5120,6 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src"), float(g("dur") or 0)))
             except Exception as e:
                 return self._json({"offset": 0, "error": str(e)})
-        elif u.path == "/mixstem/ok":   # Automix: separador de voz disponible (solo la app de escritorio)
-            ok = False
-            if not SERVER_MODE:
-                try:
-                    ok = _kara().mix_stem_ok()
-                except Exception:
-                    ok = False
-            return self._json({"ok": ok})
         elif u.path == "/mixgenre":   # genero de catalogo (Deezer) para el Automix: segunda opinion junto al audio
             qa = parse_qs(u.query)
             return self._json(mix_genre(qa.get("title", [""])[0], qa.get("artist", [""])[0]))
@@ -5349,27 +5341,6 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"error": "No hay ninguna actualización descargada"})
             threading.Timer(0.3, UPDATE_RESTART).start()   # primero la respuesta, luego cerrar la app
             return self._json({"ok": True})
-        if u.path == "/mixstem":   # Automix: voz separada (IA) de un trozo de audio que manda el reproductor
-            # cabecera propia: obliga a un preflight CORS que nadie aprueba (otra web no puede gastar la CPU)
-            if SERVER_MODE or self.headers.get("X-Blyatt") != "1":
-                return self._json({"error": "no disponible"}, 404)
-            n = int(self.headers.get("Content-Length") or 0)
-            if n <= 0 or n > 40 * 1024 * 1024:
-                return self._json({"error": "tamaño"}, 413)
-            body = self.rfile.read(n)
-            try:
-                sr = int(parse_qs(u.query).get("sr", ["44100"])[0])
-                out = _kara().mix_stem(body, sr)
-            except FileNotFoundError:
-                return self._json({"error": "sin modelo"}, 404)
-            except Exception as e:
-                return self._json({"error": str(e)[:200]}, 500)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(out)))
-            self.end_headers()
-            self.wfile.write(out)
-            return
         if u.path.startswith("/connect/"):
             return self._connect(u, "POST")
         if u.path.startswith("/kara/"):

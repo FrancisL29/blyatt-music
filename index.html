@@ -3160,6 +3160,16 @@ function _kill(n) {
   if (n._g) { n._n.disconnect(); n._g.disconnect(); }
   if (n._fx) { const f = n._fx; [f.full, f.side, f.low, f.mid, f.high, f.hp, f.lp, f.send, f.delay, f.fb, f.wet, ...f.vk].forEach(x => { try { x.disconnect(); } catch (e) {} }); }
   if (n._loops) { n._loops.forEach(x => { try { x.stop(); } catch (e) {} try { x.disconnect(); } catch (e) {} }); n._loops = null; }
+  if (n._rsend) { try { n._rsend.disconnect(); } catch (e) {} n._rsend = null; }
+}
+let _rev = null;   // reverb compartida (se crea la primera vez que se usa un lavado)
+function revBus() {
+  if (_rev) return _rev;
+  const len = Math.floor(AC.sampleRate * 3.2), ir = AC.createBuffer(2, len, AC.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+  const cv = AC.createConvolver(), g = AC.createGain(); cv.buffer = ir; g.gain.value = .9;
+  cv.connect(g); g.connect(srcBus); _rev = cv;
+  return cv;
 }
 // vuelve a dejar el plato neutro (una mezcla programada que se anula: cambio de cola, salto, pausa...)
 function fxReset(n) {
@@ -3245,15 +3255,67 @@ async function engLoad(id) {                 // carga y reproduce desde 0 (lanza
      - entra sin graves (paso alto a 350 Hz) mientras sube; a mitad de la mezcla se intercambian los graves: la
        entrante los recupera y la saliente los pierde mientras baja (igual potencia: el volumen no se hunde)
    Sin rejilla fiable, la misma mezcla con filtros sin alinear golpes. Dentro de un album sigue siendo gapless */
+/* tonalidad para mezclar en armonia (como Mixed In Key / rueda Camelot): cromagrama de ~70 s del centro de la
+   cancion (FFT de 4096 a 11 kHz), comparado con los perfiles de Krumhansl de las 24 tonalidades */
+const _KP = { maj: [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], min: [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17] };
+function _fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const k = i + j, l = k + len / 2, tr = re[l] * cr - im[l] * ci, ti = re[l] * ci + im[l] * cr;
+        re[l] = re[k] - tr; im[l] = im[k] - ti; re[k] += tr; im[k] += ti;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+function mixKey(buf) {
+  try {
+    const sr0 = buf.sampleRate, dec = Math.max(1, Math.round(sr0 / 11025)), sr = sr0 / dec, Nf = 4096;
+    const c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
+    const mid = Math.floor(buf.length / 2), span = Math.min(buf.length, Math.floor(sr0 * 70));
+    const start = Math.max(0, mid - (span >> 1)), chroma = new Float64Array(12);
+    const pc = new Int8Array(Nf / 2).fill(-1), win = new Float32Array(Nf);
+    for (let i = 0; i < Nf; i++) win[i] = .5 - .5 * Math.cos(2 * Math.PI * i / Nf);
+    for (let k = 1; k < Nf / 2; k++) { const f = k * sr / Nf; if (f >= 65 && f <= 2100) pc[k] = ((Math.round(12 * Math.log2(f / 440)) + 69) % 12 + 12) % 12; }
+    const re = new Float32Array(Nf), im = new Float32Array(Nf), hop = Nf * dec * 2;
+    for (let s0 = start; s0 + Nf * dec < start + span; s0 += hop) {
+      for (let i = 0; i < Nf; i++) { let v = 0; const b = s0 + i * dec; for (let d = 0; d < dec; d++) v += c0[b + d] + c1[b + d]; re[i] = v * win[i]; im[i] = 0; }
+      _fft(re, im);
+      for (let k = 1; k < Nf / 2; k++) if (pc[k] >= 0) chroma[pc[k]] += Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    }
+    const corr = (prof, r) => { const xm = chroma.reduce((a, b) => a + b) / 12, ym = prof.reduce((a, b) => a + b) / 12; let n = 0, dx = 0, dy = 0;
+      for (let i = 0; i < 12; i++) { const x = chroma[(i + r) % 12] - xm, y = prof[i] - ym; n += x * y; dx += x * x; dy += y * y; } return n / Math.sqrt(dx * dy || 1); };
+    let best = -2, second = -2, key = null;
+    for (let r = 0; r < 12; r++) for (const m of ["maj", "min"]) {
+      const c = corr(_KP[m], r);
+      if (c > best) { second = best; best = c; key = { pc: r, m }; } else if (c > second) second = c;
+    }
+    const maj = key.m === "maj" ? key.pc : (key.pc + 3) % 12;   // relativo mayor
+    return { cam: ((maj * 7) % 12 + 7) % 12 + 1, letter: key.m === "maj" ? "B" : "A", conf: best - second, pc: key.pc, m: key.m };
+  } catch (e) { return null; }
+}
+// distancia en la rueda Camelot: 0 = misma, 1 = adyacente o relativa (compatibles), mas = choque armonico
+function camDist(a, b) {
+  if (!a || !b || a.conf < .02 || b.conf < .02) return 1;   // sin seguridad: neutro
+  const d = Math.min((a.cam - b.cam + 12) % 12, (b.cam - a.cam + 12) % 12);
+  return a.letter === b.letter ? d : d === 0 ? 1 : d + 1;
+}
 function mixInfo(buf) {
   if (buf._mix) return buf._mix;
   const sr = buf.sampleRate, N = buf.length, H = Math.max(1, Math.round(sr / 100));   // 100 tramos por segundo
   const c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
-  const nf = Math.floor(N / H), e = new Float32Array(nf);
+  const nf = Math.floor(N / H), e = new Float32Array(nf), lo = new Float32Array(nf);
+  const ka = 1 - Math.exp(-2 * Math.PI * 150 / (sr / 2));   // paso bajo de 150 Hz (bombo y bajo)
+  let yl = 0;
   for (let f = 0, i = 0; f < nf; f++) {
-    let s = 0; const lim = i + H;
-    for (; i < lim; i += 2) { const v = c0[i] + c1[i]; s += v * v; }   // una de cada dos muestras: sobra precision
-    e[f] = s;
+    let s = 0, sl = 0; const lim = i + H;
+    for (; i < lim; i += 2) { const v = c0[i] + c1[i]; s += v * v; yl += ka * (v - yl); sl += yl * yl; }   // una de cada dos muestras
+    e[f] = s; lo[f] = sl;
   }
   const o = new Float32Array(nf);   // ataques: subidas del logaritmo de la energia
   for (let f = 1; f < nf; f++) o[f] = Math.max(0, Math.log(e[f] + 1e-6) - Math.log(e[f - 1] + 1e-6));
@@ -3262,7 +3324,16 @@ function mixInfo(buf) {
   let best = 0, bl = 0, sum = 0, cnt = 0;
   const acf = (L) => { let s = 0; for (let f = a0; f < a1; f++) s += o[f] * o[f + L]; return s; };
   const vals = {};
-  for (let L = 33; L <= 86; L++) { const v = acf(L); vals[L] = v; sum += v; cnt++; if (v > best) { best = v; bl = L; } }
+  // como los detectores de tempo serios: la autocorrelacion se pondera hacia ~120 BPM (lo mas probable en musica de
+  // baile) y se refuerza con la del doble periodo (el compas confirma el pulso). Sin esto salian errores de 4/3
+  for (let L = 25; L <= 172; L++) vals[L] = acf(L);
+  for (let L = 33; L <= 86; L++) {
+    const v = vals[L], bpmL = 6000 / L, prior = Math.exp(-.5 * Math.pow(Math.log2(bpmL / 120) / .9, 2));
+    const sc = (v + .5 * (vals[2 * L] || 0)) * prior;
+    sum += v; cnt++;
+    if (sc > best) { best = sc; bl = L; }
+  }
+  best = vals[bl];
   let period = bl;
   if (bl > 33 && bl < 86) {   // ajuste fino (parabola entre vecinos)
     const y0 = vals[bl - 1], y1 = vals[bl], y2 = vals[bl + 1], den = y0 - 2 * y1 + y2;
@@ -3286,7 +3357,7 @@ function mixInfo(buf) {
   }
   bpm = 6000 / perF;
   const per = perF / 100;
-  const phase = ((f0 + ph) / 100) % per;   // segundos (tiempo del archivo) del primer golpe de la rejilla
+  let phase = ((f0 + ph) / 100) % per;   // segundos (tiempo del archivo) del primer golpe de la rejilla
   // donde se apaga la musica: ultimo segundo con energia > 12 % de la mediana (fuera fundidos largos y silencios)
   const sorted = Array.from(e).sort((x, y) => x - y), med = sorted[Math.floor(nf / 2)] || 1e-6;
   let outro = nf - 1;
@@ -3295,7 +3366,33 @@ function mixInfo(buf) {
   for (let f = 0; f < nf; f++) env[(f / 100) | 0] += e[f];
   let introT = 0;   // primer momento con energia de verdad (2 s seguidos sobre media mediana)
   for (let i = 0; i + 1 < env.length; i++) if (env[i] > med * 50 && env[i + 1] > med * 50) { introT = i; break; }
-  buf._mix = { bpm, per, phase, conf, outroT: outro / 100, env, med: med * 100, introT };
+  // bombo en cada golpe (four-on-the-floor: house, techno, EDM) frente a ritmos quebrados (hip-hop, reggaeton...):
+  // ataques de graves en los golpes frente a los contratiempos
+  const lon = new Float32Array(nf);
+  for (let f = 1; f < nf; f++) lon[f] = Math.max(0, Math.log(lo[f] + 1e-7) - Math.log(lo[f - 1] + 1e-7));
+  const at = (t) => { const f = Math.round(t * 100); return f > 0 && f < nf ? Math.max(lon[f - 1], lon[f], lon[f + 1] || 0) : 0; };
+  let onB = 0, offB = 0, nb = 0, bars = [0, 0, 0, 0];
+  const count = () => {
+    onB = 0; offB = 0; nb = 0; bars = [0, 0, 0, 0];
+    for (let t = phase, k = 0; t < nf / 100 - per; t += per, k++) {
+      if (t < nf / 100 * .1 || t > nf / 100 * .9) continue;
+      const v = at(t); onB += v; offB += at(t + per / 2); nb++; bars[k % 4] += v;
+    }
+  };
+  count();
+  // la rejilla pudo quedar en los contratiempos (los charles pesan mas que el bombo en los ataques): si los graves
+  // caen mas en el medio golpe, el pulso de verdad esta ahi
+  if (offB > onB * 1.1) { phase = (phase + per / 2) % per; count(); }
+  const four = offB > 0 ? onB / offB : 1;
+  // compas: de los 4 golpes, el "uno" es el de mas graves (el bombo fuerte); las frases van de 16 en 16 desde ahi
+  const b1 = bars.indexOf(Math.max(...bars)), bar0 = phase + b1 * per;
+  // familia de genero (decide la tecnica de mezcla, como los DJ: cada genero se mezcla distinto)
+  // bombo igual en los 4 golpes (house/techno/disco) frente a bombos sincopados (hip-hop, reggaeton, trap)
+  const even = Math.min(...bars) / (Math.max(...bars) || 1);
+  const fam = conf < 1.12 ? "live"
+    : (((four > 1.45 && even > .6 && conf > 1.3) || (conf > 2 && even > .5)) && ((bpm >= 112 && bpm <= 140) || bpm >= 160)) ? "club"   // pulso de maquina muy estable = club
+    : (even < .55 || four < 1.2 || (bpm <= 108 && conf > 2)) ? "urban" : "pop";   // ritmo quebrado o reggaeton/dembow programado
+  buf._mix = { bpm, per, phase, conf, outroT: outro / 100, env, med: med * 100, introT, four, even, bar0, fam, key: mixKey(buf) };
   return buf._mix;
 }
 // Automix activado (por defecto); en el iPhone suena por <audio> y no aplica
@@ -3312,10 +3409,10 @@ function setAutomix(v) {
      agresiva: 16-32 golpes (8-22 s), filtros fuertes, tempo hasta +-6 % y puede salir de la cancion antes de su
                final: busca desde la mitad un cambio de frase (cada 16 golpes) donde la energia baja (tras un
                estribillo, al entrar un puente) y mezcla ahi */
-const MIXLV = {
-  light: { min: 3, max: 8, tol: .03, early: false, vk: false, swap: -12, exit: "fade", cuts: ["fade"] },
-  normal: { min: 5, max: 16, tol: .08, early: false, vk: true, swap: -24, exit: "sweep", cuts: ["echo"] },
-  aggr: { min: 8, max: 24, tol: .12, early: true, vk: true, swap: -30, exit: "echo", cuts: ["brake", "echo", "spin"] },
+const MIXLV = {   // tol: hasta cuanto se ajusta el tempo (los DJ no suelen pasar de +-6-8 %: mas se nota en el tono)
+  light: { min: 3, max: 8, tol: .03, early: false, vk: false, swap: -12, exit: "fade", beats: 8, loopP: 0, chorus: false },
+  normal: { min: 5, max: 20, tol: .06, early: false, vk: true, swap: -24, exit: "sweep", beats: 16, loopP: .3, chorus: false },
+  aggr: { min: 6, max: 32, tol: .08, early: true, vk: true, swap: -30, exit: "echo", beats: 32, loopP: .45, chorus: true },
 };
 // contenido extra que avanzo la cancion por sonar a otro tempo durante la mezcla (para el reloj, la letra y el fin)
 function mixExtra(t) {
@@ -3374,11 +3471,29 @@ function automixSchedule(buf, song, voc) {
   // estribillo de la entrante: la agresiva entra ahi (las intros suelen ser largas o distintas, como hacen los DJ en
   // las fiestas); el bucle cae ahi en cualquier nivel
   const chC = AUTOMIX === "light" ? null : chorusTime(buf, voc && voc.lyr);
-  if (AUTOMIX === "aggr" && chC != null) vIn = chC;
-  // estilo: mezcla larga, bucle que se va acortando hasta la caida, o corte con efecto
+  if (P.chorus && chC != null) vIn = chC;
+  /* LA TECNICA, como la elegiria un DJ (guias de Pioneer DJ, Digital DJ Tips, Crossfader, Native Instruments):
+     - house/techno/EDM (bombo en cada golpe) con tempos cercanos: mezcla larga por frases y cambio de graves; a veces
+       loop roll (bucle que se acorta) en la subida hacia el drop
+     - hip-hop, reggaeton, trap... (ritmo quebrado): corte "en el uno" al acabar una frase, con un eco corto; a veces
+       un bucle simple del ultimo compas y entrada en el drop
+     - pop con tempos cercanos: mezcla por frases (mas corta) cuidando que no choquen las voces; a veces bucle simple
+     - tonalidades que chocan (rueda Camelot): mezcla corta y sin medios a la vez; o eco
+     - tempos lejanos o musica en directo (tempo que se mueve): eco o lavado de reverb; con mucha energia, eco */
   const pick = (a) => a[(Math.random() * a.length) | 0];
-  const canLoop = AUTOMIX !== "light" && A.conf > 1.15;
-  const wantLoop = canLoop && (match ? Math.random() < (AUTOMIX === "aggr" ? .4 : .25) : Math.random() < (AUTOMIX === "aggr" ? .35 : .5));
+  const famA = A.fam || "pop", famB = B.fam || "pop", club = famA === "club" && famB === "club";
+  const urban = famA === "urban" || famB === "urban", live = famA === "live" || famB === "live";
+  const kd = camDist(A.key, B.key), keyOK = kd <= 1;
+  const hasDrop = chC != null;
+  let tech;
+  if (AUTOMIX === "light") tech = match && !live ? "blend" : "fade";
+  else if (match && club) tech = hasDrop && Math.random() < P.loopP ? "roll" : "blend";
+  else if (match && urban) tech = hasDrop && Math.random() < P.loopP + .1 ? "loop" : "cut";
+  else if (match && !live) tech = hasDrop && Math.random() < P.loopP ? "loop" : keyOK || Math.random() < .5 ? "blend" : "cut";
+  else if (urban && grid) tech = "cut";
+  else tech = (A.env && E_last(A) > 1.1) ? "echo" : "wash";
+  function E_last(I) { const n = I.env.length, a = Math.max(0, Math.floor(I.outroT) - 12); let t = 0, c = 0; for (let i = a; i < Math.min(n, I.outroT); i++) { t += I.env[i]; c++; } return c ? t / c / (I.med || 1) : 1; }
+  const wantLoop = tech === "roll" || tech === "loop";
   const beatB = B.per, curve = (up) => { const c = new Float32Array(64); for (let i = 0; i < 64; i++) { const x = i / 63 * Math.PI / 2; c[i] = up ? Math.sin(x) : Math.cos(x); } return c; };
   const ramp = (prm, v0, t0, v1, t1, exp) => { try { prm.setValueAtTime(v0, t0); exp ? prm.exponentialRampToValueAtTime(v1, t1) : prm.linearRampToValueAtTime(v1, t1); } catch (e) {} };
   let when, tV, segs = null, style, offUsed = 0, o0 = null;   // o0: primer cambio programado en la saliente
@@ -3387,22 +3502,28 @@ function automixSchedule(buf, song, voc) {
       /* BUCLE: la saliente repite su ultimo compas y el bucle se va acortando (4 golpes x2, 2 x2, 1 x2, medio x4:
          16 golpes de subida) mientras se le van los graves y crece; en el ultimo golpe se manda al eco y entra la
          siguiente DE GOLPE en su estribillo (o donde canta) */
-      style = "loop";
-      const bt = A.per, bar = 4 * bt, p0 = A.phase - leadA;
+      style = tech;
+      const bt = A.per, bar = 4 * bt, p0 = (A.bar0 != null ? A.bar0 : A.phase) - leadA;   // en el "uno" del compas
       let Ls = p0 + Math.floor((endC - bar - p0) / bar) * bar;   // el ultimo compas entero de su musica
       if (Ls < cNow + 4) return (_kill(inn), false);
-      const tLs = now + (Ls - cNow), tDrop = tLs + 16 * bt;
+      const pat = tech === "roll" ? [[4, 2], [2, 2], [1, 2], [.5, 4]] : [[4, 2]];   // roll: 16 golpes; simple: 2 compases
+      const tLs = now + (Ls - cNow), tDrop = tLs + pat.reduce((a, [lb, r]) => a + lb * r, 0) * bt;
       out._loops = [];
       let t = tLs;
-      for (const [lb, reps] of [[4, 2], [2, 2], [1, 2], [.5, 4]]) {
+      for (const [lb, reps] of pat) {
         const ls = AC.createBufferSource(); ls.buffer = eng.buf; ls.loop = true;
         ls.loopStart = leadA + Ls; ls.loopEnd = leadA + Ls + lb * bt;
         ls.connect(out._n); ls.start(t, leadA + Ls); ls.stop(t + lb * bt * reps);
         out._loops.push(ls); t += lb * bt * reps;
       }
       try { out.stop(tLs); } catch (e) {}
-      ramp(of.hp.frequency, 10, tLs + 8 * bt, 1100, tDrop, true);           // se le van los graves al acortarse
-      ramp(of.high.gain, 0, tLs + 8 * bt, 4, tDrop);                         // y brilla mas (tension)
+      if (tech === "roll") {
+        ramp(of.hp.frequency, 10, tLs + 8 * bt, 1100, tDrop, true);           // se le van los graves al acortarse
+        ramp(of.high.gain, 0, tLs + 8 * bt, 4, tDrop);                         // y brilla mas (tension)
+      } else {   // bucle simple: se va cerrando (paso bajo) y pierde graves: la entrada del drop se nota mas
+        ramp(of.lp.frequency, 22000, tLs + bar, 1800, tDrop, true);
+        ramp(of.low.gain, 0, tLs + bar, -18, tDrop);
+      }
       of.delay.delayTime.setValueAtTime(Math.min(1.9, bt / 2), now); of.fb.gain.setValueAtTime(.45, now);
       ramp(of.send.gain, 0, tDrop - bt, .85, tDrop - .02);
       const og = out._g.gain; og.cancelScheduledValues(Math.max(now, tLs));
@@ -3411,15 +3532,22 @@ function automixSchedule(buf, song, voc) {
       when = tDrop; tV = tDrop + bt; offUsed = dropC; o0 = tLs;
       inn.start(when, leadB + dropC);
       inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueAtTime(0, when); inn._g.gain.linearRampToValueAtTime(1, when + .03);
-    } else if (match) {
+    } else if (match && tech === "blend") {
       style = "blend";
-      let Lin = Math.max(P.min, Math.min(P.max, vIn));    // intro de la entrante que se mezcla
+      // largo: house/techno hasta 32 golpes, pop 16, si la tonalidad choca 8 (sin pasar de lo que da la intro)
+      const capB = (club ? P.beats : Math.min(P.beats, 16)) * (keyOK ? 1 : .5) * beatB;
+      let Lin = Math.max(P.min, Math.min(P.max, capB, vIn));    // intro de la entrante que se mezcla
       let off = Math.max(0, vIn - Lin);
       if (grid) { const b0 = ((B.phase - leadB) % beatB + beatB) % beatB; off = off > 0 ? b0 + Math.floor((off - b0) / beatB) * beatB : 0; if (off < 0) off = 0; }
       Lin = vIn - off; if (Lin < 2) Lin = Math.min(P.max, Math.max(P.min, 8 * beatB));   // sin intro: 8 golpes encima
       // la voz de la entrante cae al final de la musica de la saliente: hacia atras, inicio y frenada
       const R = 4 * A.per;                                     // frenada/aceleracion de la saliente
-      const tS0 = now + (endC - cNow) - Lin;                 // la entrante empieza Lin s antes del final de la saliente
+      let tS0 = now + (endC - cNow) - Lin;                   // la entrante empieza Lin s antes del final de la saliente
+      if (A.bar0 != null) {   // al principio de una frase (16 golpes desde el "uno"): los cambios caen en su sitio
+        const pb = A.bar0 - leadA, ph = 16 * A.per, c = cNow + (tS0 - now);
+        const cP = pb + Math.round((c - pb) / ph) * ph;
+        if (Math.abs(cP - c) < 8 * A.per) tS0 = now + (cP - cNow);
+      }
       let tR = tS0 - R;
       if (tR < now + .3) return (_kill(inn), false);
       const cR = cNow + (tR - now), cS = cR + R + (k - 1) * R / 2;   // contenido al acabar la frenada
@@ -3438,6 +3566,10 @@ function automixSchedule(buf, song, voc) {
       of.low.gain.setValueAtTime(0, midT); of.low.gain.linearRampToValueAtTime(P.swap, midT + sw);
       nf.high.gain.setValueAtTime(-8, now); ramp(nf.high.gain, -8, when, 0, midT + 2 * sw);
       ramp(of.high.gain, 0, midT, -6, midT + 2 * sw);
+      if (!keyOK) {   // tonalidades que chocan: los medios (melodia, acordes) nunca suenan a la vez
+        nf.mid.gain.setValueAtTime(-14, now); ramp(nf.mid.gain, -14, midT, 0, midT + sw);
+        ramp(of.mid.gain, 0, midT, -14, midT + sw);
+      }
       if (AUTOMIX === "aggr") ramp(nf.lp.frequency, 500, when, 22000, when + up, true);
       // la saliente se queda sin voz mientras entra la otra
       if (P.vk && of.stereo) { const t0 = when + Lin * .25; ramp(of.full.gain, 1, t0, 0, t0 + 2 * sw); ramp(of.side.gain, 0, t0, 1, t0 + 2 * sw); }
@@ -3454,10 +3586,14 @@ function automixSchedule(buf, song, voc) {
       try { out.stop(tV + .08); } catch (e) {}
     } else {
       // tempos que no casan: corte con efecto en un golpe de la saliente, la entrante 2 compases antes de su voz
-      style = pick(P.cuts);
+      style = tech === "blend" ? "fade" : tech;
       const pre = Math.min(vIn, 8 * beatB), off = Math.max(0, vIn - pre);
-      const p0 = A.phase - leadA, cCut0 = Math.max(cNow + 1.5, endC - (style === "fade" ? 4 : 1.5));
-      const cCut = grid ? p0 + Math.round((cCut0 - p0) / A.per) * A.per : cCut0;
+      const p0 = (A.bar0 != null ? A.bar0 : A.phase) - leadA, cCut0 = Math.max(cNow + 1.5, endC - (style === "fade" || style === "wash" ? 4 : 1.5));
+      let cCut = grid ? p0 + Math.round((cCut0 - p0) / A.per) * A.per : cCut0;
+      if (grid && (style === "cut" || style === "echo")) {   // fin de frase (cada 16 golpes desde el "uno") si queda cerca
+        const ph = 16 * A.per, cp = p0 + Math.floor((cCut0 - p0) / ph) * ph;
+        if (cp > cNow + 2 && cCut0 - cp < 8 * A.per) cCut = cp;
+      }
       const tC = now + (cCut - cNow);
       if (tC < now + .5) return (_kill(inn), false);
       const og = out._g.gain; og.cancelScheduledValues(Math.max(now, tC - 4)); o0 = tC - 4;
@@ -3469,23 +3605,26 @@ function automixSchedule(buf, song, voc) {
         og.setValueAtTime(1, when); og.setValueCurveAtTime(curve(false), when, 4);
         ramp(of.hp.frequency, 10, when + 1, 400, when + 4, true);
         try { out.stop(tV + .1); } catch (e) {}
-      } else if (style === "brake") {   // freno de vinilo: la saliente se para (baja tempo y tono) y entra la otra
-        const bt = 1.3; when = tC + bt * .7; tV = when + pre;
-        out.playbackRate.setValueAtTime(1, tC); out.playbackRate.exponentialRampToValueAtTime(.06, tC + bt);
-        segs = [{ t0: tC, t1: tC + bt, r0: 1, r1: .06 }];
-        og.setValueAtTime(1, tC + bt * .4); og.linearRampToValueAtTime(0, tC + bt);
+      } else if (style === "cut") {   // corte en el uno: la siguiente entra seca en su golpe fuerte; la otra deja un eco de 1 golpe
+        const offB = grid && B.bar0 != null ? Math.max(0, (() => { const pb = B.bar0 - leadB, bar = 4 * beatB; return pb + Math.floor((vIn - pb + .2) / bar) * bar - (P.chorus ? 0 : 0); })()) : off;
+        when = tC; tV = when + 1;
+        of.delay.delayTime.setValueAtTime(Math.min(1.9, A.per / 2), now); of.fb.gain.setValueAtTime(.35, now);
+        ramp(of.send.gain, 0, tC - A.per / 2, .7, tC - .01); og.setValueAtTime(1, tC - .02); og.linearRampToValueAtTime(0, tC + .01);
+        out._tail = 2;
+        inn.start(when, leadB + offB); offUsed = offB;
+        inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueAtTime(0, when - .005); inn._g.gain.linearRampToValueAtTime(1, when + .015);
+        try { out.stop(tC + .03); } catch (e) {}
+      } else if (style === "wash") {   // lavado de reverb: la saliente se disuelve en su reverb mientras sube la otra
+        const W = Math.max(2.5, Math.min(6, 4 * A.per));
+        when = tC - W * .3; tV = when + W;
+        const rs = AC.createGain(); rs.gain.value = 0; of.lp.connect(rs); rs.connect(revBus()); out._rsend = rs;
+        ramp(rs.gain, 0, tC - W * .5, 1.1, tC);
+        og.setValueAtTime(1, tC - W * .4); og.linearRampToValueAtTime(0, tC + .3);
+        ramp(of.hp.frequency, 10, tC - W * .5, 500, tC + .3, true); out._tail = 4;
         inn.start(when, leadB + off); offUsed = off;
-        inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueAtTime(.001, when); inn._g.gain.exponentialRampToValueAtTime(1, when + .4);
-        ramp(nf.lp.frequency, 900, when, 22000, when + 2 * beatB, true);
-        try { out.stop(tC + bt + .05); } catch (e) {}
-      } else if (style === "spin") {   // rebobinado: un tiron hacia delante muy rapido y fuera, entra la otra seca
-        const bt = .55; when = tC + bt; tV = when + pre;
-        out.playbackRate.setValueAtTime(1, tC); out.playbackRate.linearRampToValueAtTime(3.2, tC + bt);
-        segs = [{ t0: tC, t1: tC + bt, r0: 1, r1: 3.2 }];
-        ramp(of.hp.frequency, 10, tC, 1200, tC + bt, true); og.setValueAtTime(1, tC); og.linearRampToValueAtTime(0, tC + bt);
-        inn.start(when, leadB + off); offUsed = off;
-        inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueAtTime(1, when);
-        try { out.stop(tC + bt + .05); } catch (e) {}
+        inn._g.gain.setValueAtTime(0, now); inn._g.gain.setValueCurveAtTime(curve(true), when, W);
+        ramp(nf.lp.frequency, 700, when, 22000, when + W, true);
+        try { out.stop(tC + .35); } catch (e) {}
       } else {   // eco: la saliente se va en su eco y la otra entra en el siguiente golpe
         when = tC; tV = when + pre;
         of.delay.delayTime.setValueAtTime(Math.min(1.9, A.per * .75), now); of.fb.gain.setValueAtTime(AUTOMIX === "aggr" ? .55 : .4, now);

@@ -3239,6 +3239,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _cx_opener = urllib.request.build_opener(_NoRedirect)
 
 
+def _is_dev(email):
+    """cuentas de desarrollo (Cloudflare Access firma el correo): lista privada fuera del repositorio"""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev_emails.txt"), encoding="utf8") as f:
+            return email in {x.strip().lower() for x in f if x.strip() and not x.startswith("#")}
+    except OSError:
+        return False
+
+
 def cx_relay(method, path_qs, body, acct, tok=None):
     tok = tok or _cx_access()
     if not tok:
@@ -4860,6 +4872,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"error": "no_account"})
             code, d = cx_relay(method, self.path, body, acct)
             return self._json(d, code)
+        if u.path == "/connect/whoami":   # herramientas de prueba: solo las cuentas de dev_emails.txt (no se sube)
+            return self._json({"dev": _is_dev(self.headers.get("Cf-Access-Authenticated-User-Email", ""))})
         _REQ.acct_hdr = self.headers.get("X-Blyatt-Acct", "")
         try:
             d = json.loads(body.decode("utf-8", "replace") or "{}") if body else {}

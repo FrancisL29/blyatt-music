@@ -39,3 +39,6 @@ settings.json.tmp
 # DJ de radio: clave de la API de Anthropic del dueno (NUNCA commitear)
 dj.json
 dj.json.tmp
+
+# cuentas con herramientas de prueba (privado)
+dev_emails.txt

@@ -186,6 +186,52 @@ class _Spl:
         return out
 
 
+def mix_stem_ok():
+    """Automix: hay separador de voz (Spleeter ya descargado por el karaoke) -> se puede pedir la voz sola."""
+    d = os.path.join(APP.DATA, "models", SPLEETER["dir"])
+    return all(os.path.isfile(os.path.join(d, f)) for f in ("vocals.onnx", "accompaniment.onnx"))
+
+
+def mix_stem(pcm, sr):
+    """Automix (voz primero / instrumental primero): voz separada de un trozo que manda el reproductor (int16
+    estereo intercalado a `sr`, tal cual lo tiene descodificado). Devuelve la voz en el mismo formato, misma
+    longitud y mismas muestras (mezcla - instrumental): asi se funde con el original sin desfase ni eco."""
+    import numpy as np
+    if not mix_stem_ok():
+        raise FileNotFoundError("sin modelo de voz")
+    x = np.frombuffer(pcm, "<i2").astype(np.float32).reshape(-1, 2).T / 32768.0
+    n0 = x.shape[1]
+    if n0 < sr or n0 > sr * 90:
+        raise ValueError("trozo no valido")
+    if sr != SR:   # el modelo trabaja a 44.1 kHz
+        t = np.arange(int(n0 * SR / sr)) * (sr / SR)
+        mix = np.stack([np.interp(t, np.arange(n0), x[c]) for c in (0, 1)]).astype(np.float32)
+    else:
+        mix = x
+    N = mix.shape[1]
+    N2, H, T = SP_N // 2, SP_H, SP_T
+    xpad = np.pad(mix, ((0, 0), (N2, N2 + T * H)), mode="constant")
+    xpad[:, :N2] = mix[:, N2:0:-1]
+    nfr = 1 + N // H
+    win2 = ((0.5 - 0.5 * np.cos(2 * np.pi * np.arange(SP_N) / SP_N)) ** 2).astype(np.float32)
+    env = np.zeros(xpad.shape[1], np.float32)
+    for q in range(SP_N // H):
+        env[q * H: q * H + nfr * H] += np.tile(win2[q * H:(q + 1) * H], nfr)
+    out = np.zeros_like(xpad)
+    f0 = 0
+    while f0 < nfr:   # mismos bloques que el karaoke: STFT global, sin costuras
+        f1 = min(nfr, f0 + T)
+        ola = _cpu("spl", (xpad[:, f0 * H: (f1 - 1) * H + SP_N], f1 - f0))
+        out[:, f0 * H: f0 * H + ola.shape[1]] += ola
+        f0 = f1
+    ins = out[:, N2: N2 + N] / np.maximum(env[N2: N2 + N], 1e-6)
+    if sr != SR:
+        t2 = np.arange(n0) * (SR / sr)
+        ins = np.stack([np.interp(t2, np.arange(N), ins[c]) for c in (0, 1)]).astype(np.float32)
+    voc = x - ins
+    return (np.clip(voc.T, -1, 1) * 32767).astype("<i2").tobytes()
+
+
 def _emis(sess, x):
     """Voz a 16 kHz -> log-probabilidades CTC [frames de 20 ms, 32]."""
     import numpy as np

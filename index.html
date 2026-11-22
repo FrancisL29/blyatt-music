@@ -1125,6 +1125,7 @@
   .ashelf { margin-bottom: 34px; }
   .ashelf.unrel h3 .unrel-k { margin-left: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
     color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 99px; padding: 3px 8px; }
+  .ccard.loading { opacity: .55; pointer-events: none; }
   .unrel-more { margin-top: 6px; border: 1px solid rgb(255 255 255 / .16); background: none; color: var(--text); font: 600 .82rem/1 inherit;
                 padding: 9px 16px; border-radius: 99px; cursor: pointer; }
   .unrel-more:hover { border-color: rgb(255 255 255 / .35); }
@@ -2653,7 +2654,7 @@ const EN = {
     "To sync this PC with your phone (Devices), connect it once: you'll get a code by email.", "Inicia sesión en la ventana de Wave": "Sign in in the Wave window",
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
-  "Quitar de la cola": "Remove from queue", "Ver otras versiones": "See other versions",
+  "Quitar de la cola": "Remove from queue", "No se encontró en YouTube": "Not found on YouTube", "Ver otras versiones": "See other versions",
   "Otras versiones": "Other versions", "Este álbum no tiene otras versiones.": "This album has no other versions.", "Modo rendimiento": "Performance mode",
   "Modo rendimiento: activado": "Performance mode: on", "Modo rendimiento activado": "Performance mode on",
   "Modo rendimiento desactivado": "Performance mode off", "Compartir": "Share", "Enlace copiado": "Link copied",
@@ -4058,15 +4059,17 @@ function renderArtist(d) {
   if (d.name && !(_artistSeed && _artistSeed.kind === "profiles")) {
     const aid = _artistId, name = d.name;
     jget("/unreleased?artist=" + encodeURIComponent(name)).then(r => {
-      const songs = Array.isArray(r) ? r : (r && r.songs) || [], albums = (r && r.albums) || [];
+      const songs = Array.isArray(r) ? r : (r && r.songs) || [], albums = (r && r.albums) || [], more = (r && r.more) || [];
       if ((!songs.length && !albums.length) || _artistId !== aid || view !== "artist") return;
       const items = albums.map(a => Object.assign({}, a, { kind: "playlists" }))
         .concat(songs.map(s => Object.assign({}, s, { subtitle: s.duration ? "Unreleased • " + s.duration : "Unreleased" })));
+      // "ver todo": ademas, el resto de nombres documentados (se buscan en YouTube al tocarlos)
+      const all = items.concat(more.map(m => ({ title: m.title, cover: m.cover, subtitle: "Unreleased", _unres: true, artist: name })));
       const el = document.createElement("section"); el.className = "ashelf unrel";
       const h = document.createElement("h3");
       h.innerHTML = '<span></span><span class="unrel-k"></span><i class="ph ph-caret-right chev"></i>';
       h.firstChild.textContent = "Unreleased"; h.children[1].textContent = t("Sin publicar");
-      h.onclick = () => showGrid("Unreleased · " + name, items, true);   // ver todo
+      h.onclick = () => showGrid("Unreleased · " + name, all, true);   // ver todo (todos los documentados)
       el.appendChild(h);
       const car = document.createElement("div"); car.className = "arow";
       items.forEach(it => car.appendChild(itemCard(it)));
@@ -4078,9 +4081,23 @@ function renderArtist(d) {
     }).catch(() => {});
   }
 }
+/* inéditos de la lista de Genius aun sin buscar: al tocarlos se busca su subida en YouTube y suenan; con el menu
+   (clic derecho / mantener pulsado) igual, y despues ya son una cancion mas (cola, playlists, me gusta) */
+async function unresGet(it, card) {
+  if (it.id) return itemSong(it);
+  card && card.classList.add("loading");
+  let r = null;
+  try { r = await jget(`/unreleased/resolve?artist=${encodeURIComponent(it.artist || "")}&title=${encodeURIComponent(it.title)}`); } catch (e) {}
+  card && card.classList.remove("loading");
+  if (!r || !r.id) { toast(t("No se encontró en YouTube")); return null; }
+  Object.assign(it, r, { _unres: false, subtitle: r.duration ? "Unreleased • " + r.duration : "Unreleased" });
+  if (card) { const im = card.querySelector("img"); if (r.cover) im.src = r.cover; card.querySelector(".a").textContent = it.subtitle; card.classList.add("video"); }
+  return itemSong(it);
+}
 function itemCard(it, allowVersions) {
   const isArtist = it.browseId && it.browseId.startsWith("UC");
   const c = document.createElement("div"); c.className = "ccard" + (isArtist ? " artist" : it.id ? " video" : "");
+  c._it = it;
   c.innerHTML = '<img alt=""><div class="t"></div><div class="a"></div>';
   c.querySelector("img").src = it.cover;
   c.querySelector(".t").textContent = it.title;
@@ -4093,6 +4110,10 @@ function itemCard(it, allowVersions) {
     openTrackMenu(s, [s], 0, e.clientX, e.clientY, c);
   };
   if (allowVersions && it.browseId && it.browseId.startsWith("MPRE")) attachVersions(c, it.browseId);   // solo en cuadricula de albumes, no en carruseles del artista
+  if (it._unres) {   // inédito sin buscar todavia: se busca al tocarlo
+    c.onclick = async () => { const s = await unresGet(it, c); if (s) playFromList([s], 0); };
+    c.oncontextmenu = async (e) => { e.preventDefault(); const x = e.clientX, y = e.clientY; const s = await unresGet(it, c); if (s) openTrackMenu(s, [s], 0, x, y, c); };
+  }
   return c;
 }
 // cancion desde una tarjeta (video/cancion): el subtitulo de los videos mezcla artista y visualizaciones

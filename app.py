@@ -1035,10 +1035,21 @@ def _genius_unreleased(name):
     if _norm(art.get("name")) != nn and nn not in _norm(art.get("name")):
         return []
     aid = art["id"]
-    jobs = [("artists/%d/songs" % aid, dict(sort="popularity", per_page=50, page=p)) for p in range(1, 11)]
-    jobs += [("search/song", dict(per_page=20, page=p, q=name + " " + w)) for w in ("unreleased", "leak", "snippet") for p in (1, 2)]
-    with concurrent.futures.ThreadPoolExecutor(8) as ex:
-        outs = list(ex.map(lambda j: _safe(lambda: _genius(j[0], **j[1]), {}), jobs))
+    # todas las paginas del artista (los inéditos son poco visitados: en artistas con mucho material, como Kanye
+    # West, quedaban fuera de las primeras 500), en tandas paralelas hasta que se acaben (tope 80 = 4000 canciones)
+    jobs = [("search/song", dict(per_page=20, page=p, q=name + " " + w))
+            for w in ("unreleased", "leak", "snippet", "demo", "unreleased version") for p in (1, 2, 3)]
+    outs = []
+    with concurrent.futures.ThreadPoolExecutor(12) as ex:
+        outs += list(ex.map(lambda j: _safe(lambda: _genius(j[0], **j[1]), {}), jobs))
+        page = 1
+        while page <= 80:
+            batch = list(range(page, min(page + 16, 81)))
+            got = list(ex.map(lambda p: _safe(lambda: _genius("artists/%d/songs" % aid, sort="popularity", per_page=50, page=p), {}), batch))
+            outs += got
+            if not got or not got[-1].get("next_page"):
+                break
+            page += 16
     songs = {}
     for o in outs:
         lst = o.get("songs") or [h["result"] for sec in o.get("sections", []) for h in sec.get("hits", [])]
@@ -1049,7 +1060,8 @@ def _genius_unreleased(name):
                 continue
             songs[x["id"]] = x
     lst = sorted(songs.values(), key=lambda x: -((x.get("stats") or {}).get("pageviews") or 0))
-    return [re.sub(r"\s*\*+\s*", " ", x["title"]).strip() for x in lst]
+    return [{"title": re.sub(r"\s*\*+\s*", " ", x["title"]).strip(), "cover": x.get("song_art_image_thumbnail_url") or "",
+             "gid": x["id"]} for x in lst]
 
 
 def _yt_unreleased(name, title):
@@ -1073,26 +1085,69 @@ def _yt_unreleased(name, title):
     return None
 
 
+_core = lambda t: _norm(re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", t or "")) or _norm(t)
+
+
 def _unreleased2(name):
+    """Fuentes, de mas a menos fiable:
+      1. Genius: canciones del artista sin fecha de lanzamiento (todo su catalogo), por visitas; las primeras se
+         buscan ya en YouTube y el resto viaja como lista de nombres ("more") que se busca al tocarla
+      2. playlists de YouTube que recopilan sus inéditos (sus canciones se suman tambien como canciones)
+      3. subidas sueltas con "unreleased" en el titulo"""
+    nn = _norm(name)
     try:
-        titles = _genius_unreleased(name)[:28]
+        gen = _genius_unreleased(name)[:600]
     except Exception as e:
         print("[unreleased] genius", name, e)
-        titles = []
-    with concurrent.futures.ThreadPoolExecutor(8) as ex:
-        found = list(ex.map(lambda t: _safe(lambda: _yt_unreleased(name, t), None), titles))
-        pl = ex.submit(lambda: _safe(lambda: parse_browse(_ytm_search_raw(name + " unreleased", _FILTERS["playlists"]), "playlists"), []))
-        extra = ex.submit(lambda: _safe(lambda: _unreleased(name), []))
-        pl, extra = pl.result(), extra.result()
-    songs, seen = [], set()
-    for s in [x for x in found if x] + extra:   # primero las de Genius (por visitas), luego las de YouTube
-        if s["id"] not in seen:
-            seen.add(s["id"]); songs.append(s)
-    nn = _norm(name)
-    albums = [dict(p, kind="playlists") for p in pl
-              if re.search(r"unreleased|leak|vault|snippet|scrapped|unrel", p.get("title") or "", re.I)
-              and nn in _norm(p.get("title"))][:10]
-    return {"songs": songs[:40], "albums": albums}
+        gen = []
+    with concurrent.futures.ThreadPoolExecutor(12) as ex:
+        pl_f = ex.submit(lambda: _safe(lambda: parse_browse(_ytm_search_raw(name + " unreleased", _FILTERS["playlists"]), "playlists"), []))
+        pl2_f = ex.submit(lambda: _safe(lambda: parse_browse(_ytm_search_raw(name + " leaks", _FILTERS["playlists"]), "playlists"), []))
+        extra_f = ex.submit(lambda: _safe(lambda: _unreleased(name), []))
+        found = list(ex.map(lambda g: _safe(lambda: _yt_unreleased(name, g["title"]), None), gen[:40]))
+        pls, seenp = [], set()
+        for p in pl_f.result() + pl2_f.result():
+            if p.get("browseId") and p["browseId"] not in seenp and nn in _norm(p.get("title")) \
+                    and re.search(r"unreleased|leak|vault|snippet|scrapped|unrel", p.get("title") or "", re.I):
+                seenp.add(p["browseId"]); pls.append(dict(p, kind="playlists"))
+        # las canciones de las 3 primeras recopilaciones tambien cuentan como canciones
+        cols = list(ex.map(lambda p: _safe(lambda: collection(p["browseId"]), {}), pls[:3]))
+        extra = extra_f.result()
+    songs, seen_id, seen_t = [], set(), set()
+
+    def add(s):
+        k = _core(s["title"])
+        if s["id"] in seen_id or (k and k in seen_t):
+            return
+        seen_id.add(s["id"]); seen_t.add(k); songs.append(s)
+    for s in [x for x in found if x]:
+        add(s)
+    for c in cols:
+        for tr in (c or {}).get("tracks") or []:
+            t = tr.get("title") or ""
+            if not tr.get("id") or _UNREL_BAD.search(t) or not 60 <= _secs_of(tr.get("duration")) <= 10 * 60:
+                continue
+            if nn not in _norm(t) and nn not in _norm(tr.get("artist")) and nn not in _norm(c.get("title")):
+                continue
+            add({"id": tr["id"], "title": _unrel_title(t, name), "artist": name, "cover": tr.get("cover") or c.get("cover", ""),
+                 "duration": tr.get("duration", ""), "wide": True, "type": "video", "unreleased": True})
+    for s in extra:
+        add(s)
+    # el resto de nombres de Genius: sin buscar todavia (se busca en YouTube al tocarlo)
+    more = []
+    for g in gen[40:]:
+        k = _core(g["title"])
+        if k and k not in seen_t:
+            seen_t.add(k); more.append({"title": g["title"], "cover": g["cover"], "gid": g["gid"]})
+    return {"songs": songs[:120], "albums": pls[:12], "more": more}
+
+
+def unreleased_resolve(name, title):
+    """Busca en YouTube un inédito de la lista de Genius (al tocarlo). Cacheado por nombre."""
+    name, title = (name or "").strip()[:80], (title or "").strip()[:160]
+    if not name or not title:
+        return {}
+    return cached("unrelr:" + name.lower() + "|" + title.lower(), 24 * 3600, lambda: _yt_unreleased(name, title) or {})
 
 
 def _unreleased(name):
@@ -4948,6 +5003,12 @@ class H(BaseHTTPRequestHandler):
                 self.send_response(502); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers(); self.wfile.write(payload); return
+        elif u.path == "/unreleased/resolve":
+            qa = parse_qs(u.query)
+            try:
+                return self._json(unreleased_resolve(qa.get("artist", [""])[0], qa.get("title", [""])[0]))
+            except Exception as e:
+                return self._json({"error": str(e)[:200]})
         elif u.path in ("/trending", "/unreleased"):
             try:
                 d = trending() if u.path == "/trending" else unreleased(parse_qs(u.query).get("artist", [""])[0][:80])

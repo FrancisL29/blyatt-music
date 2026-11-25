@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laboratorio Automix</title>
+<style>
+  :root { --bg: #0d0f12; --panel: #15181d; --line: #252a31; --text: #e8eaed; --muted: #8b93a1; --acc: #7fd1ff; --acc2: #ffb86b; --ok: #6be3a4; --bad: #ff7b7b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header .sp { flex: 1; }
+  label.tg { display: flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; }
+  main { padding: 16px 20px 60px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+  .songs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .songs { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 600; }
+  .srch { position: relative; }
+  .srch input { width: 100%; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--line); background: #0f1216; color: var(--text); font: inherit; }
+  .res { position: absolute; left: 0; right: 0; top: 42px; background: #12161b; border: 1px solid var(--line); border-radius: 10px; z-index: 10; max-height: 360px; overflow: auto; display: none; }
+  .res div { display: flex; gap: 10px; align-items: center; padding: 7px 10px; cursor: pointer; }
+  .res div:hover { background: #1b2027; }
+  .res img { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; }
+  .res small { color: var(--muted); display: block; }
+  .song h3 { margin: 12px 0 2px; font-size: 16px; }
+  .song .ar { color: var(--muted); margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { background: #1b2027; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; white-space: nowrap; }
+  .chip b { color: var(--acc); font-weight: 600; }
+  canvas.wf { width: 100%; height: 120px; display: block; border-radius: 8px; background: #0f1216; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .tm { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .busy { color: var(--acc2); }
+  .cands { display: grid; gap: 8px; }
+  .cand { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .cand:hover { border-color: #3a4350; }
+  .cand.sel { border-color: var(--acc); background: #121b22; }
+  .cand .t { font-weight: 600; }
+  .cand ul { margin: 2px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; grid-column: 1 / -1; }
+  .score { font-variant-numeric: tabular-nums; color: var(--ok); }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+  button { background: #1f2630; color: var(--text); border: 1px solid #2d3540; border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { background: #26303b; }
+  button.pri { background: var(--acc); color: #04121a; border-color: transparent; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  audio { width: 100%; margin-top: 8px; }
+  canvas.tl { width: 100%; height: 64px; display: block; border-radius: 8px; background: #0f1216; cursor: pointer; margin-top: 8px; }
+  .info { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .err { color: var(--bad); }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Laboratorio Automix</h1>
+  <span class="sp"></span>
+  <label class="tg"><input type="checkbox" id="stems" checked> Voz separada (Spleeter, 2 pistas)</label>
+</header>
+<main>
+  <section class="songs">
+    <div class="card song" id="A"><h2>Sale (A)</h2><div class="srch"><input placeholder="Buscar canción…"><div class="res"></div></div><div class="body"></div></div>
+    <div class="card song" id="B"><h2>Entra (B)</h2><div class="srch"><input placeholder="Buscar canción…"><div class="res"></div></div><div class="body"></div></div>
+  </section>
+  <section class="card">
+    <h2>Transiciones posibles</h2>
+    <div id="cands" class="cands"><div class="empty">Elige y analiza las dos canciones.</div></div>
+    <div class="ctl" id="ctl" hidden>
+      <span>Ajustar:</span>
+      <button data-s="A-">A ◀ 1 compás</button><button data-s="A+">A ▶ 1 compás</button>
+      <button data-s="B-">B ◀ 1 compás</button><button data-s="B+">B ▶ 1 compás</button>
+      <span id="shift" class="info"></span>
+      <span style="flex:1"></span>
+      <button class="pri" id="render">Renderizar y escuchar</button>
+    </div>
+    <div id="out"></div>
+  </section>
+</main>
+<script>
+const S = { A: null, B: null, cands: [], sel: null, sa: 0, sb: 0, clip: null };
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (x) => String(x == null ? "" : x).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const COL = { intro: "#4f6a9a", estrofa: "#3a8a72", estribillo: "#d08236", break: "#7a62b0", outro: "#4f6a9a" };
+const jget = async (u) => { const r = await fetch(u); const d = await r.json(); if (!r.ok) throw new Error(d.error || r.status); return d; };
+
+for (const side of ["A", "B"]) {
+  const box = $("#" + side), inp = $("input", box), res = $(".res", box);
+  let tmr = null;
+  inp.addEventListener("input", () => {
+    clearTimeout(tmr);
+    if (!inp.value.trim()) { res.style.display = "none"; return; }
+    tmr = setTimeout(async () => {
+      const items = await jget("/api/search?q=" + encodeURIComponent(inp.value));
+      res.innerHTML = items.map((it, i) => `<div data-i="${i}"><img src="${esc(it.cover)}" alt=""><span>${esc(it.title)}<small>${esc(it.artist)} · ${esc(it.duration)}</small></span></div>`).join("") || '<div class="empty">Sin resultados</div>';
+      res.style.display = "block";
+      res.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { res.style.display = "none"; inp.value = ""; pick(side, items[+el.dataset.i]); });
+    }, 300);
+  });
+  inp.addEventListener("blur", () => setTimeout(() => res.style.display = "none", 200));
+}
+
+async function pick(side, it) {
+  const body = $("#" + side + " .body");
+  S[side] = null; S.cands = []; S.sel = null; paintCands();
+  body.innerHTML = `<h3>${esc(it.title)}</h3><div class="ar">${esc(it.artist)}</div><div class="busy">Analizando (descarga, tempo, tonalidad, voz separada, secciones)…</div>`;
+  try {
+    const d = await jget(`/api/analyze?id=${it.id}&title=${encodeURIComponent(it.title)}&artist=${encodeURIComponent(it.artist)}&dur=${encodeURIComponent(it.duration || "")}&stems=${$("#stems").checked ? 1 : 0}`);
+    S[side] = d; paintSong(side);
+    if (S.A && S.B) planNow();
+  } catch (e) { body.innerHTML += `<div class="err">${esc(e.message)}</div>`; }
+}
+
+function paintSong(side) {
+  const d = S[side], body = $("#" + side + " .body");
+  const fmt = (t) => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+  const tm = Object.entries(d.times || {}).map(([k, v]) => `${k} ${v}s`).join(" · ");
+  body.innerHTML = `<h3>${esc(d.title)}</h3><div class="ar">${esc(d.artist)} · ${fmt(d.dur)}</div>
+    <div class="chips">
+      <span class="chip"><b>${d.bpm.toFixed(1)}</b> BPM <span style="color:var(--muted)">(seg. ${d.conf.toFixed(2)})</span></span>
+      <span class="chip">tono <b>${esc(d.key.camelot)}</b> ${esc(d.key.name)} <span style="color:var(--muted)">(${d.key.conf.toFixed(3)})</span></span>
+      <span class="chip">energía <b>${d.energy}</b>/10</span>
+      <span class="chip"><b>${d.lufs}</b> LUFS</span>
+      <span class="chip">familia <b>${esc(d.family)}</b></span>
+      ${d.genres && d.genres.length ? `<span class="chip">Deezer: ${esc(d.genres.join(", "))}</span>` : ""}
+      <span class="chip">letra: ${d.lyrics.length ? d.lyrics.length + " líneas (" + esc(d.lyricsSource) + ")" : "no"}</span>
+    </div>
+    <canvas class="wf"></canvas>
+    <div class="legend"><span><i style="background:#ffb86b"></i>canta (voz separada)</span><span><i style="background:#fff"></i>líneas de letra</span>
+      ${["intro", "estrofa", "estribillo", "break"].map(k => `<span><i style="background:${COL[k]}"></i>${k}${k === "intro" ? "/outro" : ""}</span>`).join("")}
+      <span><i style="background:#7fd1ff"></i>transición</span></div>
+    <div class="tm">${esc(tm)}${d.sepXRT ? ` · separación ${d.sepXRT}× tiempo real` : ""}</div>`;
+  drawWave(side);
+}
+
+function drawWave(side) {
+  const d = S[side]; if (!d) return;
+  const cv = $("#" + side + " canvas.wf"); if (!cv) return;
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const X = (t) => t / d.dur * W;
+  // secciones
+  for (const s of d.sections) { g.fillStyle = COL[s.label] || "#444"; g.globalAlpha = .55; g.fillRect(X(s.t0), H - 16, X(s.t1) - X(s.t0) - 1, 14); g.globalAlpha = 1;
+    g.fillStyle = "#fff"; g.font = "10px system-ui"; if (X(s.t1) - X(s.t0) > 40) g.fillText(s.label, X(s.t0) + 3, H - 5); }
+  // frases (cada 4 compases)
+  const bar = 4 * d.per; g.strokeStyle = "rgba(255,255,255,.07)";
+  for (let t = d.bar0, i = 0; t < d.dur; t += bar, i++) if (i % 4 === 0) { g.beginPath(); g.moveTo(X(t) + .5, 14); g.lineTo(X(t) + .5, H - 18); g.stroke(); }
+  // forma de onda
+  const P = d.peaks, mid = (H - 18 + 14) / 2, amp = (H - 34) / 2;
+  g.fillStyle = "#56606e";
+  for (let i = 0; i < P.length; i++) { const x = i / P.length * W, h = Math.max(1, P[i] * amp); g.fillRect(x, mid - h, Math.max(1, W / P.length), 2 * h); }
+  // voz y letra
+  g.fillStyle = "#ffb86b"; for (const [a, b] of d.vocals || []) g.fillRect(X(a), 2, Math.max(1, X(b) - X(a)), 5);
+  g.fillStyle = "rgba(255,255,255,.8)"; for (const l of d.lyrics || []) g.fillRect(X(l.t), 9, 1, 4);
+  // transicion elegida
+  const c = S.sel != null ? shifted(S.cands[S.sel]) : null;
+  if (c) {
+    let a, b, ev = [];
+    if (side === "A") { a = c.ts; b = c.te; ["tsw", "tm", "tv", "bs"].forEach(k => c[k] != null && ev.push(c[k])); }
+    else { a = c.b_in; b = c.b_in + (c.te - c.ts) * c.s; }
+    g.fillStyle = "rgba(127,209,255,.18)"; g.fillRect(X(a), 0, Math.max(2, X(b) - X(a)), H - 18);
+    g.strokeStyle = "#7fd1ff"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(X(a), 0); g.lineTo(X(a), H - 18); g.stroke();
+    g.strokeStyle = "rgba(127,209,255,.6)"; g.lineWidth = 1; for (const t of ev) { g.beginPath(); g.moveTo(X(t), 0); g.lineTo(X(t), H - 18); g.stroke(); }
+  }
+}
+
+async function planNow() {
+  $("#cands").innerHTML = '<div class="busy">Planificando…</div>';
+  try { S.cands = await jget(`/api/plan?a=${S.A.id}&b=${S.B.id}&stems=${$("#stems").checked ? 1 : 0}`); S.sel = S.cands.length ? 0 : null; S.sa = S.sb = 0; paintCands(); }
+  catch (e) { $("#cands").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+function paintCands() {
+  const el = $("#cands");
+  if (!S.cands.length) { el.innerHTML = '<div class="empty">Elige y analiza las dos canciones.</div>'; $("#ctl").hidden = true; return; }
+  const mx = Math.max(...S.cands.map(c => c.score), 1);
+  el.innerHTML = S.cands.map((c, i) => `<div class="cand ${i === S.sel ? "sel" : ""}" data-i="${i}">
+      <span class="t">${i + 1}. ${esc(c.label)}</span><span class="score">${c.score.toFixed(2)}</span>
+      <ul>${c.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>`).join("");
+  el.querySelectorAll(".cand").forEach(d => d.onclick = () => { S.sel = +d.dataset.i; S.sa = S.sb = 0; paintCands(); });
+  $("#ctl").hidden = S.sel == null; $("#shift").textContent = `A ${S.sa >= 0 ? "+" : ""}${S.sa} · B ${S.sb >= 0 ? "+" : ""}${S.sb} compases`;
+  drawWave("A"); drawWave("B");
+}
+
+function shifted(c) {
+  const p = JSON.parse(JSON.stringify(c)), bA = 4 * S.A.per, bB = 4 * S.B.per;
+  for (const k of ["ts", "tsw", "te", "tm", "tv", "bs"]) if (p[k] != null) p[k] += S.sa * bA;
+  if (p.loop) p.loop = p.loop.map(x => x + S.sa * bA);
+  p.b_in += S.sb * bB;
+  return p;
+}
+
+document.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { const s = b.dataset.s; if (s[0] === "A") S.sa += s[1] === "+" ? 1 : -1; else S.sb += s[1] === "+" ? 1 : -1; paintCands(); });
+
+$("#render").onclick = async () => {
+  if (S.sel == null) return;
+  const btn = $("#render"); btn.disabled = true; btn.textContent = "Renderizando…";
+  const out = $("#out");
+  try {
+    const r = await fetch("/api/render", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ a: S.A.id, b: S.B.id, plan: shifted(S.cands[S.sel]), stems: $("#stems").checked }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    S.clip = d;
+    out.innerHTML = `<audio controls autoplay src="${d.url}"></audio><canvas class="tl"></canvas>
+      <div class="info">${esc(S.cands[S.sel].label)} · clip de ${d.info.dur.toFixed(1)} s · B estirada ${((d.info.speed - 1) * 100).toFixed(1)}% · B ${d.info.gainB >= 0 ? "+" : ""}${d.info.gainB} dB para igualar volumen · voz separada: ${d.info.stems ? "sí" : "no"} · render ${d.info.renderSecs}s</div>`;
+    const au = $("audio", out), cv = $("canvas.tl", out);
+    cv.onclick = (e) => { const r = cv.getBoundingClientRect(); au.currentTime = (e.clientX - r.left) / r.width * d.info.dur; au.play(); };
+    const loop = () => { drawTL(cv, d, au.currentTime); if (document.body.contains(cv)) requestAnimationFrame(loop); };
+    loop();
+  } catch (e) { out.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  btn.disabled = false; btn.textContent = "Renderizar y escuchar";
+};
+
+function drawTL(cv, d, t) {
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const X = (x) => x / d.info.dur * W;
+  g.font = "11px system-ui";
+  d.marks.forEach((m, i) => { g.strokeStyle = "#7fd1ff"; g.beginPath(); g.moveTo(X(m.t) + .5, 0); g.lineTo(X(m.t) + .5, H); g.stroke();
+    g.fillStyle = "#cfe9f7"; g.fillText(m.txt, Math.min(W - 120, X(m.t) + 4), 14 + (i % 3) * 16); });
+  g.fillStyle = "#ffb86b"; g.fillRect(X(t), 0, 2, H);
+}
+addEventListener("resize", () => { drawWave("A"); drawWave("B"); });
+</script>
+</body>
+</html>

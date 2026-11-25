@@ -42,3 +42,6 @@ dj.json.tmp
 
 # cuentas con herramientas de prueba (privado)
 dev_emails.txt
+
+# laboratorio de automix: cache de analisis, voz separada y clips
+automix_lab/cache/

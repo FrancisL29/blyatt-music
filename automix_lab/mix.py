@@ -62,118 +62,6 @@ def camelot_dist(a, b):
     return d if a["letter"] == b["letter"] else (1 if d == 0 else d + 1)
 
 
-# ------------------------------------------------------------------ planificador
-def plan(A, B, stems=True):
-    s, m = tempo_rel(A, B)
-    match = abs(s - 1) <= .10 and A["conf"] > 1.1 and B["conf"] > 1.1
-    kd = camelot_dist(A["key"], B["key"]) if A["key"]["conf"] > .02 and B["key"]["conf"] > .02 else 1
-    de = B["energy"] - A["energy"]
-    barA, beatA = 4 * A["per"], A["per"]
-    barB = 4 * B["per"]
-    VA, VB = vspans(A), vspans(B)
-    Aend = prev_down(A, A["musicEnd"])
-    b0 = next_down(B, B["musicStart"] - .05)
-    lastVA = max([b for a, b in VA if a < Aend - .5], default=None)
-    firstVB = min([a for a, b in VB if a > 1.0], default=None)
-    common = []
-    if not match:
-        common.append("tempos que no casan (%.0f→%.0f BPM, %+.0f%%)" % (A["bpm"], B["bpm"], (1 / s - 1) * 100))
-    else:
-        common.append("tempo: B se estira %+.1f%% sin cambiar el tono" % ((s - 1) * 100) + (" (medio/doble tempo)" if m != 1 else ""))
-    common.append("tonalidad %s→%s (distancia Camelot %d)" % (A["key"]["camelot"], B["key"]["camelot"], kd))
-    common.append("energía %d→%d" % (A["energy"], B["energy"]))
-    out = []
-
-    def add(tpl, score, why, **p):
-        p.update(tpl=tpl, label=LABELS[tpl], score=round(score, 2), why=why + common, s=s if p.get("stretch", True) else 1.0)
-        p.pop("stretch", None)
-        out.append(p)
-    epen = -.4 * max(0, abs(de) - 1)
-    # 1) mezcla EQ
-    if match:
-        best = None
-        for L in (16, 8, 4):
-            Ts = Aend - L * barA
-            if Ts < A["dur"] * .4:
-                continue
-            Te = Aend
-            # cuanto cantan las dos a la vez (B en su intro: contenido = b0 + (t - Ts) * s)
-            both = 0.0
-            for t in np.arange(Ts, Te, .25):
-                bt = b0 + (t - Ts) * s
-                if sings(VA, t, t + .25) > 0 and sings(VB, bt, bt + .25) > 0:
-                    both += .25
-            clash = both / (Te - Ts)
-            sc = 2.2 + .08 * L - 3 * clash - (0 if kd <= 1 else .5 * (kd - 1) * L / 8) + epen
-            if A["family"] == "club" and B["family"] == "club":
-                sc += .8
-            if best is None or sc > best[0]:
-                best = (sc, L, Ts, Te, clash)
-        if best:
-            sc, L, Ts, Te, clash = best
-            why = ["%d compases encima, cambio de graves a mitad" % L]
-            if clash > .05:
-                why.append("se pisan las voces un %d%% del tiempo" % (clash * 100))
-            add("eq", sc, why, ts=Ts, b_in=b0, bars=L, tsw=Ts + (L // 2) * barA, te=Te)
-    # 2) voz primero
-    if match and stems and kd <= 2 and lastVA and firstVB:
-        Bs = next_down(A, lastVA + .1)
-        bV = B["bar0"] + np.floor((firstVB + .25 * B["per"] - B["bar0"]) / barB) * barB
-        bin_ = bV - barB if bV - barB >= 0 else bV
-        Ts = Bs - (bV - bin_) / s
-        V = 8 if B["family"] != "club" else 8
-        Tsw = Bs + V * barA
-        cover = sings(VB, bV, bV + V * barB) / (V * barB)
-        if Ts > A["dur"] * .35 and cover > .3:
-            sc = 3.0 - .6 * max(0, kd - 1) + epen + (.5 if Aend - Bs >= barA else 0) + .5 * cover
-            Ae = Aend
-            LL = 2 if Ae - Bs >= 2 * barA else 1
-            add("voz", sc, ["la voz de B entra al acabar la última línea de A, %d compases sola" % V,
-                            "la base de A sigue (en bucle si se le acaba) y se desvanece 8 compases"],
-                ts=Ts, b_in=bin_, bs=Bs, tsw=Tsw, te=Tsw + 8 * barA, loop=[Ae - LL * barA, Ae])
-    # 3) instrumental primero
-    if match and stems and kd <= 2 and lastVA and firstVB and Aend - lastVA < 4 * barA:
-        Tv = next_down(A, lastVA - .1)
-        bV = B["bar0"] + np.floor((firstVB + .25 * B["per"] - B["bar0"]) / barB) * barB
-        Lb = min(8, int((bV - b0) / barB + 1e-6))
-        if Lb >= 4:
-            bin_ = bV - Lb * barB
-            Ts = Tv - (bV - bin_) / s
-            Tm = Ts + (Lb // 2) * barA
-            sc = 2.8 - .6 * max(0, kd - 1) + epen
-            add("inst", sc, ["la instrumental de B (%d compases) sustituye a la de A bajo su voz" % Lb,
-                             "B canta justo cuando A acaba su última línea"],
-                ts=Ts, b_in=bin_, tm=Tm, tv=Tv, te=Tv + beatA)
-    # 4) corte en frase (en un silencio de la voz de A)
-    cands = []
-    for t in np.arange(next_down(A, A["dur"] * .6), Aend + 1e-3, barA):
-        if sings(VA, t - .5 * beatA, t + .1) > 0:
-            continue
-        ended = any(t - 2 * barA <= b <= t for a, b in VA)
-        cands.append(((1 if ended else 0) + .3 * (t / Aend), t))
-    if cands:
-        _, Tc = max(cands)
-        bin_ = b0
-        if de < -1:
-            pass
-        elif A["energy"] - B["energy"] > 1 or B.get("sections"):
-            ch = [x["t0"] for x in B.get("sections") or [] if x["label"] == "estribillo" and x["t0"] > 4]
-            if ch and A["energy"] >= B["energy"]:
-                bin_ = next_down(B, ch[0] - .05)
-        sc = 1.2 + (1.2 if not match else 0) + (.4 if sings(VA, Tc - 2 * barA, Tc) > 0 else 0)
-        add("corte", sc, ["A corta en el \"uno\" justo tras una frase cantada, con eco",
-                          "B entra en %s" % ("su estribillo" if bin_ != b0 else "su primer compás")],
-            ts=Tc, b_in=bin_, te=Tc, stretch=match)
-    # 5) fundido por bandas
-    W = 4 * barA if match else 6.0
-    add("fundido", .6 + (.6 if not match else 0), ["agudos, medios y graves cambian a destiempo (%.1f s)" % W],
-        ts=Aend - W, b_in=b0, te=Aend, stretch=match)
-    out.sort(key=lambda x: -x["score"])
-    for i, c in enumerate(out):
-        c["id"] = i
-    return out
-
-
 # ------------------------------------------------------------------ motor
 def _env(points, t):
     pts = sorted(points)
@@ -257,7 +145,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     useS = stems and aud["A"].get("inst") is not None and aud["B"].get("inst") is not None and tpl in ("voz", "inst")
     # ---- A: a su velocidad (y en bucle si se le acaba la musica en "voz primero")
     idxA = np.rint(T * SR).astype(np.int64)
-    if p.get("loop") and tpl == "voz":
+    if p.get("loop"):
         L0, L1 = p["loop"]
         lp = T >= L1
         idxA[lp] = np.rint((L0 + np.mod(T[lp] - L1, L1 - L0)) * SR).astype(np.int64)
@@ -293,7 +181,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     send = [(t0, 0.0)]
     marks = []
     mk = lambda t, txt: marks.append({"t": round(t - t0, 3), "txt": txt})
-    if tpl == "eq":
+    if tpl in ("eq", "bucle"):
         Tsw = p["tsw"]
         E["bF"] += _fade(Ts, Ts + min(4 * barA, Tsw - Ts), True)
         E["bL"] = [(t0, K), (Tsw, K), (Tsw + beatA, 1)]
@@ -303,7 +191,9 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         if sings(vspans(A), Ts, Te) > 1 and sings(vspans(B), p["b_in"], p["b_in"] + (Te - Ts) * s0) > 1:
             E["bM"] = [(t0, .3), (Tsw, .3), (Tsw + beatA, 1)]
             E["aM"] = [(t0, 1), (Tsw, 1), (Tsw + beatA, .3)]
-        E["aF"] = [(t0, 1)] + _fade(Te - 2 * barA, Te, False)
+        E["aF"] = [(t0, 1)] + _fade(max(Tsw, Te - 2 * barA), Te, False)
+        if tpl == "bucle":
+            mk(p["loop"][0], "frase que se repite"); mk(p["loop"][1], "A en bucle")
         mk(Ts, "entra B (sin graves)"); mk(Tsw, "cambio de graves"); mk(Te, "sale A")
     elif tpl == "voz":
         Bs, Tsw, Tf = p["bs"], p["tsw"], p["te"]
@@ -375,9 +265,25 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     pk = np.abs(out).max()
     if pk > .99:
         out *= .99 / pk
+    # para dibujar el editor: formas de onda de las dos y sus curvas (volumen, graves, voz)
+    NP = 800
+
+    def peaks(x):
+        mm = np.abs(x).max(0)
+        k = max(1, len(mm) // NP)
+        return np.round(mm[: k * (len(mm) // k)].reshape(-1, k).max(1), 3).tolist()
+
+    def curve(e):
+        k = max(1, len(e) // NP)
+        return np.round(np.clip(e[: k * (len(e) // k)].reshape(-1, k).mean(1), 0, 1.2), 3).tolist()
+    aFv, bFv = ev("aF"), ev("bF")
+    viz = {"A": peaks(aMix), "B": peaks(bMix),
+           "aVol": curve(aFv), "bVol": curve(bFv), "aBass": curve(aFv * ev("aL")), "bBass": curve(bFv * ev("bL")),
+           "aVoc": curve(aFv * ev("aV")) if useS else None, "bVoc": curve(bFv * ev("bV")) if useS else None,
+           "bStart": (Ts - t0) / (t1 - t0)}
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
         w.writeframes((out.T * 32767).astype("<i2").tobytes())
-    info = {"t0": t0, "dur": n / SR, "stems": useS, "speed": s0, "gainB": round(20 * np.log10(gB), 1)}
+    info = {"t0": float(t0), "dur": n / SR, "stems": bool(useS), "speed": s0, "gainB": float(round(20 * np.log10(gB), 1)), "viz": viz}
     return buf.getvalue(), marks, info

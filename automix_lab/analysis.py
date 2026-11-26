@@ -42,7 +42,7 @@ def _fold(b):
 
 
 # ------------------------------------------------------------------ tempo, golpes, compases
-def rhythm(mono):
+def rhythm(mono, hint=None):
     n = len(mono) // HOP
     fr = mono[: n * HOP].reshape(n, HOP)
     e = (fr ** 2).sum(1) + 1e-9
@@ -93,6 +93,10 @@ def rhythm(mono):
     tri = abs(rr / (2 / 3) - 1) < .04 or abs(rr / (4 / 3) - 1) < .04
     if abs(rr - 1) >= .02 and bs > s0 * (1.3 if tri else 1.04):
         bpm = bb
+    if hint and hint > 40:   # BPM del catalogo (Deezer): manda si es el nuestro o uno de sus errores tipicos
+        h, rr = _fold(hint), _fold(hint) / bpm
+        if any(abs(rr / x - 1) < .03 for x in (1, 3 / 4, 4 / 3, 2 / 3, 3 / 2)):
+            bpm = h
     # 3) afinado del tempo y la fase contra toda la cancion (+-2 % en pasos de 0,05 %)
     f0, f1 = int(nf * .05), int(nf * .95)
     base = 6000 / bpm
@@ -132,17 +136,45 @@ def rhythm(mono):
             t += per
             k += 1
         return on, off, bars
+    # FASE por el bombo: subida de energia en 40-120 Hz frente a los 60 ms previos, acumulada por posicion dentro
+    # del golpe en toda la cancion; el golpe esta donde pega el bombo (con los ataques de todo, la rejilla podia caer
+    # medio golpe desplazada: Billie Jean). Precision de 1/48 de golpe (~10 ms)
+    kb = signal.sosfilt(signal.butter(4, [40, 120], "band", fs=SR, output="sos"), mono)[: nf * HOP].reshape(nf, HOP)
+    ek = (kb ** 2).sum(1) + 1e-12
+    pre = np.convolve(ek, np.ones(6) / 6, "full")[:nf]
+    rise = np.maximum(0, np.log(ek) - np.log(np.r_[ek[:1], pre[:-1]]))
+    tt = np.arange(nf) / FPS
+    pos = (((tt - phase) % per) / per * 48).astype(int) % 48
+    prof = np.bincount(pos, weights=rise, minlength=48)
+    pk = int(prof.argmax())
+    if prof[pk] > 1.25 * prof.mean():
+        phase = (phase + pk / 48 * per) % per
     on, off, bars = count(phase)
-    if off > on * 1.1:
-        phase = (phase + per / 2) % per
-        on, off, bars = count(phase)
     b1 = int(bars.argmax())
     bar0 = phase + b1 * per     # "uno" del compas: el golpe con mas graves
     even = float(bars.min() / (bars.max() or 1))
     four = float(on / off) if off else 1.0
     beats = np.arange(phase, dur, per)
     downs = np.arange(bar0 % (4 * per), dur, 4 * per)
-    return {"bpm": float(bpm), "per": float(per), "phase": float(phase), "bar0": float(bar0 % (4 * per)),
+    # bombo por compas: en cuantos de sus 4 golpes pega un bombo (subida clara en 40-120 Hz con nivel suficiente);
+    # 0..1. Independiente del volumen del resto: una intro solo de bateria cuenta igual que el tema lleno
+    medk = np.median(ek)
+    kick = []
+    for d0 in downs:
+        c = 0
+        for j in range(4):
+            f = int(round((d0 + j * per) * FPS))
+            if 2 <= f < nf - 6:
+                post = ek[f: f + 6].max()
+                prv = ek[max(0, f - 8): f - 2].mean() + 1e-12
+                c += post / prv > 1.8 and post / medk > .15
+        lowb = ek[int(d0 * FPS): int((d0 + 4 * per) * FPS)].mean()
+        kick.append((c / 4, lowb))
+    lows = np.array([x[1] for x in kick]) if kick else np.zeros(0)
+    refl = np.median(lows[lows > np.percentile(lows, 30)]) if len(lows) else 1
+    # con bajo encima el bombo contrasta menos: un compas con graves de verdad (>= 75 % de lo normal) tambien empuja
+    kick = np.array([max(c, .6 * min(1.0, lb / (refl or 1))) for c, lb in kick])
+    return {"kick": kick, "bpm": float(bpm), "per": float(per), "phase": float(phase), "bar0": float(bar0 % (4 * per)),
             "conf": float(conf), "four": four, "even": even, "beats": beats, "downbeats": downs,
             "env": e, "envLow": el, "onsets": o}
 
@@ -234,7 +266,7 @@ def sections(r, kinfo, dur, vocal_mask=None, chorus_times=()):
     bar = 4 * r["per"]
     starts = np.arange(r["bar0"], dur - bar, bar)
     if len(starts) < 12:
-        return [], np.zeros(0)
+        return [], np.zeros(0), {"start": 0, "rep4": [], "rep8": []}
     M, f, t, sr = kinfo["chromaFrames"]
     ok = (f >= 65) & (f <= 2000)
     pc = ((np.rint(12 * np.log2(np.maximum(f, 1) / 440.0)) + 9) % 12).astype(int)
@@ -305,7 +337,13 @@ def sections(r, kinfo, dur, vocal_mask=None, chorus_times=()):
             lab = "estrofa"
         out.append({"t0": round(t0, 3), "t1": round(t1, 3), "bars": s["b"] - s["a"], "label": lab,
                     "energy": round(float(s["e"] - med), 3), "voice": None if voc is None else round(voc, 3)})
-    return out, en - med
+    # repeticion de frases: cuanto se parece cada frase de 4 (y de 8) compases a la siguiente (bucles naturales)
+    rep4, rep8 = np.zeros(n), np.zeros(n)
+    for i in range(n - 8):
+        rep4[i] = float(np.mean([S[i + j, i + 4 + j] for j in range(4)]))
+    for i in range(n - 16):
+        rep8[i] = float(np.mean([S[i + j, i + 8 + j] for j in range(8)]))
+    return out, en - med, {"start": float(starts[0]), "rep4": np.round(rep4, 3).tolist(), "rep8": np.round(rep8, 3).tolist()}
 
 
 # ------------------------------------------------------------------ voz separada (Spleeter ONNX, 2 pistas)

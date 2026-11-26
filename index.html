@@ -645,9 +645,6 @@
   .sseg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: .8rem; font-weight: 600;
     padding: 6px 11px; border-radius: 8px; cursor: pointer; }
   .sseg button.on { background: rgb(255 255 255 / .12); color: var(--text); }
-  .srow.mixrow { margin-top: -6px; padding-top: 0; justify-content: flex-end; }
-  .srow.mixrow .sseg { flex: 1; justify-content: space-between; }
-  .srow.mixrow .sseg button { flex: 1; }
   .sw { position: relative; width: 42px; height: 24px; flex: none; }
   .sw input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
   .sw span { position: absolute; inset: 0; border-radius: 999px; background: rgb(255 255 255 / .16); transition: background .2s; }
@@ -2390,12 +2387,8 @@
       </div>
       <div class="srow"><i class="ph ph-shuffle-angular"></i>
         <div class="stx"><div class="stt" data-i18n>Automix</div>
-          <div class="sds" data-i18n>Mezcla cada canción con la siguiente como un DJ: golpes alineados e intercambio de graves.</div>
-          <div class="sds" id="setMixDesc"></div></div>
-      </div>
-      <div class="srow mixrow"><div class="sseg" id="setAutomix">
-        <button data-v="" data-i18n>No</button><button data-v="light" data-i18n>Ligera</button>
-        <button data-v="normal" data-i18n>Normal</button><button data-v="aggr" data-i18n>Agresiva</button></div>
+          <div class="sds" data-i18n>Mezcla cada canción con la siguiente como un DJ, en el momento que mejor encaje.</div></div>
+        <label class="sw"><input type="checkbox" id="setAutomix" aria-label="Automix" data-i18n-al><span></span></label>
       </div>
       <div class="srow"><i class="ph ph-speaker-simple-high"></i>
         <div class="stx"><div class="stt" data-i18n>Normalizar volumen</div>
@@ -3457,9 +3450,9 @@ function mixInfo(buf) {
 // Automix activado (por defecto); en el iPhone suena por <audio> y no aplica
 /* nivel: "" (sin Automix), "light", "normal" (por defecto) o "aggr" */
 let AUTOMIX = "normal";
-try { const v = localStorage.getItem("lightning.automix"); AUTOMIX = v === "0" ? "" : v === "light" || v === "aggr" ? v : "normal"; } catch (e) {}
+try { AUTOMIX = localStorage.getItem("lightning.automix") === "0" ? "" : "normal"; } catch (e) {}   // un solo modo: si/no
 function setAutomix(v) {
-  AUTOMIX = ["light", "normal", "aggr"].includes(v) ? v : "";
+  AUTOMIX = v ? "normal" : "";
   try { localStorage.setItem("lightning.automix", AUTOMIX || "0"); } catch (e) {}
   if (current) scheduleGaplessNext();
 }
@@ -6171,10 +6164,7 @@ function paintSettings() {
   $("setXf").value = PLAY.xf; setFill($("setXf"), PLAY.xf / 12 * 100);
   $("setXfV").textContent = PLAY.xf ? PLAY.xf + " s" : t("Desactivado");
   _setChk("setNorm", PLAY.norm);
-  $("setAutomix").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === AUTOMIX));
-  $("setMixDesc").textContent = t({ "": "Desactivado: se usa el fundido de arriba.", light: "Ligera: transiciones cortas y suaves.",
-    normal: "Normal: mezclas de 8 a 16 golpes con intercambio de graves.",
-    aggr: "Agresiva: mezclas largas y marcadas; puede salir de la canción antes de su final si encuentra un buen punto." }[AUTOMIX]);
+  _setChk("setAutomix", !!AUTOMIX);
   $("setXf").closest(".srow").style.opacity = AUTOMIX ? ".45" : "";   // con Automix el fundido fijo no se usa
   $("setDevName").value = CX.name;
   _setChk("setAutoX", localStorage.getItem("lightning.autoxfer") === "1");
@@ -6220,7 +6210,7 @@ $("setLang").onclick = (e) => { const b = e.target.closest("button[data-l]"); if
 $("setXf").oninput = () => { const v = +$("setXf").value; setFill($("setXf"), v / 12 * 100); $("setXfV").textContent = v ? v + " s" : t("Desactivado"); };
 $("setXf").onchange = () => setXfade($("setXf").value);
 $("setNorm").onchange = () => setNorm($("setNorm").checked);
-$("setAutomix").onclick = (e) => { const b = e.target.closest("button[data-v]"); if (b) { setAutomix(b.dataset.v); paintSettings(); } };
+$("setAutomix").onchange = (e) => { setAutomix(e.target.checked ? "normal" : ""); paintSettings(); };
 $("setDevName").onchange = () => {
   const v = $("setDevName").value.trim().slice(0, 40); if (!v) { $("setDevName").value = CX.name; return; }
   CX.name = v; try { localStorage.setItem("lightning.devname", v); } catch (e) {}

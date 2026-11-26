@@ -11,6 +11,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +25,7 @@ sys.path.insert(0, HERE)
 import app                      # noqa: E402  (buscador, audio, letra, genero de Wave)
 import analysis as an           # noqa: E402
 import mix                      # noqa: E402
+import planner                  # noqa: E402
 
 CACHE = os.path.join(HERE, "cache")
 os.makedirs(CACHE, exist_ok=True)
@@ -128,6 +130,110 @@ def lyrics_lines(vid, title, artist, dur):
     return out, d.get("source")
 
 
+# ------------------------------------------------------------------ informacion que ya existe en otros sitios
+_GLAB = {"verse": "estrofa", "pre-chorus": "pre-estribillo", "prechorus": "pre-estribillo", "chorus": "estribillo",
+         "post-chorus": "post-estribillo", "hook": "estribillo", "refrain": "estribillo", "bridge": "puente",
+         "intro": "intro", "outro": "outro", "break": "break", "breakdown": "break", "drop": "drop",
+         "interlude": "interludio", "instrumental": "instrumental", "build": "subida", "build-up": "subida"}
+_nzt = lambda x: re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", unicodedata.normalize("NFKD", (x or "").lower()).encode("ascii", "ignore").decode())).strip()
+
+
+def genius_sections(title, artist):
+    """Las letras de Genius marcan las secciones ([Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro]...).
+    Devuelve [(etiqueta, [lineas])] o []"""
+    import html as H
+    import urllib.request
+    t0 = re.sub(r"\s*[\(\[].*?[\)\]]", "", title or "").strip()
+    try:
+        r = app._genius("search/multi", per_page=5, q="%s %s" % (artist.split(",")[0], t0))
+    except Exception:
+        return []
+    hits = [h["result"] for sec in r.get("sections", []) if sec.get("type") == "song" for h in sec.get("hits", [])]
+    na = _nzt(artist.split(",")[0])
+    hit = next((h for h in hits if _nzt(h.get("title")).startswith(_nzt(t0)[:12]) and na[:6] in _nzt(h.get("artist_names"))
+                and not re.search(r"remix|edit|live|version|translation|traduc", h.get("title", ""), re.I)), None)
+    if not hit:
+        return []
+    try:
+        req = urllib.request.Request(hit["url"], headers={"User-Agent": app._GENIUS_UA["User-Agent"]})
+        page = urllib.request.urlopen(req, timeout=15).read().decode("utf8", "replace")
+    except Exception:
+        return []
+    txt = []
+    for m in re.finditer(r'<div[^>]*data-lyrics-container="true"[^>]*>', page):   # bloques con divs anidados
+        i, depth = m.end(), 1
+        for t in re.finditer(r"<(/?)div\b[^>]*>", page[i:]):
+            depth += -1 if t.group(1) else 1
+            if depth == 0:
+                txt.append(page[i:i + t.start()])
+                break
+    body = re.sub(r"<br\s*/?>", "\n", "\n".join(txt))
+    body = H.unescape(re.sub(r"<[^>]+>", "", body))
+    out, cur = [], None
+    for ln in body.split("\n"):
+        ln = ln.strip()
+        mh = re.match(r"^\[([^\]:]+?)(?:\s*\d+)?(?::[^\]]*)?\]$", ln)
+        if mh:
+            key = re.sub(r"\s*\d+$", "", mh.group(1).strip().lower())
+            cur = [_GLAB.get(key, key), []]
+            out.append(cur)
+        elif ln and cur is not None:
+            cur[1].append(ln)
+    return out
+
+
+def map_sections(gsecs, lines):
+    """Cruza las secciones de Genius con la letra sincronizada: cada seccion empieza en su primera linea"""
+    import difflib
+    if not gsecs or not lines:
+        return []
+    res, j = [], 0
+    for lab_, gl in gsecs:
+        idx = []
+        for g in gl:
+            ng = _nzt(g)
+            best = None
+            for k in range(j, min(len(lines), j + 10)):
+                sc = difflib.SequenceMatcher(None, ng, _nzt(lines[k]["text"])).ratio()
+                if sc > .72 and (best is None or sc > best[0]):
+                    best = (sc, k)
+            if best:
+                idx.append(best[1])
+                j = best[1] + 1
+        if idx:
+            res.append({"label": lab_, "t0": lines[idx[0]]["t"], "t1": lines[idx[-1]]["e"]})
+    return res
+
+
+def repeat_runs(lines, min_rep=3):
+    """Lineas que se repiten seguidas (un estribillo que repite "We're up all night to get lucky" x5): bucles
+    naturales de voz"""
+    out, i = [], 0
+    while i < len(lines):
+        k = i
+        while k + 1 < len(lines) and _nzt(lines[k + 1]["text"]) == _nzt(lines[i]["text"]) and _nzt(lines[i]["text"]):
+            k += 1
+        if k - i + 1 >= min_rep:
+            out.append({"t0": lines[i]["t"], "t1": lines[k]["e"], "n": k - i + 1, "text": lines[i]["text"]})
+        i = k + 1
+    return out
+
+
+def deezer_info(title, artist):
+    """BPM y volumen de referencia de Deezer (publico, sin clave); bpm 0 = no lo tiene"""
+    from urllib.parse import urlencode
+    t = re.sub(r"\s*[\(\[].*?[\)\]]", "", title or "").strip()
+    a = (artist or "").split(",")[0].strip()
+    try:
+        res = app._lhttp("https://api.deezer.com/search?" + urlencode({"q": 'artist:"%s" track:"%s"' % (a, t), "limit": 3})).get("data") or []
+        if not res:
+            return {}
+        d = app._lhttp("https://api.deezer.com/track/%s" % res[0]["id"])
+        return {"bpm": float(d.get("bpm") or 0), "gain": d.get("gain"), "dur": d.get("duration"), "isrc": d.get("isrc")}
+    except Exception:
+        return {}
+
+
 def chorus_times(lines):
     nz = lambda x: re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", (x or "").lower())).strip()
     ls = [l for l in lines if len(nz(l["text"]).split()) >= 3]
@@ -153,7 +259,8 @@ def analyze(vid, title, artist, dur, stems=True):
         x = an.decode(get_audio(vid))
         tm["descarga+decodificar"] = round(time.time() - t, 2)
         mono = x.mean(0)
-        t = time.time(); r = an.rhythm(mono); tm["tempo/golpes"] = round(time.time() - t, 2)
+        dz = deezer_info(title, artist)
+        t = time.time(); r = an.rhythm(mono, dz.get("bpm")); tm["tempo/golpes"] = round(time.time() - t, 2)
         t = time.time(); k = an.key(mono); tm["tonalidad"] = round(time.time() - t, 2)
         t = time.time(); L = an.lufs(x); tm["volumen"] = round(time.time() - t, 2)
         lvl, ex = an.energy_level(L, r["onsets"], r["envLow"], r["env"], r["bpm"])
@@ -177,7 +284,15 @@ def analyze(vid, title, artist, dur, stems=True):
             vocals = an.spans(vact)
             _audio[vid] = (x, inst)
         t = time.time()
-        secs, ebar = an.sections(r, k, dur_s, vact, chorus_times(lines))
+        t = time.time()
+        gsec = map_sections(genius_sections(title, artist), lines)
+        tm["Genius"] = round(time.time() - t, 2)
+        ch = [g["t0"] for g in gsec if g["label"] == "estribillo"] or chorus_times(lines)
+        secs, ebar, reps = an.sections(r, k, dur_s, vact, ch)
+        for sct in secs:   # etiqueta de Genius si cubre la mayor parte de la seccion
+            best = max(gsec, key=lambda g: min(g["t1"], sct["t1"]) - max(g["t0"], sct["t0"]), default=None)
+            if best and min(best["t1"], sct["t1"]) - max(best["t0"], sct["t0"]) > .4 * (sct["t1"] - sct["t0"]):
+                sct["label"] = best["label"]
         tm["secciones"] = round(time.time() - t, 2)
         try:
             genres = app.mix_genre(title, artist).get("genres") or []
@@ -189,6 +304,8 @@ def analyze(vid, title, artist, dur, stems=True):
              "key": {kk: k[kk] for kk in ("name", "camelot", "cam", "letter", "conf")},
              "lufs": round(L, 1), "energy": lvl, "energyInfo": ex, "musicStart": round(mstart, 2), "musicEnd": round(mend, 2),
              "genres": genres, "family": None, "sections": secs, "energyBars": np.round(ebar, 3).tolist(),
+             "kick": r["kick"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"], "barStart": reps["start"],
+             "gsections": gsec, "repeats": repeat_runs(lines), "deezer": dz,
              "vocals": vocals, "lyrics": lines, "lyricsSource": lsrc, "peaks": an.peaks(x),
              "times": tm, "sepXRT": round(dur_s / sep_t, 1) if sep_t else None}
         d["family"] = family(r, r["bpm"], genres)
@@ -231,7 +348,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/plan":
                 A = _jload(os.path.join(CACHE, q["a"] + ".json"))
                 B = _jload(os.path.join(CACHE, q["b"] + ".json"))
-                return self._send(200, mix.plan(A, B, stems=q.get("stems", "1") == "1"))
+                bars = int(q["bars"]) if q.get("bars", "").isdigit() else None
+                return self._send(200, planner.plan(A, B, stems=q.get("stems", "1") == "1", bars=bars))
             if u.path.startswith("/clip/") and re.fullmatch(r"/clip/[0-9a-f]{16}\.wav", u.path):
                 return self._send(200, open(os.path.join(CACHE, u.path[6:]), "rb").read(), "audio/wav")
             return self._send(404, {"error": "no"})

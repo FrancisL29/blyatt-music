@@ -193,6 +193,12 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     barB = 4 * B["per"]
     s0 = float(p.get("s", 1.0))
     Ts = float(p["ts"])
+    # El ataque de un bombo empieza unos ms ANTES de su marca de golpe: todo lo que cambia "en el uno" (cambio de
+    # graves, entrada en seco de B, corte de A) se hace EDGE antes y de golpe (10 ms), no subiendo a lo largo del golpe:
+    # asi el primer bombo de B suena entero y no recortado
+    EDGE, SW = .03, .01
+    if tpl in ("corte", "silencio"):     # B entra en seco: arranca EDGE antes, con su contenido de EDGE antes
+        Ts -= EDGE
     Te = float(p["te"])
     ramp = 8 * barA if abs(s0 - 1) > 1e-4 else 0.0
     t0 = max(0.0, min(Ts, p.get("tg", Ts)) - pre)
@@ -222,7 +228,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     mixB = aud["B"]["mix"]
     # ---- bombos encima de bombos: se mide donde pegan de verdad los de A y los de B (no basta con las rejillas: en
     #      hard techno cada tema tiene su bombo, su click y su rumble) y se corre B lo que haga falta
-    b_in = float(p["b_in"])
+    b_in = float(p["b_in"]) + (Ts - float(p["ts"])) * s0      # (corte/silencio: EDGE antes de su golpe)
     lag, ksharp = 0.0, 0.0
     tAs, tBs = [], []
     if not p.get("align"):
@@ -281,13 +287,13 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     if tpl in ("eq", "bucle"):
         Tsw = p["tsw"]
         E["bF"] += _fade(Ts, Ts + min(4 * barA, Tsw - Ts), True)
-        E["bL"] = [(t0, K), (Tsw, K), (Tsw + beatA, 1)]
+        E["bL"] = [(t0, K), (Tsw - EDGE - SW, K), (Tsw - EDGE, 1)]
         E["bH"] = [(t0, .45), (Ts, .45), (Tsw + 2 * beatA, 1)]
-        E["aL"] = [(t0, 1), (Tsw, 1), (Tsw + beatA, K)]
+        E["aL"] = [(t0, 1), (Tsw - EDGE - SW, 1), (Tsw - EDGE, K)]
         E["aH"] = [(t0, 1), (Tsw, 1), (Tsw + 2 * beatA, .6)]
         if sings(vspans(A), Ts, Te) > 1 and sings(vspans(B), p["b_in"], p["b_in"] + (Te - Ts) * s0) > 1:
-            E["bM"] = [(t0, .3), (Tsw, .3), (Tsw + beatA, 1)]
-            E["aM"] = [(t0, 1), (Tsw, 1), (Tsw + beatA, .3)]
+            E["bM"] = [(t0, .3), (Tsw - EDGE - SW, .3), (Tsw - EDGE, 1)]
+            E["aM"] = [(t0, 1), (Tsw - EDGE - SW, 1), (Tsw - EDGE, .3)]
         E["aF"] = [(t0, 1)] + _fade(max(Tsw, Te - 2 * barA), Te, False)
         if tpl == "bucle":
             mk(p["loop"][0], "frase que se repite"); mk(p["loop"][1], "A en bucle")
@@ -296,12 +302,12 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         Bs, Tsw, Tf = p["bs"], p["tsw"], p["te"]
         E["bF"] += [(Ts, 0), (Ts + beatA, 1)]
         for b in ("bM", "bH"):
-            E[b] = [(t0, 0), (Tsw - barA, 0), (Tsw, 1)]
-        E["bL"] = [(t0, 0), (Tsw - .25 * beatA, 0), (Tsw + .5 * beatA, 1)]
+            E[b] = [(t0, 0), (Tsw - barA, 0), (Tsw - EDGE, 1)]
+        E["bL"] = [(t0, 0), (Tsw - EDGE - SW, 0), (Tsw - EDGE, 1)]
         E["bV"] = [(t0, 1.15)]
         E["aV"] = [(t0, 1), (Bs - .5 * beatA, 1), (Bs, 0)]
         E["aM"] = [(t0, 1), (Bs - beatA, 1), (Bs, .63)]
-        E["aL"] = [(t0, 1), (Tsw, 1), (Tsw + beatA, K)]
+        E["aL"] = [(t0, 1), (Tsw - EDGE - SW, 1), (Tsw - EDGE, K)]
         E["aH"] = [(t0, 1), (Tsw, 1), (Tf, .3)]
         E["aF"] = [(t0, 1)] + _fade(Tsw, Tf, False)
         if not useS:   # sin voz separada: los medios de B como "voz"
@@ -313,11 +319,11 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     elif tpl == "inst":
         Tm, Tv = p["tm"], p["tv"]
         E["bF"] += _fade(Ts, Ts + min(4 * barA, Tm - Ts), True)
-        E["bL"] = [(t0, K), (Tm, K), (Tm + beatA, 1)]
+        E["bL"] = [(t0, K), (Tm - EDGE - SW, K), (Tm - EDGE, 1)]
         E["bH"] = [(t0, .45), (Ts, .45), (Tm + 2 * beatA, 1)]
         for b in ("aM", "aH"):
             E[b] = [(t0, 1), (Tm, 1), (Tm + barA, 0)]
-        E["aL"] = [(t0, 1), (Tm, 1), (Tm + beatA, 0)]
+        E["aL"] = [(t0, 1), (Tm - EDGE - SW, 1), (Tm - EDGE, 0)]
         E["aV"] = [(t0, 1.1), (Tv - .25 * beatA, 1.1), (Tv + .75 * beatA, 0)]
         send = [(t0, 0), (Tv - beatA, 0), (Tv - .5 * beatA, .5), (Tv + beatA, 0)]
         if not useS:

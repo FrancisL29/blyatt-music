@@ -15,6 +15,9 @@ Reglas nuevas:
     chaos"), B empieza en ese silencio y sus bombos caen en el "uno" donde volverian los de A. Gana sobre todo con
     tempos distintos (B entra a su tempo, sin estirar).
   - Los bombos se alinean al renderizar midiendo donde pegan de verdad en las dos (mix.kick_lag).
+  - FUERZA DEL BOMBO por compas (kpow): con mucho empuje (hard techno: energia 9+, 130+ BPM) se entra en los bombos
+    PRINCIPALES (no en un ritmo suave previo) y A deja de contar cuando sus bombos se apagan. Estas reglas, el silencio
+    y la alineacion fina solo actuan con mucho empuje; pop, house, etc. se mezclan como antes.
 """
 import numpy as np
 
@@ -59,11 +62,46 @@ def sustained(I, i, n=4):
 
 
 def first_kick(I, t_from):
-    """primer compas desde t_from donde arranca el bombo de verdad (tramo seguido, no golpes sueltos de la intro)"""
+    """primer compas desde t_from con bombo (y el siguiente tambien): donde arranca de verdad"""
+    k = I.get("kick") or []
+    for i in range(max(0, bar_i(I, t_from)), len(k) - 1):
+        if k[i] >= KICK and k[i + 1] >= KICK:
+            return bar_t(I, i)
+    return None
+
+
+# ---- musica de mucho empuje (hard techno, techno duro): ahi el bombo manda y hay reglas propias. El resto (pop,
+#      house, disco...) se mezcla como antes
+def hard(I):
+    return driving(I) and I["energy"] >= 9 and I["bpm"] >= 130
+
+
+def kpow(I, i):
+    p = I.get("kpow")
+    if not p:
+        return 1.0
+    return p[i] if 0 <= i < len(p) else 0.0
+
+
+def drive(I, i, th=.9):
+    """compas con bombo a plena fuerza (no un ritmo suave a medio gas ni la cola que se apaga)"""
+    return kick(I, i) >= KICK and kpow(I, i) >= th
+
+
+def main_start(I, t_from):
+    """primer compas desde t_from donde entran los bombos principales: 4 compases con bombo a plena fuerza"""
     k = I.get("kick") or []
     for i in range(max(0, bar_i(I, t_from)), len(k) - 3):
-        if sustained(I, i):
+        if drive(I, i) and np.median([kpow(I, i + j) for j in range(4)]) >= .92                 and sum(kick(I, i + j) >= KICK for j in range(4)) >= 3:
             return bar_t(I, i)
+    return None
+
+
+def drive_end(I, t_to):
+    """fin del ultimo compas con bombo a plena fuerza (con el anterior tambien) antes de t_to"""
+    for i in range(min(len(I.get("kick") or []), bar_i(I, t_to)) - 1, 0, -1):
+        if drive(I, i) and drive(I, i - 1):
+            return bar_t(I, i + 1)
     return None
 
 
@@ -119,22 +157,34 @@ def plan(A, B, stems=True, bars=None):
     barA, beatA, barB = _bar(A), A["per"], _bar(B)
     VA, VB = vspans(A), vspans(B)
     Aend = prev_down(A, A["musicEnd"])
-    b0 = next_down(B, B["musicStart"] - .05)
+    b0 = next_down(B, B["musicStart"] - .1)
     lastVA = max([b for a, b in VA if a < Aend - .5], default=None)
     firstVB = min([a for a, b in VB if a > 1.0], default=None)
     dA, dB = driving(A), driving(B)
+    hA, hB = hard(A), hard(B)
+    hp = hA and hB
     kA_end = last_kick_end(A, Aend) if dA else None
     kB_start = first_kick(B, b0)
     soft_intro = kB_start is not None and kB_start - b0 >= 2 * barB
-    # intro sin bombo pero FUERTE (rumble, sintes a todo volumen): encima de los bombos de A solo embarra -> se salta
-    # y B entra directamente en sus bombos (bombo sobre bombo). Si la intro es suave, entra por debajo como siempre
     jump = False
-    if soft_intro and (dA or dB):
-        i0, i1 = bar_i(B, b0), bar_i(B, kB_start)
-        jump = ebar(B, i0, i1) >= ebar(B, i1, i1 + 16) - .6
-    # hasta donde se puede usar A: si va con bombo y acaba con un outro sin bombo, la mezcla termina antes
+    if hp:
+        # con mucho empuje lo que cuenta son los bombos PRINCIPALES (a plena fuerza), no el primer golpe: Fantasy
+        # empieza con un ritmo suave a medio gas (0:29) y sus bombos de verdad entran en 0:58
+        km = main_start(B, b0)
+        if km is not None and km - b0 >= 2 * barB:
+            kB_start, soft_intro = km, True
+            i0, i1 = bar_i(B, b0), bar_i(B, km)
+            # lo de antes de los bombos suena fuerte o ya lleva ritmo: encima de los bombos de A embarra -> B entra
+            # directamente en sus bombos principales (bombo sobre bombo). Si es una intro tranquila, entra por debajo
+            jump = kfrac(B, b0, km) >= .4 or ebar(B, i0, i1) >= ebar(B, i1, i1 + 16) - .6
+    # hasta donde se puede usar A: si acaba con un outro sin bombo (o, con mucho empuje, con bombos que se apagan),
+    # la mezcla termina antes
     A_use = Aend
-    if dA and kA_end and Aend - kA_end > 4 * barA:
+    if hA:
+        de_ = drive_end(A, Aend)
+        if de_ and Aend - de_ >= barA:
+            A_use = de_
+    elif dA and kA_end and Aend - kA_end > 4 * barA:
         A_use = kA_end
     common = []
     if not match:
@@ -149,7 +199,7 @@ def plan(A, B, stems=True, bars=None):
     out = []
 
     def add(tpl, score, why, **p):
-        p.update(tpl=tpl, label=LABELS[tpl], score=round(float(score), 2), why=why + common,
+        p.update(tpl=tpl, label=LABELS[tpl], score=round(float(score), 2), why=why + common, align=bool(hp),
                  s=float(s) if p.pop("stretch", True) else 1.0)
         for k in list(p):
             if isinstance(p[k], (np.floating, np.integer)):
@@ -195,11 +245,12 @@ def plan(A, B, stems=True, bars=None):
             c = clash(Ts, Tsw, b_in)
             sc = 2.2 + .06 * (pre + post) - 3 * c - (0 if kd <= 2 else .35 * (kd - 2) * (pre + post) / 8) + epen   # +2 en la rueda = energy boost (vale)
             if dA and dB:
-                sc += .9 + (.5 if abs(s - 1) <= .02 else 0)     # hard techno al mismo tempo: lo mas seguro
+                sc += .9 + (.5 if hp and abs(s - 1) <= .02 else 0)     # hard techno al mismo tempo: lo mas seguro
             if (dA or dB) and soft_intro:
                 sc += .3
-            if dA:   # los bombos de A tienen que seguir sonando mientras B entra
-                fa = kfrac(A, Ts, Tsw)
+            if hA:   # los bombos de A tienen que seguir sonando (a plena fuerza) mientras B entra
+                ia, ib = bar_i(A, Ts), bar_i(A, Tsw)
+                fa = float(np.mean([drive(A, i, .75) for i in range(ia, ib)])) if ib > ia else 1.0
                 if fa < .8:
                     sc -= 2.5 * (.8 - fa)
             if best is None or sc > best[0]:
@@ -207,7 +258,7 @@ def plan(A, B, stems=True, bars=None):
         if best:
             sc, L, Ts, Tsw, Te, b_in, c, Bk = best
             if jump:
-                why = ["B entra directamente en sus bombos (se salta su intro sin bombo, que embarraría)",
+                why = ["B entra directamente en sus bombos principales, a plena fuerza (se salta lo de antes: intro o ritmo suave)",
                        "%d compases bombo sobre bombo; cambio de graves al acabar la frase" % L]
             else:
                 why = ["%d compases encima; cambio de graves en %s" % (L, "el primer bombo de B" if soft_intro and (dA or dB) else "la mitad")]
@@ -292,15 +343,16 @@ def plan(A, B, stems=True, bars=None):
         sc = 1.2 + (1.2 if not match else 0) + (.4 if sings(VA, Tc - 2 * barA, Tc) > 0 else 0) + (.5 if dA and soft_intro else 0)
         add("corte", sc, ["A corta en el \"uno\" justo tras una frase, con eco", "B entra en " + why_b],
             ts=Tc, b_in=bin_, te=Tc, stretch=match)
-    # ---- 5b) silencio y entrada: A deja un hueco sin bombo (un parón o su final) y B arranca justo ahí con lo que
-    #      precede a sus bombos (una voz sola como "this is chaos"), y sus bombos caen donde volverían los de A
-    if dA and B.get("kick"):
-        kA, nA = A["kick"], len(A["kick"])
+    # ---- 5b) silencio y entrada (musica de mucho empuje): A deja de empujar (un paron o su final, cuando sus bombos
+    #      ya se apagan) y B arranca justo ahi con la voz sola que precede a sus bombos ("this is chaos"); sus bombos
+    #      caen en el "uno" donde volverian los de A. Sin voz de arranque no hay silencio que llenar: corte o mezcla
+    if hp and B.get("kick"):
+        nA = len(A["kick"])
         gaps = []
         for g in range(max(3, bar_i(A, A["dur"] * .6)), nA):
-            if kA[g] < KICK and kA[g - 1] >= KICK and kA[g - 2] >= KICK:
+            if not drive(A, g) and drive(A, g - 1) and drive(A, g - 2):
                 gl = 1
-                while g + gl < nA and kA[g + gl] < KICK:
+                while g + gl < nA and not drive(A, g + gl):
                     gl += 1
                 Tg = bar_t(A, g)
                 at_end = g + gl >= nA - 1 or bar_t(A, g + gl) >= A["musicEnd"] - .5
@@ -315,33 +367,34 @@ def plan(A, B, stems=True, bars=None):
         nB = len(B["kick"])
         VBs = vspans(B)
         launches = []
-        kB = B["kick"]
-        for j in range(0, min(nB - 4, bar_i(B, min(B["dur"] * .4, 75)))):
-            # arranque: bombo fuerte tras un compas sin bombo y con bombo en el tramo que sigue (aunque sea con patron)
-            if kB[j] < .7 or np.mean(kB[j: j + 4]) < .4 or (j > 0 and kB[j - 1] >= KICK):
+        for j in range(1, min(nB - 4, bar_i(B, min(B["dur"] * .4, 75)))):
+            # arranque: bombo fuerte tras un compas sin bombo, con bombo en el tramo que sigue, y una voz sola justo
+            # antes (empieza en los 2 compases previos y llega hasta el bombo)
+            if kpow(B, j) < .9 or np.mean([kpow(B, j + x) for x in range(4)]) < .5 or kpow(B, j - 1) >= .5:
                 continue
             Tj = bar_t(B, j)
-            gb = 0                      # compases sin bombo justo antes (un paron de verdad = 2 o mas)
-            while j - gb - 1 >= 0 and kB[j - gb - 1] < KICK:
-                gb += 1
             vs = [a for a, b in VBs if Tj - 2 * barB <= a <= Tj - .3 and b >= Tj - .6 * barB]
-            pre = Tj - min(vs) if vs else 0.0
-            launches.append(((1.2 if vs else 0) + (.6 if gb >= 2 else 0) - .02 * j, j, Tj, pre, bool(vs), gb))
+            if not vs:
+                continue
+            gb = 0                      # compases sin bombo justo antes (un paron de verdad = 2 o mas)
+            while j - gb - 1 >= 0 and kpow(B, j - gb - 1) < .5:
+                gb += 1
+            launches.append((1.2 + (.6 if gb >= 2 else 0) - .02 * j, j, Tj, Tj - min(vs), gb))
         if gaps and launches:
             gsc, g, gl, Tg, at_end, dip = max(gaps)
-            lsc, j, Tj, pre, voc, gb = max(launches)
-            # los bombos de B entran en el "uno" de A donde volverian los suyos (o tras el hueco si B necesita mas)
+            lsc, j, Tj, pre, gb = max(launches)
+            # la voz de B empieza al dejar de empujar A y sus bombos caen en el "uno" siguiente de A que les toque
             nb = max(1 if pre > .5 * beatA else 0, int(np.ceil((pre - .5 * beatA) / barA - 1e-6)))
             if not at_end:
                 nb = max(nb, min(gl, 2))
             Tk = Tg + nb * barA
             Tv = Tk - pre              # B empieza aqui (su voz sola), a su tempo
             early = max(0.0, Tg - Tv)  # cuanto se mete la voz de B antes del hueco
-            # con el mismo tempo, en hard techno manda el bombo sobre bombo (eq); esto gana con voz de arranque, un
-            # paron de verdad o tempos distintos (B entra a su tempo, sin estirar)
-            sc = 1.4 + lsc + .8 * float(np.clip(dip, 0, 2)) + (1.5 if not match else .6 if abs(s - 1) > .03 else -.4)                 - 1.5 * early / barA
-            why = ["A hace un parón sin bombo%s en %s" % (" (su final)" if at_end else "", "%d:%02d" % (Tg // 60, Tg % 60)),
-                   ("B arranca con su voz sola (%.1f s) en ese silencio" % pre) if voc else "B arranca directamente en sus bombos",
+            # con el mismo tempo manda el bombo sobre bombo (eq); esto gana con tempos distintos (B entra a su tempo)
+            tb = 1.5 if not match else (.6 if abs(s - 1) > .03 else -.4)
+            sc = 1.4 + lsc + .8 * float(np.clip(dip, 0, 2)) + tb - 1.5 * early / barA
+            why = ["A deja de empujar%s en %s" % (" (su final)" if at_end else " (un parón)", "%d:%02d" % (Tg // 60, Tg % 60)),
+                   "B arranca con su voz sola (%.1f s) justo ahí, mientras A se apaga" % pre,
                    "los bombos de B caen en el \"uno\" donde volverían los de A"]
             add("silencio", sc, why, ts=Tv, b_in=Tj - pre, te=Tk, tg=Tg, stretch=False)
     # ---- 6) fundido por bandas

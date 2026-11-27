@@ -254,7 +254,7 @@ def chorus_times(lines):
     return out
 
 
-AN_VER = 2      # sube cuando cambia el analisis de ritmo: lo guardado se rehace (solo esa parte)
+AN_VER = 3      # sube cuando cambia el analisis de ritmo: lo guardado se rehace (solo esa parte)
 
 
 def _rhythm_part(x, dz, lines, gsec, genres, vact, L):
@@ -274,8 +274,8 @@ def _rhythm_part(x, dz, lines, gsec, genres, vact, L):
             "conf": round(r["conf"], 3), "four": round(r["four"], 3), "even": round(r["even"], 3),
             "key": {kk: k[kk] for kk in ("name", "camelot", "cam", "letter", "conf")},
             "energy": lvl, "energyInfo": ex, "sections": secs, "energyBars": np.round(ebar, 3).tolist(),
-            "kick": r["kick"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"], "barStart": reps["start"],
-            "family": family(r, r["bpm"], genres), "v": AN_VER}
+            "kick": r["kick"].tolist(), "kpow": r["kpow"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"],
+            "barStart": reps["start"], "family": family(r, r["bpm"], genres), "v": AN_VER}
 
 
 def analyze(vid, title, artist, dur, stems=True):
@@ -345,7 +345,7 @@ def analyze(vid, title, artist, dur, stems=True):
              "key": {kk: k[kk] for kk in ("name", "camelot", "cam", "letter", "conf")},
              "lufs": round(L, 1), "energy": lvl, "energyInfo": ex, "musicStart": round(mstart, 2), "musicEnd": round(mend, 2),
              "genres": genres, "family": None, "sections": secs, "energyBars": np.round(ebar, 3).tolist(),
-             "kick": r["kick"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"], "barStart": reps["start"],
+             "kick": r["kick"].tolist(), "kpow": r["kpow"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"], "barStart": reps["start"],
              "gsections": gsec, "repeats": repeat_runs(lines), "deezer": dz,
              "vocals": vocals, "lyrics": lines, "lyricsSource": lsrc, "peaks": an.peaks(x),
              "times": tm, "sepXRT": round(dur_s / sep_t, 1) if sep_t else None}

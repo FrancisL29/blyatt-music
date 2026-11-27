@@ -225,7 +225,9 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     b_in = float(p["b_in"])
     lag, ksharp = 0.0, 0.0
     tAs, tBs = [], []
-    if tpl in ("eq", "bucle"):
+    if not p.get("align"):
+        pass                 # solo en musica de mucho empuje (en el resto las rejillas ya cuadraban)
+    elif tpl in ("eq", "bucle"):
         tA0 = p["loop"][0] if tpl == "bucle" else p["tsw"] - 8 * barA
         tAs, tBs = [tA0, tA0 - 8 * barA], [b_in, b_in + (p["tsw"] - Ts) * s0]
     elif tpl == "corte":
@@ -328,7 +330,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         E["aL"] = [(t0, 1), (Ts, 1), (Ts + .25 * beatA, K)]
         E["aF"] = [(t0, 1)] + _fade(Ts, aEnd, False)
         E["bF"] = [(t0, 0), (Ts, 0), (Ts + .005, 1)]
-        mk(Tg, "parón de A"); mk(Ts, "arranca B"); mk(Tk, "bombos de B")
+        mk(Tg, "A deja de empujar"); mk(Ts, "arranca B"); mk(Tk, "bombos de B")
     elif tpl == "corte":
         Tc = Ts
         E["aL"] = [(t0, 1), (Tc - 2 * barA, 1), (Tc, .35)]

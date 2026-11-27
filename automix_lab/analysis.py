@@ -63,7 +63,7 @@ def mid_flux(mono, lo=60, hi=3000):
     return fl, tt
 
 
-def beat_offset(fl, tt, per, phase, t0=None, t1=None):
+def beat_offset(fl, tt, per, phase, t0=None, t1=None, lim=None):
     """Donde caen los ataques (60-3000 Hz) dentro del golpe, de media entre t0 y t1, respecto a la rejilla
     (phase + k*per). Devuelve (desfase en s, -medio golpe..+medio golpe; nitidez del pico)"""
     t0 = tt[0] if t0 is None else t0
@@ -73,7 +73,11 @@ def beat_offset(fl, tt, per, phase, t0=None, t1=None):
     pos = ((((tt[sel] - phase) / per) + .5) % 1 * P).astype(int) % P
     prof = np.bincount(pos, weights=fl[sel], minlength=P)
     prof = np.convolve(np.r_[prof[-2:], prof, prof[:2]], [.1, .2, .4, .2, .1], "valid")
-    k = int(prof.argmax())
+    if lim is None:
+        k = int(prof.argmax())
+    else:   # solo cerca de la rejilla actual (afinar, sin saltar a otra posicion del golpe)
+        near = np.array([abs((i + .5) / P - .5) <= lim for i in range(P)])
+        k = int(np.where(near, prof, -1).argmax())
     y0, y1, y2 = prof[k - 1], prof[k], prof[(k + 1) % P]
     den = y0 - 2 * y1 + y2
     kf = k + (.5 * (y0 - y2) / den if den else 0)
@@ -221,8 +225,10 @@ def rhythm(mono, hint=None):
     fl, ftt = mid_flux(mono)
     dur0 = nf / FPS
     off_s, sharp = beat_offset(fl, ftt, per, phase, dur0 * .1, dur0 * .9)
-    if not (sharp >= 1.25 and abs(off_s) <= .4 * per):
+    if sharp < 1.25:
         off_s = 0.0
+    elif abs(off_s) > .4 * per:   # casi medio golpe: no se salta alli; solo se afina cerca (todos con el mismo criterio)
+        off_s, _ = beat_offset(fl, ftt, per, phase, dur0 * .1, dur0 * .9, lim=.2)
     on, off, bars = count(phase)          # el "uno" se elige con la fase de los graves (probado) y luego se afina
     b1 = int(bars.argmax())
     bar0 = phase + off_s + b1 * per     # "uno" del compas: el golpe con mas graves (se reduce al primer compas abajo)
@@ -233,30 +239,32 @@ def rhythm(mono, hint=None):
     downs = np.arange(bar0 % (4 * per), dur, 4 * per)
     # bombo por compas: en cuantos de sus 4 golpes pega un bombo (subida clara en 40-120 Hz con nivel suficiente);
     # 0..1. Independiente del volumen del resto: una intro solo de bateria cuenta igual que el tema lleno
+    # (se mide en la rejilla de los graves, antes del afinado: asi se valido)
     medk = np.median(ek)
-    medf = np.median(fl) + 1e-9
-    kick = []
+    kick, kpk = [], []
     for d0 in downs:
         c = 0
         for j in range(4):
-            tb = d0 + j * per
-            f = int(round(tb * FPS))
-            if 2 <= f < nf - 20:
+            f = int(round((d0 - off_s + j * per) * FPS))
+            if 2 <= f < nf - 6:
                 post = ek[f: f + 6].max()
                 prv = ek[max(0, f - 8): f - 2].mean() + 1e-12
-                low_hit = post / prv > 1.8 and post / medk > .15
-                # o golpe claro en 60-3000 Hz justo en el golpe, con graves en los 200 ms siguientes (bombo + rumble)
-                i0 = np.searchsorted(ftt, tb - .025)
-                i1 = np.searchsorted(ftt, tb + .025)
-                mid_hit = i1 > i0 and fl[i0:i1].max() > 2.5 * medf and ek[f: f + 20].max() / medk > .3
-                c += low_hit or mid_hit
+                c += post / prv > 1.8 and post / medk > .15
         lowb = ek[int(d0 * FPS): int((d0 + 4 * per) * FPS)].mean()
         kick.append((c / 4, lowb))
+        a0, a1 = int(d0 * FPS), int((d0 + 4 * per) * FPS)
+        kpk.append(float(np.abs(lo[a0:a1]).max()) if a1 > a0 else 0.0)
     lows = np.array([x[1] for x in kick]) if kick else np.zeros(0)
     refl = np.median(lows[lows > np.percentile(lows, 30)]) if len(lows) else 1
     # con bajo encima el bombo contrasta menos: un compas con graves de verdad (>= 75 % de lo normal) tambien empuja
     kick = np.array([max(c, .6 * min(1.0, lb / (refl or 1))) for c, lb in kick])
-    return {"kick": kick, "bpm": float(bpm), "per": float(per), "phase": float(phase), "bar0": float(bar0 % (4 * per)),
+    # FUERZA del bombo por compas: pico de graves (<150 Hz) frente a los compases fuertes del tema (1 = como el tramo
+    # principal). Distingue un ritmo suave a medio gas (intro de Fantasy, ~0.7) de los bombos de verdad (~1), y la
+    # cola que se apaga al final (Sukuna, compas 114: 0.6)
+    kpk = np.array(kpk)
+    ref = np.percentile(kpk[kick >= .45], 85) if (kick >= .45).sum() >= 4 else (np.percentile(kpk, 85) if len(kpk) else 1)
+    kpow = np.round(kpk / (ref or 1), 3)
+    return {"kick": kick, "kpow": kpow, "bpm": float(bpm), "per": float(per), "phase": float(phase), "bar0": float(bar0 % (4 * per)),
             "conf": float(conf), "four": four, "even": even, "beats": beats, "downbeats": downs,
             "env": e, "envLow": el, "onsets": o}
 

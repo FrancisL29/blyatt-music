@@ -43,6 +43,18 @@ def _fold(b):
 
 # ------------------------------------------------------------------ ataques del bombo
 FLUX_HOP = 128     # 2,9 ms
+_LP4 = signal.butter(10, 4400, "low", fs=SR, output="sos")
+_dec_last = [None, None]
+
+
+def dec4(mono):
+    """mono a 11025 Hz (paso bajo IIR + 1 de cada 4). resample_poly tardaba ~4 s en el telefono; esto ~0,5. Se
+    guarda la ultima: el detector de golpes y la tonalidad usan la misma"""
+    if _dec_last[0] is mono:
+        return _dec_last[1]
+    y = signal.sosfilt(_LP4, mono.astype(np.float32))[::4].astype(np.float32)
+    _dec_last[0], _dec_last[1] = mono, y
+    return y
 
 
 def mid_flux(mono, lo=60, hi=3000):
@@ -54,7 +66,7 @@ def mid_flux(mono, lo=60, hi=3000):
     D = 4
     sr = SR / D
     N, Hh = 1024 // D, FLUX_HOP // D
-    xd = signal.resample_poly(mono.astype(np.float32), 1, D).astype(np.float32)
+    xd = dec4(mono)
     x = np.concatenate([np.zeros(Hh, np.float32), xd])   # ventana "anterior" a la primera
     out, CH = [], Hh * 6000             # ~17 s por trozo; las ventanas de un trozo empiezan en a, a+Hh, ...
     for a in range(0, len(x) - N, CH):
@@ -299,7 +311,7 @@ def key(mono):
     """Cromagrama (magnitud, 100-2500 Hz, cada instante normalizado: los acordes cuentan igual en todo el tema)
     contra los perfiles de Krumhansl. Probado contra 12 temas de tonalidad conocida: 9 exactos y el resto a una
     casilla de la rueda Camelot (relativa o quinta: siguen siendo compatibles para mezclar)"""
-    x = signal.resample_poly(mono, 1, 4)          # 11025 Hz
+    x = dec4(mono)                                # 11025 Hz
     sr = SR / 4
     f, t, Z = signal.stft(x.astype(np.float32), fs=sr, nperseg=8192, noverlap=6144, boundary=None)
     M = np.abs(Z)

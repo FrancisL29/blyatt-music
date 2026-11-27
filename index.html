@@ -777,21 +777,28 @@
                         rgb(255 255 255 / .38) 62%, rgb(255 255 255 / .38) 100%) 100% 0 / 300% 100% no-repeat;
             -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
             animation: mixShine 2.2s linear infinite; animation-play-state: paused; }
-  #devmix { display: none; position: fixed; z-index: 99999; right: 8px; top: calc(env(safe-area-inset-top, 0px) + 52px);
-            width: min(calc(100vw - 16px), 380px); box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
-            background: rgb(0 0 0 / .78); color: #fff; font: 11px/1.45 ui-monospace, Consolas, Menlo, monospace;
-            white-space: pre-wrap; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); pointer-events: none;
-            border: 1px solid rgb(255 255 255 / .12); }
-  /* solo en la vista de reproduccion (movil); en el PC, que no la tiene, con la letra abierta */
-  body.devtools.np-open #devmix { display: block; }
-  @media (min-width: 821px) { body.devtools:has(#lyricsPanel.show) #devmix { display: block; } }
-  #devmix.fold #devmixTxt { display: none; }
+  /* depuracion del Automix (solo admin): burbuja flotante que se arrastra; al tocarla abre/cierra el panel */
+  #devmix { display: none; }
+  body.devtools.devbubble #devmix { display: block; }
+  #devBubble { position: fixed; z-index: 99999; left: 0; top: 0; width: 46px; height: 46px; border-radius: 50%;
+               display: grid; place-items: center; padding: 0; cursor: grab; touch-action: none; user-select: none;
+               -webkit-user-select: none; color: #7fd1ff; font-size: 22px; background: rgb(14 14 20 / .82);
+               border: 1px solid rgb(255 255 255 / .16); box-shadow: 0 6px 20px rgb(0 0 0 / .45);
+               -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: color .3s, box-shadow .3s; }
+  #devBubble.drag { cursor: grabbing; box-shadow: 0 10px 28px rgb(0 0 0 / .6); }
+  #devmix.open #devBubble { color: #fff; border-color: rgb(127 209 255 / .6); }
+  body.mixing #devBubble { color: #ffd166; animation: devPulse 1.6s ease-in-out infinite; }
+  @keyframes devPulse { 50% { box-shadow: 0 0 0 7px rgb(255 209 102 / .18), 0 6px 20px rgb(0 0 0 / .45); } }
+  #devmixPanel { display: none; position: fixed; z-index: 99998; left: 0; top: 0; width: min(calc(100vw - 16px), 380px);
+                 box-sizing: border-box; padding: 8px 10px; border-radius: 12px; background: rgb(0 0 0 / .82); color: #fff;
+                 font: 11px/1.45 ui-monospace, Consolas, Menlo, monospace; white-space: pre-wrap;
+                 -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgb(255 255 255 / .12); }
+  #devmix.open #devmixPanel { display: block; }
   #devmix .dm-row { display: flex; gap: 6px; margin-top: 6px; }
-  #devmix.fold .dm-row { margin-top: 0; }
-  #devmix button { pointer-events: auto; font: inherit; color: #fff; background: rgb(255 255 255 / .14); border: 0;
-                   border-radius: 8px; padding: 6px 10px; cursor: pointer; }
-  #devmix #devSkip { flex: 1; }
+  #devmix button.dm { font: inherit; color: #fff; background: rgb(255 255 255 / .14); border: 0;
+                      border-radius: 8px; padding: 6px 10px; cursor: pointer; flex: 1; }
   #devmix b { color: #7fd1ff; font-weight: 600; }
+  body:not(.devtools) .srow.devonly { display: none; }
   body.mixing .mixlbl { opacity: 1; transform: translate(-50%, 0); animation-play-state: running; }
   /* de 100 % a 0 %: la imagen (3 veces la palabra) siempre la cubre y el brillo cruza de izquierda a derecha */
   @keyframes mixShine { from { background-position: 100% 0; } to { background-position: 0% 0; } }
@@ -2418,6 +2425,11 @@
           <div class="sds" data-i18n>Mezcla cada canción con la siguiente como un DJ, en el momento que mejor encaje.</div></div>
         <label class="sw"><input type="checkbox" id="setAutomix" aria-label="Automix" data-i18n-al><span></span></label>
       </div>
+      <div class="srow devonly"><i class="ph ph-bug"></i>
+        <div class="stx"><div class="stt" data-i18n>Burbuja de depuración del Automix</div>
+          <div class="sds" data-i18n>Solo administradores: burbuja flotante con los datos de cada transición.</div></div>
+        <label class="sw"><input type="checkbox" id="setDevBubble" aria-label="Burbuja de depuración del Automix" data-i18n-al><span></span></label>
+      </div>
       <div class="srow"><i class="ph ph-speaker-simple-high"></i>
         <div class="stx"><div class="stt" data-i18n>Normalizar volumen</div>
           <div class="sds" data-i18n>Todas las canciones suenan igual de fuerte.</div></div>
@@ -2503,7 +2515,7 @@
   </div>
 </div>
 
-<div id="devmix" aria-hidden="true"><div id="devmixTxt"></div><div class="dm-row"><button id="devSkip" type="button">⏭ 3 s antes de la transición</button><button id="devFold" type="button">–</button></div></div>
+<div id="devmix" aria-hidden="true"><button id="devBubble" type="button" title="Automix (depuración)"><i class="ph ph-bug"></i></button><div id="devmixPanel"><div id="devmixTxt"></div><div class="dm-row"><button id="devSkip" class="dm" type="button">⏭ 3 s antes de la transición</button></div></div></div>
 <div id="player" role="region" aria-label="Reproductor">
   <div class="controls">
     <div class="now">
@@ -2723,6 +2735,8 @@ const EN = {
   "Los dispositivos con tu misma cuenta aparecen aquí mientras tengan Wave abierto.": "Devices signed in with your account show up here while Wave is open.",
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
   "Quitar de la cola": "Remove from queue", "Automix": "Automix", "Mixeando": "Mixing",
+  "Burbuja de depuración del Automix": "Automix debug bubble",
+  "Solo administradores: burbuja flotante con los datos de cada transición.": "Admins only: floating bubble with the data of each transition.",
   "Ligera": "Light", "Agresiva": "Aggressive", "No": "Off",
   "Desactivado: se usa el fundido de arriba.": "Off: the crossfade above is used.",
   "Ligera: transiciones cortas y suaves.": "Light: short, smooth transitions.",
@@ -6344,6 +6358,7 @@ function paintSettings() {
   $("setXfV").textContent = PLAY.xf ? PLAY.xf + " s" : t("Desactivado");
   _setChk("setNorm", PLAY.norm);
   _setChk("setAutomix", !!AUTOMIX);
+  _setChk("setDevBubble", (() => { try { return localStorage.getItem("wave.devbubble") !== "0"; } catch (e) { return true; } })());
   $("setXf").closest(".srow").style.opacity = AUTOMIX ? ".45" : "";   // con Automix el fundido fijo no se usa
   $("setDevName").value = CX.name;
   _setChk("setAutoX", localStorage.getItem("lightning.autoxfer") === "1");
@@ -6390,6 +6405,7 @@ $("setXf").oninput = () => { const v = +$("setXf").value; setFill($("setXf"), v 
 $("setXf").onchange = () => setXfade($("setXf").value);
 $("setNorm").onchange = () => setNorm($("setNorm").checked);
 $("setAutomix").onchange = (e) => { setAutomix(e.target.checked ? "normal" : ""); paintSettings(); };
+$("setDevBubble").onchange = (e) => setDevBubble(e.target.checked);
 $("setDevName").onchange = () => {
   const v = $("setDevName").value.trim().slice(0, 40); if (!v) { $("setDevName").value = CX.name; return; }
   CX.name = v; try { localStorage.setItem("lightning.devname", v); } catch (e) {}
@@ -7928,15 +7944,25 @@ function lyrBuild(d) {
     if (duet && LYR_ALT(l.agent)) el.classList.add("alt");   // segunda voz del dueto: a la derecha (como Apple Music)
     const words = [];
     let wi = 0;
+    const lineEnd = l.time + (l.duration || 0);
     const addWords = (box, syl) => {
       let grp = null;
-      syl.forEach(sy => {
+      syl.forEach((sy, k) => {
         const txt = sy.text, core = txt.replace(/\s+$/, "");
         if (!grp) { grp = document.createElement("span"); grp.className = "lwg"; box.appendChild(grp); }
         if (core) {
           const w = document.createElement("span"); w.className = "lw"; w.style.setProperty("--wi", wi++);
-          const s0 = sy.time, e0 = sy.time + Math.max(60, sy.duration || 0);
-          const chars = Array.from(core), long = e0 - s0 >= 1000 && chars.length > 1;
+          // hasta donde se rellena: algunas fuentes (Deezer) dan palabras de ~0.1 s y el relleno salia de golpe.
+          // Si la siguiente palabra llega enseguida (< 0.7 s) el barrido sigue hasta ella, como la voz; si no, al
+          // menos 0.25 s. "Nota sostenida" (letra a letra) se decide con la duracion original
+          const dur = Math.max(0, sy.duration || 0), s0 = sy.time;
+          let nx = null;
+          for (let j = k + 1; j < syl.length; j++) if (typeof syl[j].time === "number" && syl[j].time > s0) { nx = syl[j].time; break; }
+          if (nx == null && lineEnd > s0) nx = lineEnd;
+          let e0 = s0 + dur;
+          if (nx != null && nx - e0 < 700) e0 = Math.max(e0, nx);
+          e0 = Math.max(e0, s0 + 250);
+          const chars = Array.from(core), long = dur >= 1000 && chars.length > 1;
           if (long) {   // nota sostenida: una caja por letra (ola de brillo y elevacion)
             w.classList.add("long"); w.style.setProperty("--n", chars.length);
             chars.forEach((c, k) => { const lc = document.createElement("span"); lc.className = "lc"; lc.textContent = c; lc.style.setProperty("--i", k); w.appendChild(lc); });
@@ -8507,7 +8533,7 @@ const devRate = (t) => rateAt(eng.rseg, t);   // velocidad real de la que suena 
 let _devLast = null;
 function devTick() {
   if (!document.body.classList.contains("devtools")) return;
-  const el = $("devmixTxt"); if (!el || $("devmix").classList.contains("fold")) return;
+  const el = $("devmixTxt"); if (!el || !$("devmix").classList.contains("open")) return;
   const ac = AC.currentTime, gi = eng.gInfo;
   let A = null, B = null;
   try { if (eng.buf) A = mixInfo(eng.buf); } catch (e) {}
@@ -8567,11 +8593,66 @@ async function devCheck() {
   } catch (e) {}
 }
 $("devSkip").addEventListener("click", devSkipMix);
-$("devFold").addEventListener("click", () => { const m = $("devmix"); m.classList.toggle("fold"); $("devFold").textContent = m.classList.contains("fold") ? "+" : "–"; });
+/* burbuja de depuracion: se arrastra a cualquier sitio (se recuerda), al tocarla abre/cierra el panel; el panel se
+   abre hacia donde hay sitio. Se activa/desactiva en Configuracion (solo admin) */
+const DEVB = { on: true, open: false, x: null, y: null };
+try {
+  DEVB.on = localStorage.getItem("wave.devbubble") !== "0"; DEVB.open = localStorage.getItem("wave.devopen") === "1";
+  const ps = JSON.parse(localStorage.getItem("wave.devpos") || "null"); if (ps) { DEVB.x = ps.x; DEVB.y = ps.y; }
+} catch (e) {}
+function devPlace() {
+  const b = $("devBubble"), pn = $("devmixPanel"), S = 46, M = 8, W = innerWidth, H = innerHeight;
+  if (DEVB.x == null) { DEVB.x = W - S - 14; DEVB.y = Math.round(H * .18); }
+  DEVB.x = Math.max(M, Math.min(W - S - M, DEVB.x)); DEVB.y = Math.max(M, Math.min(H - S - M, DEVB.y));
+  b.style.transform = `translate3d(${DEVB.x}px, ${DEVB.y}px, 0)`;
+  if (!DEVB.open) return;
+  const pw = pn.offsetWidth || 380, ph = pn.offsetHeight || 160;
+  let px = DEVB.x + S / 2 < W / 2 ? DEVB.x : DEVB.x + S - pw;
+  let py = DEVB.y + S / 2 < H / 2 ? DEVB.y + S + 8 : DEVB.y - ph - 8;
+  px = Math.max(M, Math.min(W - pw - M, px)); py = Math.max(M, Math.min(H - ph - M, py));
+  pn.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+}
+function devApply() {
+  document.body.classList.toggle("devbubble", DEVB.on);
+  $("devmix").classList.toggle("open", DEVB.open);
+  devPlace();
+  if (DEVB.open) { devTick(); requestAnimationFrame(devPlace); }
+}
+function setDevBubble(on) {
+  DEVB.on = !!on;
+  try { localStorage.setItem("wave.devbubble", DEVB.on ? "1" : "0"); } catch (e) {}
+  devApply();
+}
+(() => {
+  const b = $("devBubble");
+  let st = null;
+  b.addEventListener("pointerdown", (e) => {
+    if (e.button) return;
+    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, bx: DEVB.x, by: DEVB.y, moved: false };
+    try { b.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  b.addEventListener("pointermove", (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+    if (!st.moved && Math.hypot(dx, dy) < 6) return;
+    st.moved = true; b.classList.add("drag");
+    DEVB.x = st.bx + dx; DEVB.y = st.by + dy; devPlace();
+  });
+  const up = (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const moved = st.moved; st = null; b.classList.remove("drag");
+    if (moved) { try { localStorage.setItem("wave.devpos", JSON.stringify({ x: Math.round(DEVB.x), y: Math.round(DEVB.y) })); } catch (err) {} }
+    else { DEVB.open = !DEVB.open; try { localStorage.setItem("wave.devopen", DEVB.open ? "1" : "0"); } catch (err) {} devApply(); }
+  };
+  b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up);
+  b.addEventListener("click", (e) => e.preventDefault());
+  addEventListener("resize", devPlace);
+})();
+devApply();
 setInterval(devTick, 250);
 setTimeout(devCheck, 1500);
 /* las dos caratulas durante la mezcla (ver .mixdeck en el CSS) */
-const MDK = { on: false, pair: null, t: 0, t2: 0, els: [] };
+const MDK = { on: false, live: false, raf: 0, pair: null, t: 0, t2: 0, els: [] };
 function mdkEls() {
   if (MDK.els.length) return MDK.els;
   for (const [img, big] of [[$("pcover"), false], [$("npCover"), true]]) {
@@ -8590,10 +8671,25 @@ function mdkPlace(e) {   // justo encima de la caratula real (la grande va en su
   if (!e.big) { e.d.style.left = e.img.offsetLeft + "px"; e.d.style.top = e.img.offsetTop + "px"; }
   else e.d.style.aspectRatio = "auto";
 }
+/* la caratula grande se mueve y encoge con la letra o la cola abiertas (cabecera compacta) o al arrastrar la
+   vista: las de la mezcla copian su transformacion en cada fotograma y van siempre en su mismo sitio y tamano */
+function mdkFollow() {
+  MDK.raf = 0;
+  if (!MDK.live) return;
+  for (const e of MDK.els) {
+    if (!e.big) continue;
+    const cs = getComputedStyle(e.img), tr = cs.transform;
+    if (tr !== e._tr) { e._tr = tr; e.d.style.transform = tr === "none" ? "" : tr; e.d.style.transformOrigin = cs.transformOrigin; }
+    if (e.img.offsetWidth && Math.abs(e.d.offsetWidth - e.img.offsetWidth) > 1) mdkPlace(e);
+  }
+  MDK.raf = requestAnimationFrame(mdkFollow);
+}
 function mdkStart(pair) {
   if (!pair || !pair.a || !pair.b) return;
   clearTimeout(MDK.t); clearTimeout(MDK.t2);
-  MDK.pair = pair; MDK.on = true;
+  MDK.pair = pair; MDK.on = true; MDK.live = true;
+  MDK.els.forEach(e => { e._tr = null; });
+  if (!MDK.raf) { mdkEls(); mdkFollow(); }
   for (const e of mdkEls()) {
     e.a.src = e.big ? hiCover(pair.a.cover) : pair.a.cover;
     e.b.src = e.big ? hiCover(pair.b.cover) : pair.b.cover;
@@ -8610,14 +8706,14 @@ function mdkStart(pair) {
 }
 function mdkProgress(p) {
   const v = Math.max(0, Math.min(1, p)).toFixed(3);
-  MDK.els.forEach(e => { e.d.style.setProperty("--mp", v); if (e.big && e.img.offsetWidth && Math.abs(e.d.offsetWidth - e.img.offsetWidth) > 1) mdkPlace(e); });
+  MDK.els.forEach(e => e.d.style.setProperty("--mp", v));
 }
 function mdkEnd(ok) {
   if (!MDK.on) return;
   MDK.on = false; clearTimeout(MDK.t2);
   const hide = () => MDK.els.forEach(e => {
     e.img.parentElement.classList.remove("mdk-on"); e.d.classList.remove("on");
-    setTimeout(() => { if (!MDK.on) e.d.classList.remove("fan", "settle", "enter"); }, 400);
+    setTimeout(() => { if (!MDK.on) { e.d.classList.remove("fan", "settle", "enter"); MDK.live = false; } }, 400);
   });
   if (!ok) return hide();   // mezcla anulada (salto, pausa...): fuera sin mas
   MDK.els.forEach(e => { e.d.classList.remove("enter"); e.d.classList.add("settle"); });

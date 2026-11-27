@@ -340,8 +340,10 @@ def analyze(vid, title, artist, dur, sep=None, x=None, chk=None):
             tm["audio"] = round(time.time() - t, 2)
             chk()
             # la letra (y su desfase) puede tardar: se espera un poco mas que el audio; sin desfase si no llega
-            dly = got("ly", 8, {})
-            off = got("al", 2.5, 0.0)
+            dly = got("ly", 6, {})
+            # la alineacion con la voz tarda ~20 s en el telefono: solo si ya esta (sigue en segundo plano y queda
+            # en cache para la letra del reproductor); casi siempre es 0 en canciones del catalogo
+            off = got("al", .5, 0.0)
             lines, lsrc = lines_of(dly, off), (dly or {}).get("source")
             gsec_raw = got("gs", 3, [])
             genres = got("gen", 3, [])

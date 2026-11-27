@@ -188,7 +188,7 @@ const curPlan = () => E.tpl ? E.P.find(x => x.tpl === E.tpl) || E.P[0] : E.P[0];
 function shifted(c) {
   const A = S.an[S.list[E.i].id], B = S.an[S.list[E.i + 1].id], p = JSON.parse(JSON.stringify(c));
   const bA = 4 * A.per, bB = 4 * B.per;
-  for (const k of ["ts", "tsw", "te", "tm", "tv", "bs"]) if (p[k] != null) p[k] += E.sa * bA;
+  for (const k of ["ts", "tsw", "te", "tm", "tv", "bs", "tg"]) if (p[k] != null) p[k] += E.sa * bA;
   if (p.loop) p.loop = p.loop.map(x => x + E.sa * bA);
   p.b_in = Math.max(0, p.b_in + E.sb * bB);
   return p;
@@ -200,8 +200,8 @@ function trackRow(s) {
 }
 function paintEditor() {
   const a = S.list[E.i], b = S.list[E.i + 1], c = curPlan();
-  const tpls = ["eq", "bucle", "voz", "inst", "corte", "fundido"];
-  const NAMES = { eq: "Mezcla EQ", bucle: "Bucle de frase", voz: "Voz primero", inst: "Instrumental primero", corte: "Corte + eco", fundido: "Fundido por bandas" };
+  const tpls = ["eq", "bucle", "voz", "inst", "corte", "silencio", "fundido"];
+  const NAMES = { eq: "Mezcla EQ", bucle: "Bucle de frase", voz: "Voz primero", inst: "Instrumental primero", corte: "Corte + eco", silencio: "Silencio y entrada", fundido: "Fundido por bandas" };
   const lenOK = ["eq", "bucle", "fundido"].includes(c.tpl);
   $("#ed").innerHTML = `<div class="edh"><button class="lnk" id="cancel">Cancelar</button><h3>Editar transición<span class="beta">LAB</span></h3><button class="save" id="save">Guardar</button></div>
     ${trackRow(a)}
@@ -221,7 +221,8 @@ function paintEditor() {
     <div class="leg"><span><i style="background:var(--a)"></i>volumen A</span><span><i style="background:var(--b)"></i>volumen B</span>
       <span><i style="background:repeating-linear-gradient(90deg,var(--a) 0 3px,transparent 3px 6px)"></i>graves A</span>
       <span><i style="background:repeating-linear-gradient(90deg,var(--b) 0 3px,transparent 3px 6px)"></i>graves B</span>
-      <span><i style="background:var(--voc)"></i>voz separada</span><span>| compases de A</span></div>
+      <span><i style="background:var(--voc)"></i>voz separada</span><span>| compases de A</span>
+      <span><i style="background:linear-gradient(90deg,var(--a),var(--b))"></i>onda de graves (bombos) · rayitas = golpes de cada rejilla</span></div>
     <div class="info" id="info"></div>`;
   $("#cancel").onclick = closeEditor;
   $("#save").onclick = () => { const k = pairKey(a.id, b.id); if (!E.tpl && !E.bars && !E.sa && !E.sb) delete S.custom[k]; else S.custom[k] = { tpl: c.tpl, bars: E.bars, sa: E.sa, sb: E.sb }; save(); closeEditor(); paint(); };
@@ -240,7 +241,7 @@ async function render() {
     const d = await jget("/api/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ a: a.id, b: b.id, plan, stems: S.stems }) });
     if (E.rendering !== key) return;
     E.clip = d; E.au.src = d.url;
-    $("#info").textContent = `${curPlan().label} · clip ${d.info.dur.toFixed(1)} s · B estirada ${((d.info.speed - 1) * 100).toFixed(1)}% · B ${d.info.gainB >= 0 ? "+" : ""}${d.info.gainB} dB · voz separada: ${d.info.stems ? "sí" : "no"} · render ${d.info.renderSecs}s`;
+    $("#info").textContent = `${curPlan().label} · clip ${d.info.dur.toFixed(1)} s · B estirada ${((d.info.speed - 1) * 100).toFixed(1)}% · B ${d.info.gainB >= 0 ? "+" : ""}${d.info.gainB} dB · voz separada: ${d.info.stems ? "sí" : "no"}${d.info.kickSharp ? ` · bombos de B ajustados ${d.info.kickLagMs >= 0 ? "+" : ""}${d.info.kickLagMs} ms` : ""} · render ${d.info.renderSecs}s`;
     draw();
   } catch (e) { $("#info").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
@@ -259,21 +260,29 @@ function draw() {
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
   if (!E.clip) { g.fillStyle = "#8d95a3"; g.font = "13px system-ui"; g.fillText("Renderizando la transición…", 16, 24); return; }
   const v = E.clip.info.viz, dur = E.clip.info.dur, A = S.an[S.list[E.i].id];
-  const lane = (pk, y0, h, col, vol) => {
-    const n = pk.length;
+  const css = (k) => getComputedStyle(document.body).getPropertyValue(k).trim();
+  // onda completa estrecha (gris) y encima los graves (<150 Hz) en el color de la cancion: se ven los bombos
+  const lane = (pk, low, y0, h, col, vol) => {
+    const n = pk.length, w = Math.max(1, W / n);
     for (let i = 0; i < n; i++) {
-      const x = i / n * W, a = Math.max(.5, pk[i] * h * .95), k = Math.min(1, vol[Math.floor(i / n * vol.length)] || 0);
-      g.fillStyle = col; g.globalAlpha = .18 + .62 * k; g.fillRect(x, y0 + h - a, Math.max(1, W / n), 2 * a);
+      const x = i / n * W, a = Math.max(.5, pk[i] * h * .5), k = Math.min(1, vol[Math.floor(i / n * vol.length)] || 0);
+      g.fillStyle = "#cfd6e0"; g.globalAlpha = .1 + .35 * k; g.fillRect(x, y0 + h - a, w, 2 * a);
+      if (low) { const b = Math.max(.5, (low[i] || 0) * h * .92); g.fillStyle = col; g.globalAlpha = .25 + .7 * k; g.fillRect(x, y0 + h - b, w, 2 * b); }
     }
     g.globalAlpha = 1;
   };
+  // golpes de cada rejilla: rayita en cada golpe, mas larga en el "uno"
+  const ticks = (bs, y, dir, col) => { if (!bs) return; g.fillStyle = col;
+    bs.forEach(([f, d]) => { const x = f * W; g.globalAlpha = d ? .95 : .55; g.fillRect(x - .5, dir > 0 ? y : y - (d ? 9 : 5), 1.5, d ? 9 : 5); }); g.globalAlpha = 1; };
   const top = 18, laneH = (H - 36) / 4;
   // compases de A (reloj del clip)
   const bar = 4 * A.per, t0 = E.clip.info.t0;
   g.strokeStyle = "rgba(255,255,255,.06)";
   for (let t = A.bar0 + Math.ceil((t0 - A.bar0) / bar) * bar; t < t0 + dur; t += bar) { const x = (t - t0) / dur * W; g.beginPath(); g.moveTo(x + .5, 0); g.lineTo(x + .5, H); g.stroke(); }
-  lane(v.A, top, laneH, "#cfd6e0", v.aVol);
-  lane(v.B, top + 2 * laneH, laneH, "#cfd6e0", v.bVol);
+  lane(v.A, v.Alow, top, laneH, css("--a"), v.aVol);
+  lane(v.B, v.Blow, top + 2 * laneH, laneH, css("--b"), v.bVol);
+  ticks(v.beatsA, top + 2 * laneH - 1, -1, css("--a"));
+  ticks(v.beatsB, top + 2 * laneH + 1, 1, css("--b"));
   // curvas
   const curve = (arr, col, dash, w) => { if (!arr) return; g.strokeStyle = col; g.lineWidth = w || 2; g.setLineDash(dash || []); g.beginPath();
     arr.forEach((y, i) => { const x = i / (arr.length - 1) * W, yy = H - 14 - Math.min(1.1, y) / 1.1 * (H - 34); i ? g.lineTo(x, yy) : g.moveTo(x, yy); }); g.stroke(); g.setLineDash([]); };

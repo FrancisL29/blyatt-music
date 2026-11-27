@@ -40,6 +40,13 @@ def _jload(p):
         return json.load(f)
 
 
+def _jsave(p, d):
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf8") as f:
+        json.dump(d, f)
+    os.replace(tmp, p)
+
+
 def _lock(k):
     with _llock:
         return _locks.setdefault(k, threading.Lock())
@@ -247,12 +254,46 @@ def chorus_times(lines):
     return out
 
 
+AN_VER = 2      # sube cuando cambia el analisis de ritmo: lo guardado se rehace (solo esa parte)
+
+
+def _rhythm_part(x, dz, lines, gsec, genres, vact, L):
+    """todo lo que depende del ritmo (tempo, golpes, bombo, tonalidad, secciones, energia)"""
+    mono = x.mean(0)
+    dur_s = x.shape[1] / an.SR
+    r = an.rhythm(mono, (dz or {}).get("bpm"))
+    k = an.key(mono)
+    lvl, ex = an.energy_level(L, r["onsets"], r["envLow"], r["env"], r["bpm"])
+    ch = [g["t0"] for g in gsec if g["label"] == "estribillo"] or chorus_times(lines)
+    secs, ebar, reps = an.sections(r, k, dur_s, vact, ch)
+    for sct in secs:   # etiqueta de Genius si cubre la mayor parte de la seccion
+        best = max(gsec, key=lambda g: min(g["t1"], sct["t1"]) - max(g["t0"], sct["t0"]), default=None)
+        if best and min(best["t1"], sct["t1"]) - max(best["t0"], sct["t0"]) > .4 * (sct["t1"] - sct["t0"]):
+            sct["label"] = best["label"]
+    return {"bpm": round(r["bpm"], 2), "per": r["per"], "phase": r["phase"], "bar0": r["bar0"],
+            "conf": round(r["conf"], 3), "four": round(r["four"], 3), "even": round(r["even"], 3),
+            "key": {kk: k[kk] for kk in ("name", "camelot", "cam", "letter", "conf")},
+            "energy": lvl, "energyInfo": ex, "sections": secs, "energyBars": np.round(ebar, 3).tolist(),
+            "kick": r["kick"].tolist(), "rep4": reps["rep4"], "rep8": reps["rep8"], "barStart": reps["start"],
+            "family": family(r, r["bpm"], genres), "v": AN_VER}
+
+
 def analyze(vid, title, artist, dur, stems=True):
     jp = os.path.join(CACHE, vid + ".json")
     with _lock("an:" + vid):
         if os.path.isfile(jp):
             d = _jload(jp)
             if d.get("vocals") is not None or not stems:
+                if d.get("v") == AN_VER:
+                    return d
+                # analisis viejo: se rehace solo el ritmo (letra, Genius, Deezer y voz separada se reutilizan)
+                x = an.decode(get_audio(vid))
+                ip = os.path.join(CACHE, vid + "_inst.npy")
+                vact = an.vocal_activity(x, np.load(ip).astype(np.float32))[0] if os.path.isfile(ip) else None
+                d.update(_rhythm_part(x, d.get("deezer"), d.get("lyrics") or [], d.get("gsections") or [],
+                                      d.get("genres") or [], vact, d["lufs"]))
+                d = json.loads(json.dumps(d, default=float))
+                _jsave(jp, d)
                 return d
         tm = {}
         t = time.time()
@@ -309,8 +350,9 @@ def analyze(vid, title, artist, dur, stems=True):
              "vocals": vocals, "lyrics": lines, "lyricsSource": lsrc, "peaks": an.peaks(x),
              "times": tm, "sepXRT": round(dur_s / sep_t, 1) if sep_t else None}
         d["family"] = family(r, r["bpm"], genres)
+        d["v"] = AN_VER
         d = json.loads(json.dumps(d, default=float))   # numpy -> tipos de JSON
-        json.dump(d, open(jp, "w", encoding="utf8"))
+        _jsave(jp, d)
         return d
 
 
@@ -381,8 +423,12 @@ class H(BaseHTTPRequestHandler):
             return self._send(500, {"error": str(e)[:300]})
 
 
+class _Server(ThreadingHTTPServer):
+    allow_reuse_address = os.name != "nt"     # en Windows dejaria a dos laboratorios compartir el puerto
+
+
 def main(port=8040, open_browser=True):
-    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    srv = _Server(("127.0.0.1", port), H)
     print("Laboratorio de Automix: http://localhost:%d" % port, flush=True)
     if open_browser:
         threading.Timer(.8, lambda: webbrowser.open("http://localhost:%d" % port)).start()
@@ -390,4 +436,5 @@ def main(port=8040, open_browser=True):
 
 
 if __name__ == "__main__":
-    main(open_browser="--no-browser" not in sys.argv)
+    pa = [a for a in sys.argv if a.startswith("--port=")]
+    main(port=int(pa[0][7:]) if pa else 8040, open_browser="--no-browser" not in sys.argv)

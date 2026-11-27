@@ -41,6 +41,45 @@ def _fold(b):
     return b
 
 
+# ------------------------------------------------------------------ ataques del bombo
+FLUX_HOP = 128     # 2,9 ms
+
+
+def mid_flux(mono, lo=60, hi=3000):
+    """Flujo espectral (subidas del espectro en log) solo entre 60 y 3000 Hz: el golpe del bombo y la caja. Sin los
+    agudos (charles a contratiempo) ni el sub (en hard techno el rumble llena el hueco entre bombos y su vuelta se
+    confundia con el golpe). Devuelve (flujo, segundos de cada valor). Por trozos: poca memoria (servidor)"""
+    N, Hh = 1024, FLUX_HOP
+    x = np.concatenate([np.zeros(Hh, np.float32), mono.astype(np.float32)])   # ventana "anterior" a la primera
+    out, CH = [], Hh * 6000             # ~17 s por trozo; las ventanas de un trozo empiezan en a, a+Hh, ...
+    for a in range(0, len(x) - N, CH):
+        seg = x[a: a + CH + N]
+        f, t, Z = signal.stft(seg, fs=SR, nperseg=N, noverlap=N - Hh, boundary=None, padded=False)
+        sel = (f >= lo) & (f < hi)
+        L = np.log1p(1000 * np.abs(Z[sel])).astype(np.float32)
+        out.append(np.maximum(0, L[:, 1:] - L[:, :-1]).sum(0))   # la 1a ventana solo sirve de "anterior"
+    fl = np.concatenate(out)
+    tt = (np.arange(len(fl)) * Hh + N / 2) / SR    # centro de cada ventana (en tiempo del audio original)
+    return fl, tt
+
+
+def beat_offset(fl, tt, per, phase, t0=None, t1=None):
+    """Donde caen los ataques (60-3000 Hz) dentro del golpe, de media entre t0 y t1, respecto a la rejilla
+    (phase + k*per). Devuelve (desfase en s, -medio golpe..+medio golpe; nitidez del pico)"""
+    t0 = tt[0] if t0 is None else t0
+    t1 = tt[-1] if t1 is None else t1
+    sel = (tt >= t0) & (tt < t1)
+    P = 96
+    pos = ((((tt[sel] - phase) / per) + .5) % 1 * P).astype(int) % P
+    prof = np.bincount(pos, weights=fl[sel], minlength=P)
+    prof = np.convolve(np.r_[prof[-2:], prof, prof[:2]], [.1, .2, .4, .2, .1], "valid")
+    k = int(prof.argmax())
+    y0, y1, y2 = prof[k - 1], prof[k], prof[(k + 1) % P]
+    den = y0 - 2 * y1 + y2
+    kf = k + (.5 * (y0 - y2) / den if den else 0)
+    return ((kf + .5) / P - .5) * per, float(prof.max() / (prof.mean() or 1))
+
+
 # ------------------------------------------------------------------ tempo, golpes, compases
 def rhythm(mono, hint=None):
     n = len(mono) // HOP
@@ -93,6 +132,33 @@ def rhythm(mono, hint=None):
     tri = abs(rr / (2 / 3) - 1) < .04 or abs(rr / (4 / 3) - 1) < .04
     if abs(rr - 1) >= .02 and bs > s0 * (1.3 if tri else 1.04):
         bpm = bb
+    # 2b) comprobacion fina (2 ms) de los errores 3/4 y 2/3: autocorrelacion de los ataques (graves + todo) en el
+    #     periodo del golpe; un 4/4 da un pico muy claro en su golpe y casi nada a 4/3 de el (hard techno a 166 que
+    #     salia a 124,5)
+    H2 = 88
+    n2 = len(mono) // H2
+    lo2 = signal.sosfilt(signal.butter(2, 150, "low", fs=SR, output="sos"), mono)
+
+    def lod(x):
+        e2 = np.log(np.sqrt((x[: n2 * H2].reshape(n2, H2) ** 2).mean(1)) + 1e-5)
+        d2 = np.maximum(0, np.diff(e2, prepend=e2[0]))
+        d2 = np.convolve(d2, np.ones(3) / 3, "same")
+        return d2 / (d2.mean() or 1)
+    o2 = lod(lo2) + lod(mono)
+    o2 = o2[int(n2 * .1): int(n2 * .9)]
+    o2 = o2 - o2.mean()
+    fps2 = SR / H2
+
+    def ac2(b):
+        L = 60 * fps2 / b
+        N = len(o2) - int(L * 1.02) - 2
+        if N < fps2 * 20:
+            return 0.0
+        return max(float(np.dot(o2[:N], o2[k: N + k])) for k in range(int(L * .99), int(L * 1.01) + 2))
+    a_cur = ac2(bpm)
+    for alt in (bpm * 4 / 3, bpm * 3 / 4, bpm * 3 / 2, bpm * 2 / 3):
+        if 85 <= alt <= 180 and ac2(alt) > 1.35 * a_cur > 0:
+            bpm, a_cur = alt, ac2(alt)
     if hint and hint > 40:   # BPM del catalogo (Deezer): manda si es el nuestro o uno de sus errores tipicos
         h, rr = _fold(hint), _fold(hint) / bpm
         if any(abs(rr / x - 1) < .03 for x in (1, 3 / 4, 4 / 3, 2 / 3, 3 / 2)):
@@ -149,9 +215,18 @@ def rhythm(mono, hint=None):
     pk = int(prof.argmax())
     if prof[pk] > 1.25 * prof.mean():
         phase = (phase + pk / 48 * per) % per
-    on, off, bars = count(phase)
+    # AFINADO con el golpe del bombo (ataques en 60-3000 Hz). En hard techno el sub es rumble que vuelve ~130 ms
+    # despues del bombo y la rejilla caia ahi (Sukuna: bombos 145 ms antes que la rejilla). Si el desfase se acerca a
+    # medio golpe (bajo a contratiempo: Billie Jean) no se toca
+    fl, ftt = mid_flux(mono)
+    dur0 = nf / FPS
+    off_s, sharp = beat_offset(fl, ftt, per, phase, dur0 * .1, dur0 * .9)
+    if not (sharp >= 1.25 and abs(off_s) <= .4 * per):
+        off_s = 0.0
+    on, off, bars = count(phase)          # el "uno" se elige con la fase de los graves (probado) y luego se afina
     b1 = int(bars.argmax())
-    bar0 = phase + b1 * per     # "uno" del compas: el golpe con mas graves
+    bar0 = phase + off_s + b1 * per     # "uno" del compas: el golpe con mas graves (se reduce al primer compas abajo)
+    phase = (phase + off_s) % per
     even = float(bars.min() / (bars.max() or 1))
     four = float(on / off) if off else 1.0
     beats = np.arange(phase, dur, per)
@@ -159,15 +234,22 @@ def rhythm(mono, hint=None):
     # bombo por compas: en cuantos de sus 4 golpes pega un bombo (subida clara en 40-120 Hz con nivel suficiente);
     # 0..1. Independiente del volumen del resto: una intro solo de bateria cuenta igual que el tema lleno
     medk = np.median(ek)
+    medf = np.median(fl) + 1e-9
     kick = []
     for d0 in downs:
         c = 0
         for j in range(4):
-            f = int(round((d0 + j * per) * FPS))
-            if 2 <= f < nf - 6:
+            tb = d0 + j * per
+            f = int(round(tb * FPS))
+            if 2 <= f < nf - 20:
                 post = ek[f: f + 6].max()
                 prv = ek[max(0, f - 8): f - 2].mean() + 1e-12
-                c += post / prv > 1.8 and post / medk > .15
+                low_hit = post / prv > 1.8 and post / medk > .15
+                # o golpe claro en 60-3000 Hz justo en el golpe, con graves en los 200 ms siguientes (bombo + rumble)
+                i0 = np.searchsorted(ftt, tb - .025)
+                i1 = np.searchsorted(ftt, tb + .025)
+                mid_hit = i1 > i0 and fl[i0:i1].max() > 2.5 * medf and ek[f: f + 20].max() / medk > .3
+                c += low_hit or mid_hit
         lowb = ek[int(d0 * FPS): int((d0 + 4 * per) * FPS)].mean()
         kick.append((c / 4, lowb))
     lows = np.array([x[1] for x in kick]) if kick else np.zeros(0)

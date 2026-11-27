@@ -17,6 +17,8 @@ import wave
 import numpy as np
 from scipy import signal
 
+from analysis import mid_flux
+
 SR = 44100
 LABELS = {"eq": "Mezcla EQ por frases", "voz": "Voz primero", "inst": "Instrumental primero",
           "corte": "Corte en frase con eco", "fundido": "Fundido por bandas"}
@@ -60,6 +62,61 @@ def tempo_rel(A, B):
 def camelot_dist(a, b):
     d = min((a["cam"] - b["cam"]) % 12, (b["cam"] - a["cam"]) % 12)
     return d if a["letter"] == b["letter"] else (1 if d == 0 else d + 1)
+
+
+# ------------------------------------------------------------------ alineacion fina de los bombos
+def beat_profile(mono, I, t_from, nbeats=32):
+    """Perfil medio de los ataques del bombo dentro de un golpe (1 ms por punto; el centro = golpe de la rejilla) en
+    nbeats golpes desde el golpe de rejilla >= t_from. Ataque = flujo espectral en 60-3000 Hz (el golpe del bombo,
+    sin los charles a contratiempo ni el rumble). None si no hay audio suficiente"""
+    per = I["per"]
+    b0 = I.get("barStart", I["bar0"])
+    g0 = b0 + np.ceil((t_from - b0) / per - 1e-6) * per
+    a, b = int((g0 - per) * SR), int((g0 + (nbeats + 1) * per) * SR)
+    if a < 0 or b > len(mono) or nbeats < 4:
+        return None
+    fl, tt = mid_flux(mono[a:b])
+    o = np.interp(np.arange(0, (b - a) / SR, .001), tt, fl)
+    P = int(round(per * 1000))
+    prof = np.zeros(P)
+    for k in range(nbeats):
+        c = int(round((per + k * per) * 1000)) - P // 2
+        if c < 0 or c + P > len(o):
+            return None
+        prof += o[c:c + P]
+    return prof / nbeats
+
+
+def kick_lag(monoA, A, tA, monoB, B, tB, s=1.0, nbeats=32):
+    """Cuanto hay que retrasar B (segundos del clip; negativo = adelantar) para que sus bombos caigan encima de los
+    de A. tA, tB: donde empiezan los compases con bombo que se comparan (tiempo de cada archivo). Con tempos casados
+    se correlan los dos perfiles; si no, se igualan sus picos. Devuelve (retraso, nitidez del golpe)"""
+    pa = beat_profile(monoA, A, tA, nbeats)
+    pb = beat_profile(monoB, B, tB, nbeats)
+    if pa is None or pb is None:
+        return 0.0, 0.0
+    sharp = min(pa.max() / (pa.mean() or 1), pb.max() / (pb.mean() or 1))
+    if sharp < 1.3:          # sin golpe claro en alguna de las dos: no se toca
+        return 0.0, float(sharp)
+    P = len(pa)
+    pb2 = np.interp(np.linspace(0, len(pb) - 1, P), np.arange(len(pb)), pb)   # al golpe de A
+    sh = lambda p: np.maximum(0, p - np.median(p)) ** 2
+    if abs(s - 1) < .12:
+        xc = np.fft.irfft(np.fft.rfft(sh(pa)) * np.conj(np.fft.rfft(sh(pb2))), P)   # xc[l] = sum pa[i] pb2[i-l]
+        l = int(xc.argmax())
+    else:
+        l = int(pa.argmax()) - int(pb2.argmax())
+    l = (l + P // 2) % P - P // 2          # -medio golpe .. +medio golpe
+    return l / 1000.0, float(sharp)
+
+
+def _kf(I, t, nbars=8):
+    """fraccion de compases con bombo en los nbars desde t"""
+    k = I.get("kick") or []
+    bar = 4 * I["per"]
+    i = int(np.floor((t - I.get("barStart", I["bar0"])) / bar + 1e-6))
+    seg = k[max(0, i): max(0, i + nbars)]
+    return float(np.mean([x >= .45 for x in seg])) if seg else 0.0
 
 
 # ------------------------------------------------------------------ motor
@@ -138,7 +195,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     Ts = float(p["ts"])
     Te = float(p["te"])
     ramp = 8 * barA if abs(s0 - 1) > 1e-4 else 0.0
-    t0 = max(0.0, Ts - pre)
+    t0 = max(0.0, min(Ts, p.get("tg", Ts)) - pre)
     t1 = Te + ramp + post
     n = int((t1 - t0) * SR)
     T = t0 + np.arange(n) / SR                         # reloj del clip en tiempo de A
@@ -163,13 +220,51 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         return s0 + (1 - s0) * min(1, (t - Te) / ramp)
     nB = int((t1 - Ts) * SR)
     mixB = aud["B"]["mix"]
-    path = wsola(mixB, int(p["b_in"] * SR), speed, nB)
+    # ---- bombos encima de bombos: se mide donde pegan de verdad los de A y los de B (no basta con las rejillas: en
+    #      hard techno cada tema tiene su bombo, su click y su rumble) y se corre B lo que haga falta
+    b_in = float(p["b_in"])
+    lag, ksharp = 0.0, 0.0
+    tAs, tBs = [], []
+    if tpl in ("eq", "bucle"):
+        tA0 = p["loop"][0] if tpl == "bucle" else p["tsw"] - 8 * barA
+        tAs, tBs = [tA0, tA0 - 8 * barA], [b_in, b_in + (p["tsw"] - Ts) * s0]
+    elif tpl == "corte":
+        tAs, tBs = [Ts - 8 * barA, Ts - 16 * barA], [b_in, b_in + 8 * barB]
+    elif tpl == "silencio":
+        tAs, tBs = [p["tg"] - 8 * barA, p["tg"] - 16 * barA], [b_in + (Te - Ts), b_in + (Te - Ts) + 8 * barB]
+    meas = []
+    mA, mB = mixA.mean(0), mixB.mean(0)
+    for ta in tAs:
+        for tb in tBs:
+            if _kf(A, ta) >= .5 and _kf(B, tb) >= .5:
+                l, sh = kick_lag(mA, A, ta, mB, B, tb, s0)
+                if sh >= 1.3:
+                    meas.append((l, sh))
+    if meas:
+        lag = float(np.median([m[0] for m in meas]))
+        ksharp = max(m[1] for m in meas)
+        spread = max(abs(m[0] - lag) for m in meas)
+        # con la rejilla ya en el bombo el ajuste suele ser pequeno; uno grande solo si el golpe es nitido y todas las
+        # medidas coinciden
+        if abs(lag) > .2 * beatA and (ksharp < 2.0 or spread > .03):
+            lag = 0.0
+        lag = float(np.clip(lag, -.45 * beatA, .45 * beatA))
+        b_in -= lag * s0
     bMix = np.zeros((2, n), np.float32)
     oB = int((Ts - t0) * SR)
-    bMix[:, oB:oB + nB] = wsola_apply(mixB, path, nB)[:, : n - oB]
+    direct = ramp == 0 and abs(s0 - 1) < 1e-6      # a su tempo: se copia tal cual (sin WSOLA)
+
+    def stretchB(x):
+        if direct:
+            idx = int(round(b_in * SR)) + np.arange(nB)
+            ok = (idx >= 0) & (idx < x.shape[1])
+            return np.where(ok, x[:, np.clip(idx, 0, x.shape[1] - 1)], 0).astype(np.float32)
+        return wsola_apply(x, path, nB)
+    path = None if direct else wsola(mixB, int(b_in * SR), speed, nB)
+    bMix[:, oB:oB + nB] = stretchB(mixB)[:, : n - oB]
     if useS:
         bInst = np.zeros_like(bMix)
-        bInst[:, oB:oB + nB] = wsola_apply(aud["B"]["inst"], path, nB)[:, : n - oB]
+        bInst[:, oB:oB + nB] = stretchB(aud["B"]["inst"])[:, : n - oB]
         bVoc = bMix - bInst
     else:
         bInst, bVoc = bMix, np.zeros_like(bMix)
@@ -227,6 +322,13 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
             E["aM"] = [(t0, 1)]
             E["aH"] = [(t0, 1), (Tm, 1), (Tm + barA, .3)]
         mk(Ts, "entra la instrumental de B"); mk(Tm, "cambio de instrumentales"); mk(Tv, "canta B")
+    elif tpl == "silencio":
+        Tg, Tk = p["tg"], Te
+        aEnd = max(Ts + beatA, Tg) if Ts < Tg else Ts + .5 * beatA
+        E["aL"] = [(t0, 1), (Ts, 1), (Ts + .25 * beatA, K)]
+        E["aF"] = [(t0, 1)] + _fade(Ts, aEnd, False)
+        E["bF"] = [(t0, 0), (Ts, 0), (Ts + .005, 1)]
+        mk(Tg, "parón de A"); mk(Ts, "arranca B"); mk(Tk, "bombos de B")
     elif tpl == "corte":
         Tc = Ts
         E["aL"] = [(t0, 1), (Tc - 2 * barA, 1), (Tc, .35)]
@@ -266,7 +368,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     if pk > .99:
         out *= .99 / pk
     # para dibujar el editor: formas de onda de las dos y sus curvas (volumen, graves, voz)
-    NP = 800
+    NP = 1600
 
     def peaks(x):
         mm = np.abs(x).max(0)
@@ -277,7 +379,31 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         k = max(1, len(e) // NP)
         return np.round(np.clip(e[: k * (len(e) // k)].reshape(-1, k).mean(1), 0, 1.2), 3).tolist()
     aFv, bFv = ev("aF"), ev("bF")
-    viz = {"A": peaks(aMix), "B": peaks(bMix),
+    lo150 = signal.butter(4, 150, "low", fs=SR, output="sos")
+
+    def lowenv(x):   # graves (<150 Hz) en RMS por punto: se ven los golpes del bombo
+        m = signal.sosfiltfilt(lo150, x.mean(0)).astype(np.float32)
+        k = max(1, len(m) // NP)
+        r = np.sqrt((m[: k * (len(m) // k)].reshape(-1, k) ** 2).mean(1)) * 1.6
+        return np.round(np.clip(r, 0, 1), 3).tolist()
+
+    # golpes de cada rejilla en el reloj del clip (los de B, tras estirarla y correrla)
+    def grid(I, t_a, t_b):
+        per, g0 = I["per"], I.get("barStart", I["bar0"])
+        k0 = int(np.ceil((t_a - g0) / per))
+        out = []
+        while g0 + k0 * per < t_b:
+            out.append((g0 + k0 * per, k0 % 4 == 0))
+            k0 += 1
+        return out
+    beatsA = [[round((t - t0) / (t1 - t0), 5), int(d)] for t, d in grid(A, t0, t1)]
+    uu = np.arange(0, nB / SR, .005)
+    cont = b_in + np.concatenate([[0], np.cumsum([speed(u) * .005 for u in uu[:-1]])])   # contenido de B en cada instante
+    beatsB = []
+    for t, d in grid(B, cont[0], cont[-1]):
+        u = float(np.interp(t, cont, uu))
+        beatsB.append([round((Ts + u - t0) / (t1 - t0), 5), int(d)])
+    viz = {"A": peaks(aMix), "B": peaks(bMix), "Alow": lowenv(aMix), "Blow": lowenv(bMix), "beatsA": beatsA, "beatsB": beatsB,
            "aVol": curve(aFv), "bVol": curve(bFv), "aBass": curve(aFv * ev("aL")), "bBass": curve(bFv * ev("bL")),
            "aVoc": curve(aFv * ev("aV")) if useS else None, "bVoc": curve(bFv * ev("bV")) if useS else None,
            "bStart": (Ts - t0) / (t1 - t0)}
@@ -285,5 +411,6 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     with wave.open(buf, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
         w.writeframes((out.T * 32767).astype("<i2").tobytes())
-    info = {"t0": float(t0), "dur": n / SR, "stems": bool(useS), "speed": s0, "gainB": float(round(20 * np.log10(gB), 1)), "viz": viz}
+    info = {"t0": float(t0), "dur": n / SR, "stems": bool(useS), "speed": s0, "gainB": float(round(20 * np.log10(gB), 1)), "viz": viz,
+            "kickLagMs": round(lag * 1000), "kickSharp": round(ksharp, 2)}
     return buf.getvalue(), marks, info

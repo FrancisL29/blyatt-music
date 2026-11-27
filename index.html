@@ -4145,7 +4145,7 @@ async function smixPrep(a, b, deadline, still) {
     if (!r || r.state === "error") return null;
     if (r.state === "ready") return r;
     if (AC.currentTime > deadline) return drop();
-    await _sleep(2500);
+    await _sleep(1500);
     if (!still()) return drop();
   }
 }

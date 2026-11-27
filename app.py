@@ -5317,13 +5317,22 @@ class H(BaseHTTPRequestHandler):
                 payload = json.dumps({"error": str(e)}).encode()
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json")
+        elif u.path == "/salud":   # comprobacion ligera: la pantalla "sin conexion" y el aviso de la app
+            payload = b'{"ok": true}'
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+        elif u.path == "/sw.js":   # service worker (raiz: alcance toda la app): pantalla propia si el servidor cae
+            with open(os.path.join(BASE, "assets", "sw.js"), "rb") as f:
+                payload = f.read()
+            self.send_response(200); self.send_header("Content-Type", "text/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
         elif u.path.startswith("/assets/"):
             fp = os.path.normpath(os.path.join(BASE, u.path.lstrip("/")))
             if not fp.startswith(os.path.join(BASE, "assets") + os.sep) or not os.path.isfile(fp):  # evita path traversal
                 self.send_response(404); self.end_headers(); return
             ctype = {".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff",
                      ".js": "text/javascript", ".png": "image/png", ".svg": "image/svg+xml",
-                     ".json": "application/manifest+json"}.get(
+                     ".json": "application/manifest+json", ".html": "text/html; charset=utf-8"}.get(
                          os.path.splitext(fp)[1], "application/octet-stream")
             with open(fp, "rb") as f:
                 payload = f.read()

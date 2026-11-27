@@ -777,6 +777,23 @@
                         rgb(255 255 255 / .38) 62%, rgb(255 255 255 / .38) 100%) 100% 0 / 300% 100% no-repeat;
             -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
             animation: mixShine 2.2s linear infinite; animation-play-state: paused; }
+  /* aviso de conexion con el servidor (solo en el servidor publico): cae, sin internet o acceso caducado */
+  #srvbar { position: fixed; z-index: 99990; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 12px);
+            transform: translate(-50%, -140%); display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px);
+            padding: 9px 10px 9px 14px; border-radius: 999px; background: rgb(18 18 24 / .9); color: #f2f3f7;
+            border: 1px solid rgb(255 255 255 / .1); box-shadow: 0 10px 30px rgb(0 0 0 / .45); font-size: .88rem;
+            -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); opacity: 0; pointer-events: none;
+            transition: transform .45s cubic-bezier(.22, 1, .36, 1), opacity .3s ease; }
+  #srvbar.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+  #srvbar .sb-ic { font-size: 1.05rem; flex: none; }
+  #srvbar .sb-tx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #srvbar .sb-sp { width: 13px; height: 13px; flex: none; border-radius: 50%; border: 2px solid rgb(255 255 255 / .2);
+                   border-top-color: #f2f3f7; animation: sbspin .9s linear infinite; }
+  @keyframes sbspin { to { transform: rotate(360deg); } }
+  #srvbar button { flex: none; font: inherit; font-weight: 700; font-size: .82rem; color: #08090c; background: #f2f3f7;
+                   border: 0; border-radius: 999px; padding: 6px 13px; cursor: pointer; }
+  #srvbar.ok { color: #6be3a4; }
+  #srvbar:not(.down) .sb-sp, #srvbar:not(.auth) button { display: none; }
   /* depuracion del Automix (solo admin): burbuja flotante que se arrastra; al tocarla abre/cierra el panel */
   #devmix { display: none; }
   body.devtools.devbubble #devmix { display: block; }
@@ -2515,6 +2532,7 @@
   </div>
 </div>
 
+<div id="srvbar" role="status" aria-live="polite"><i class="sb-ic ph ph-cloud-slash"></i><span class="sb-sp"></span><span class="sb-tx"></span><button type="button" data-i18n>Verificar</button></div>
 <div id="devmix" aria-hidden="true"><button id="devBubble" type="button" title="Automix (depuración)"><i class="ph ph-bug"></i></button><div id="devmixPanel"><div id="devmixTxt"></div><div class="dm-row"><button id="devSkip" class="dm" type="button">⏭ 3 s antes de la transición</button></div></div></div>
 <div id="player" role="region" aria-label="Reproductor">
   <div class="controls">
@@ -2736,6 +2754,9 @@ const EN = {
   "Temporizador": "Sleep timer", "Reproducir a continuación": "Play next", "Añadir a la cola": "Add to queue",
   "Quitar de la cola": "Remove from queue", "Automix": "Automix", "Mixeando": "Mixing",
   "Burbuja de depuración del Automix": "Automix debug bubble",
+  "Verificar": "Verify", "Sin conexión con el servidor de Wave · reintentando…": "Can't reach the Wave server · retrying…",
+  "Sin conexión a internet": "No internet connection", "Tu acceso a Wave caducó": "Your access to Wave expired",
+  "Conectado de nuevo": "Connected again",
   "Solo administradores: burbuja flotante con los datos de cada transición.": "Admins only: floating bubble with the data of each transition.",
   "Ligera": "Light", "Agresiva": "Aggressive", "No": "Off",
   "Desactivado: se usa el fundido de arriba.": "Off: the crossfade above is used.",
@@ -4122,7 +4143,7 @@ function chorusTime(buf, lyr, off) {
    renderiza SOLO el clip de la mezcla. Aqui suena A -> clip -> B: se pasa de un archivo a otro justo donde suenan
    igual (se comprueba con una correlacion, por si el descodificador desplaza unos ms) con 20 ms de fundido. Si el
    servidor no puede (sin scipy, error) o no llega a tiempo, se usa la mezcla del navegador de siempre */
-const SMIX = { off: false, clips: new Map() };
+const SMIX = { off: false, clips: new Map(), plans: new Map(), lags: new Map() };   // lo ya preparado: un salto o un adelanto lo reutiliza
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const _durS = (s) => typeof s.duration === "number" ? s.duration : String(s.duration || "").split(":").reduce((a, x) => a * 60 + (+x || 0), 0);
 function smixUrl(a, b) {
@@ -4133,7 +4154,8 @@ function smixUrl(a, b) {
 // pide la transicion y espera a que el servidor la tenga (como mucho hasta el instante `deadline` del reloj de audio)
 async function smixPrep(a, b, deadline, still) {
   // saltos rapidos: no se pide nada hasta que la cancion lleva un momento sonando (solo se calcula la que se escucha)
-  for (let i = 0; i < 14; i++) { await _sleep(250); if (!still()) return null; }
+  // (solo al empezar: tras adelantar la cancion no hay espera)
+  while (audio.currentTime < 3.5) { await _sleep(250); if (!still()) return null; }
   const u = smixUrl(a, b);
   let key = null;
   const drop = () => { if (key) fetch("/automix/drop?k=" + key).catch(() => {}); return null; };   // ya no interesa
@@ -4203,24 +4225,32 @@ function segExtra(segs, t) {
 function smixSchedule(r, cb, bbuf, song) {
   if (!eng.node || !eng.node._g || !eng.buf || eng.gInfo) return false;
   const A = eng.buf, leadB = bbuf._lead || 0, leadA = A._lead || 0;
-  const la = smixLag(cb, .3, A, r.t0 + .3), lb = smixLag(cb, r.dur - 1.3, bbuf, r.bEnd - 1.3);
+  let lg = SMIX.lags.get(r.key);
+  if (!lg) {
+    lg = { la: smixLag(cb, .3, A, r.t0 + .3), lb: smixLag(cb, r.dur - 1.3, bbuf, r.bEnd - 1.3) };
+    SMIX.lags.set(r.key, lg); while (SMIX.lags.size > 6) SMIX.lags.delete(SMIX.lags.keys().next().value);
+  }
+  const { la, lb } = lg;
   if (!la || !lb || la.corr < .6 || lb.corr < .6) { console.warn("[automix] el clip no casa con las canciones", la, lb); return false; }
   const XF = .02, c0 = .35, qh = r.dur - .4;      // se entra al clip en su segundo c0 (A sola) y se sale en qh (B sola)
   const E = segExtra(eng.rseg, 1e9);               // lo que adelanto A en su propia entrada (si vino de otra mezcla)
   const S = eng.start + (r.t0 + la.lag + c0 - leadA) - E;   // instante en que A llega al punto c0 del clip
-  if (S < AC.currentTime + 1.2) return false;
   const at = (p) => S + (p - c0), H = at(qh), bOff = r.bEnd - (r.dur - qh) + lb.lag;
+  // si ya se esta dentro de la mezcla (adelanto con la barra, "3 s antes"...) el clip entra justo en ese punto
+  let S1 = S, c1 = c0;
+  const now = AC.currentTime;
+  if (S < now + .3) { S1 = now + .3; c1 = c0 + (S1 - S); if (c1 > qh - 1) return false; }
   const gA = _ng(A), gB = _ng(bbuf);
   const cn = _src(cb), bn = _src(bbuf);
   try {
     cn._n.gain.setValueAtTime(gA, 0); cn._n.gain.setValueAtTime(gA, at(r.te)); cn._n.gain.linearRampToValueAtTime(gB, at(qh - .3));
-    cn._g.gain.setValueAtTime(0, 0); cn._g.gain.setValueAtTime(0, S); cn._g.gain.linearRampToValueAtTime(1, S + XF);
+    cn._g.gain.setValueAtTime(0, 0); cn._g.gain.setValueAtTime(0, S1); cn._g.gain.linearRampToValueAtTime(1, S1 + XF);
     cn._g.gain.setValueAtTime(1, H); cn._g.gain.linearRampToValueAtTime(0, H + XF);
-    cn.start(S, c0); cn.stop(H + XF + .05);
+    cn.start(S1, c1); cn.stop(H + XF + .05);
     bn._g.gain.setValueAtTime(0, 0); bn._g.gain.setValueAtTime(0, H); bn._g.gain.linearRampToValueAtTime(1, H + XF);
     bn.start(H, bOff);
-    const ga = eng.node._g.gain; ga.cancelScheduledValues(S); ga.setValueAtTime(ga.value, S); ga.linearRampToValueAtTime(0, S + XF);
-    eng.node.stop(S + XF + .05);
+    const ga = eng.node._g.gain; ga.cancelScheduledValues(S1); ga.setValueAtTime(ga.value, S1); ga.linearRampToValueAtTime(0, S1 + XF);
+    eng.node.stop(S1 + XF + .05);
   } catch (e) { _kill(cn); _kill(bn); return false; }
   bn._aux = [cn];
   // reloj de B: va a la velocidad del clip (speed hasta te, vuelve a 1 en ramp) y en H coincide con su archivo
@@ -4228,7 +4258,7 @@ function smixSchedule(r, cb, bbuf, song) {
   const inSeg = Math.abs(s0 - 1) > 1e-4 ? [{ t0: Ts, t1: Te, r0: s0, r1: s0 }, { t0: Te, t1: Te + r.ramp, r0: s0, r1: 1 }, { t0: Te + r.ramp, t1: Infinity, r0: 1, r1: 1 }] : null;
   const startB = H + segExtra(inSeg, H) - (bOff - leadB);
   eng.gNode = bn;
-  eng.gInfo = { buf: bbuf, song, when: Math.max(S + .05, at(r.sw)), X: 0, mix: true, clip: true, S, o0: S - .5, startB, inSeg,
+  eng.gInfo = { buf: bbuf, song, when: Math.max(S1 + .05, at(r.sw)), X: 0, mix: true, clip: true, S: S1, o0: S1 - .5, startB, inSeg,
                 style: "servidor · " + r.label, tV: at(r.win[1]), info: r };
   eng.mixWins = (eng.mixWins || []).filter(w => w.b > AC.currentTime).concat([{ a: at(r.win[0]), b: at(r.win[1]) }]);
   eng.mixPair = { a: current, b: song, wa: at(r.win[0]), wb: at(r.win[1]) };
@@ -4240,7 +4270,12 @@ async function smixTry(cur, song, buf) {
   if (SMIX.off || CX.remote) return false;
   const still = () => eng.playing && !eng.gInfo && _gaplessSong() === song && current === cur;
   const endA = eng.start + eng.dur - rsegTotal();
-  const r = await smixPrep(cur, song, endA - 45, still);   // si no llega 45 s antes del final: la del navegador
+  const pk = cur.id + ">" + song.id;
+  let r = SMIX.plans.get(pk);
+  if (!r) {
+    r = await smixPrep(cur, song, endA - 45, still);   // si no llega 45 s antes del final: la del navegador
+    if (r) { SMIX.plans.set(pk, r); while (SMIX.plans.size > 8) SMIX.plans.delete(SMIX.plans.keys().next().value); }
+  }
   if (!r || !still()) return false;
   let cb; try { cb = await smixClip(r.key); } catch (e) { return false; }
   if (!still()) return false;
@@ -8599,6 +8634,46 @@ async function devCheck() {
       try { dev ? localStorage.setItem("wave.dev", "1") : localStorage.removeItem("wave.dev"); } catch (e) {}
     }
   } catch (e) {}
+}
+/* conexion con el servidor publico (blyatt.stream): pantalla propia si cae al abrir (service worker) y, con la app
+   abierta, un aviso que se reconecta solo; si Cloudflare Access caduca la sesion, boton para verificar de nuevo. En la
+   app de escritorio (servidor local) no hace falta */
+const SRV = { st: "ok", fails: 0, t: 0, on: location.protocol === "https:" && !/^(localhost|127\.)/.test(location.hostname) };
+if (SRV.on && "serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+function srvShow(st) {
+  const b = $("srvbar"), prev = SRV.st;
+  if (st === prev) return;
+  SRV.st = st;
+  const ic = { down: "ph-cloud-slash", offline: "ph-wifi-slash", auth: "ph-lock-key", ok: "ph-check-circle" }[st];
+  const tx = { down: "Sin conexión con el servidor de Wave · reintentando…", offline: "Sin conexión a internet",
+               auth: "Tu acceso a Wave caducó", ok: "Conectado de nuevo" }[st];
+  b.className = st;
+  b.querySelector(".sb-ic").className = "sb-ic ph " + ic;
+  b.querySelector(".sb-tx").textContent = t(tx);
+  if (st === "ok") {   // se reconecto: lo dice un momento y se va
+    if (prev === "down" || prev === "offline") { b.classList.add("show"); clearTimeout(SRV.h); SRV.h = setTimeout(() => b.classList.remove("show"), 2200); }
+    else b.classList.remove("show");
+  } else b.classList.add("show");
+}
+async function srvPing() {
+  clearTimeout(SRV.t);
+  if (!SRV.on) return;
+  let st = "ok";
+  try {
+    const r = await fetch("/salud?t=" + Date.now(), { cache: "no-store", redirect: "manual" });
+    if (r.type === "opaqueredirect" || r.status === 401 || r.status === 403) st = "auth";   // Cloudflare pide verificar
+    else if (!r.ok) st = "down";
+  } catch (e) { st = navigator.onLine === false ? "offline" : "down"; }
+  SRV.fails = st === "down" || st === "offline" ? SRV.fails + 1 : 0;
+  srvShow(st === "auth" ? "auth" : SRV.fails >= 2 ? st : (SRV.st === "auth" ? "ok" : (SRV.fails ? SRV.st : "ok")));
+  SRV.t = setTimeout(srvPing, SRV.fails || SRV.st !== "ok" ? 5000 : 30000);
+}
+$("srvbar").querySelector("button").addEventListener("click", () => location.reload());   // -> login de Access
+if (SRV.on) {
+  setTimeout(srvPing, 6000);
+  addEventListener("online", () => srvPing());
+  addEventListener("offline", () => { SRV.fails = 2; srvShow("offline"); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) srvPing(); });
 }
 $("devSkip").addEventListener("click", devSkipMix);
 /* burbuja de depuracion: se arrastra a cualquier sitio (se recuerda), al tocarla abre/cierra el panel; el panel se

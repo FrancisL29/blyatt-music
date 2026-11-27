@@ -231,6 +231,26 @@ def rhythm(mono, hint=None):
         off_s, _ = beat_offset(fl, ftt, per, phase, dur0 * .1, dur0 * .9, lim=.2)
     on, off, bars = count(phase)          # el "uno" se elige con la fase de los graves (probado) y luego se afina
     b1 = int(bars.argmax())
+    # ...pero con bombo constante los 4 golpes tienen casi los mismos graves y el "uno" podia caer un golpe
+    # desplazado (Pasilda: sus bombos entraban en el "cuatro"). La pista mas fiable: donde ENTRA una seccion de
+    # bombos tras un hueco sin graves, ese golpe es un "uno". Si esas entradas coinciden, mandan
+    nbt = int((dur - phase) / per)
+    lv = np.zeros(nbt)
+    for k in range(nbt):
+        f = int(round((phase + k * per) * FPS))
+        lv[k] = ek[max(0, f - 3): f + 15].max() if f < nf else 0
+    refv = np.percentile(lv, 75) if nbt else 1
+    absent, present = lv < .1 * refv, lv > .4 * refv
+    votes = np.zeros(4)
+    for k in range(8, nbt - 8):
+        # entra la seccion de bombos tras un paron largo (2 compases o mas sin graves)
+        if present[k] and absent[k - 1] and absent[k - 8: k].sum() >= 7 and present[k: k + 8].sum() >= 7:
+            votes[k % 4] += 1
+    if votes.sum() >= 1:
+        bv = int(votes.argmax())
+        second = np.sort(votes)[-2]
+        if votes[bv] >= 2 and votes[bv] >= 3 * second:
+            b1 = bv
     bar0 = phase + off_s + b1 * per     # "uno" del compas: el golpe con mas graves (se reduce al primer compas abajo)
     phase = (phase + off_s) % per
     even = float(bars.min() / (bars.max() or 1))

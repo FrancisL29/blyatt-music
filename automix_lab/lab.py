@@ -254,7 +254,7 @@ def chorus_times(lines):
     return out
 
 
-AN_VER = 3      # sube cuando cambia el analisis de ritmo: lo guardado se rehace (solo esa parte)
+AN_VER = 4      # sube cuando cambia el analisis de ritmo: lo guardado se rehace (solo esa parte)
 
 
 def _rhythm_part(x, dz, lines, gsec, genres, vact, L):

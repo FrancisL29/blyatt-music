@@ -17,7 +17,7 @@ import wave
 import numpy as np
 from scipy import signal
 
-from analysis import mid_flux
+from .analysis import mid_flux
 
 SR = 44100
 LABELS = {"eq": "Mezcla EQ por frases", "voz": "Voz primero", "inst": "Instrumental primero",
@@ -186,8 +186,12 @@ def wsola_apply(x, path, n_out, N=2048, Hs=512):
     return out[:, :n_out] / 2.0      # Hann con salto N/4: suma 2
 
 
-def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
-    """aud = {"A": {"mix": (2,n), "inst": (2,n) o None}, "B": {...}}. Devuelve (wav bytes, marcas)"""
+def render(A, B, aud, p, stems=True, pre=8.0, post=6.0, viz=True):
+    """aud = {"A": {"mix": (2,n), "inst": (2,n) o None}, "B": {...}}. Devuelve (wav bytes, marcas, info).
+    info lleva lo que necesita un reproductor para enlazar A -> clip -> B sin corte: t0 (segundo de A donde empieza
+    el clip), bEnd (segundo de B al que corresponde el final del clip, ya a su tempo), sw (cuando pasa a ser "la
+    cancion que suena" B), win (ventana en que se oye la mezcla) y la velocidad de B (speed hasta te, vuelve a 1 en
+    ramp). Tiempos del clip en segundos desde su principio. viz=False: sin los datos para dibujar (mas rapido)"""
     tpl = p["tpl"]
     beatA, barA = A["per"], 4 * A["per"]
     barB = 4 * B["per"]
@@ -202,7 +206,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
     Te = float(p["te"])
     ramp = 8 * barA if abs(s0 - 1) > 1e-4 else 0.0
     t0 = max(0.0, min(Ts, p.get("tg", Ts)) - pre)
-    t1 = Te + ramp + post
+    t1 = Te + max(ramp, 4.0) + post      # hasta que B vuelve a su tempo y a su volumen
     n = int((t1 - t0) * SR)
     T = t0 + np.arange(n) / SR                         # reloj del clip en tiempo de A
     useS = stems and aud["A"].get("inst") is not None and aud["B"].get("inst") is not None and tpl in ("voz", "inst")
@@ -298,6 +302,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         if tpl == "bucle":
             mk(p["loop"][0], "frase que se repite"); mk(p["loop"][1], "A en bucle")
         mk(Ts, "entra B (sin graves)"); mk(Tsw, "cambio de graves"); mk(Te, "sale A")
+        SWT, WIN = Tsw, (Ts, Te)
     elif tpl == "voz":
         Bs, Tsw, Tf = p["bs"], p["tsw"], p["te"]
         E["bF"] += [(Ts, 0), (Ts + beatA, 1)]
@@ -316,6 +321,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         mk(Ts, "B: un compás antes"); mk(Bs, "canta B (sola)"); mk(Tsw, "entra todo B"); mk(Tf, "fin de la base de A")
         if p.get("loop") and p["loop"][1] < Tf:
             mk(p["loop"][1], "base de A en bucle")
+        SWT, WIN = Tsw, (Ts, Tf)
     elif tpl == "inst":
         Tm, Tv = p["tm"], p["tv"]
         E["bF"] += _fade(Ts, Ts + min(4 * barA, Tm - Ts), True)
@@ -330,6 +336,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
             E["aM"] = [(t0, 1)]
             E["aH"] = [(t0, 1), (Tm, 1), (Tm + barA, .3)]
         mk(Ts, "entra la instrumental de B"); mk(Tm, "cambio de instrumentales"); mk(Tv, "canta B")
+        SWT, WIN = Tm, (Ts, Tv + beatA)
     elif tpl == "silencio":
         Tg, Tk = p["tg"], Te
         aEnd = max(Ts + beatA, Tg) if Ts < Tg else Ts + .5 * beatA
@@ -337,6 +344,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         E["aF"] = [(t0, 1)] + _fade(Ts, aEnd, False)
         E["bF"] = [(t0, 0), (Ts, 0), (Ts + .005, 1)]
         mk(Tg, "A deja de empujar"); mk(Ts, "arranca B"); mk(Tk, "bombos de B")
+        SWT, WIN = Ts, (min(Ts, Tg), Tk + barA)
     elif tpl == "corte":
         Tc = Ts
         E["aL"] = [(t0, 1), (Tc - 2 * barA, 1), (Tc, .35)]
@@ -344,6 +352,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         send = [(t0, 0), (Tc - beatA, 0), (Tc - beatA + .01, .75), (Tc - .005, .75), (Tc + .005, 0)]
         E["bF"] = [(t0, 0), (Tc, 0), (Tc + .006, 1)]
         mk(Tc - 2 * barA, "A pierde graves"); mk(Tc, "corte + eco, entra B")
+        SWT, WIN = Tc, (Tc - 2 * barA, Tc + 2.5)
     else:   # fundido
         Wd = Te - Ts
         E["aH"] = [(t0, 1), (Ts, 1), (Te, 0)]
@@ -354,6 +363,7 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         E["bM"] = [(t0, 0), (Ts + .2 * Wd, 0), (Ts + .7 * Wd, 1)]
         E["bL"] = [(t0, 0), (Ts + .45 * Wd, 0), (Ts + .55 * Wd, 1)]
         mk(Ts, "empieza el fundido"); mk(Ts + .5 * Wd, "cambio de graves"); mk(Te, "sale A")
+        SWT, WIN = Ts + .5 * Wd, (Ts, Te)
     if ramp:
         mk(Te + ramp, "B ya a su tempo")
     gBe = _env([(t0, gB), (Te, gB), (Te + max(ramp, 4.0), 1.0)], T)
@@ -372,9 +382,38 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         for k in range(1, 7):
             g = .45 ** k
             out[:, k * D:] += g * sig[:, : n - k * D]
-    pk = np.abs(out).max()
-    if pk > .99:
-        out *= .99 / pk
+    # limitador solo donde la suma pasa de 0 dB (no se baja todo el clip: sus bordes tienen que sonar igual que los
+    # archivos de A y B para enlazar sin salto de volumen); bloques de 10 ms, mira 30 ms por delante, suelta en ~80 ms
+    blk = SR // 100
+    nb = (n + blk - 1) // blk
+    bpk = lambda y: np.pad(np.abs(y).max(0), (0, nb * blk - n)).reshape(nb, blk).max(1)
+    pkb = bpk(out)
+    # techo = 0 dB, o el pico que ya tenia la que suena sola (masters que pasan de 0 dB: no se tocan)
+    ceil_ = np.maximum(.98, np.maximum(bpk(A_out), bpk(B_out)))
+    gb = np.minimum(1.0, ceil_ / np.maximum(pkb, 1e-9))
+    if gb.min() < 1:
+        gb = np.minimum.reduce([np.r_[gb[j:], np.ones(j)] for j in range(4)])   # anticipa el pico
+        sm = np.convolve(np.r_[np.full(4, gb[0]), gb, np.full(3, gb[-1])], np.ones(8) / 8, "valid")
+        gb = np.minimum(gb, sm)                                                     # suelta suave
+        out *= np.interp(np.arange(n), np.arange(nb) * blk + blk / 2, gb).astype(np.float32)
+    out = np.clip(out, -1.0, 1.0)
+    # contenido de B al final del clip (para seguir con su archivo justo ahi)
+    if direct:
+        b_end = b_in + nB / SR
+    else:
+        kf = max(0, min(len(path) - 1, (nB - 1024) // 512))
+        b_end = (path[kf] + (nB - kf * 512)) / SR
+    tinfo = {"sw": float(SWT - t0), "win": [float(max(0.0, WIN[0] - t0)), float(min(n / SR, WIN[1] - t0))],
+             "ts": float(Ts - t0), "te": float(Te - t0), "ramp": float(ramp), "bIn": float(b_in), "bEnd": float(b_end)}
+    if not viz:
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
+            w.writeframes((out.T * 32767).astype("<i2").tobytes())
+        info = {"t0": float(t0), "dur": n / SR, "stems": bool(useS), "speed": s0, "gainB": float(round(20 * np.log10(gB), 1)),
+                "kickLagMs": round(lag * 1000), "kickSharp": round(ksharp, 2)}
+        info.update(tinfo)
+        return buf.getvalue(), marks, info
     # para dibujar el editor: formas de onda de las dos y sus curvas (volumen, graves, voz)
     NP = 1600
 
@@ -421,4 +460,5 @@ def render(A, B, aud, p, stems=True, pre=8.0, post=6.0):
         w.writeframes((out.T * 32767).astype("<i2").tobytes())
     info = {"t0": float(t0), "dur": n / SR, "stems": bool(useS), "speed": s0, "gainB": float(round(20 * np.log10(gB), 1)), "viz": viz,
             "kickLagMs": round(lag * 1000), "kickSharp": round(ksharp, 2)}
+    info.update(tinfo)
     return buf.getvalue(), marks, info

@@ -21,7 +21,7 @@ Reglas nuevas:
 """
 import numpy as np
 
-from mix import camelot_dist, next_down, prev_down, sings, tempo_rel, vspans
+from .mix import camelot_dist, next_down, prev_down, sings, tempo_rel, vspans
 
 LABELS = {"eq": "Mezcla EQ por frases", "bucle": "Bucle de frase", "voz": "Voz primero",
           "inst": "Instrumental primero", "corte": "Corte en frase con eco", "silencio": "Silencio y entrada",

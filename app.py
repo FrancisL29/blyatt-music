@@ -1512,6 +1512,24 @@ _MG_CLEAN = re.compile(r"\s*[\(\[][^\)\]]*(feat|ft\.|con |with |remaster|version
                        r"lyric|audio|live|en vivo|edit|mix)[^\)\]]*[\)\]]", re.I)
 
 
+_AMX = None
+
+
+def automix():
+    """Motor del Automix (paquete automix/: numpy + scipy). Se carga al primer uso; None si falta algo (la app
+    usa entonces su mezcla en el navegador)"""
+    global _AMX
+    if _AMX is None:
+        try:
+            from automix import service
+            service.configure(sys.modules[__name__], os.path.join(CACHE_DIR, "automix"))
+            _AMX = service
+        except Exception as e:   # sin scipy, etc.
+            print("[automix] no disponible:", e, flush=True)
+            _AMX = False
+    return _AMX or None
+
+
 def mix_genre(title, artist):
     """Generos del album en Deezer (publico, sin clave): "Techno/House", "Rap/Hip Hop", "Latin Music", "Pop"...
     El analisis del audio a veces confunde (hard techno con bombo distorsionado -> pop); esto lo corrige."""
@@ -5120,6 +5138,38 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lyrics_align(g("id"), g("title"), g("artist"), g("src"), float(g("dur") or 0)))
             except Exception as e:
                 return self._json({"offset": 0, "error": str(e)})
+        elif u.path == "/automix/prep":   # transicion A -> B del Automix: se calcula aqui en segundo plano
+            qa = parse_qs(u.query)
+            g = lambda k: qa.get(k, [""])[0]
+            amx = automix()
+            if not amx:
+                return self._json({"state": "off"})
+            songs = []
+            for s_ in ("a", "b"):
+                vid = g(s_)
+                if not re.fullmatch(r"[\w-]{6,20}", vid):
+                    return self._json({"state": "error", "error": "id"}, 400)
+                try:
+                    dur = float(g(s_ + "dur") or 0)
+                except ValueError:
+                    dur = 0
+                songs.append({"id": vid, "title": g(s_ + "title")[:200], "artist": g(s_ + "artist")[:200], "dur": dur})
+            try:
+                return self._json(amx.prep(*songs))
+            except Exception as e:
+                return self._json({"state": "error", "error": str(e)[:200]})
+        elif u.path == "/automix/clip":   # el audio de esa transicion (solo la mezcla)
+            amx = automix()
+            fp = amx.clip_path(parse_qs(u.query).get("k", [""])[0]) if amx else None
+            if not fp:
+                self.send_response(404); self.end_headers(); return
+            with open(fp, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mp4" if fp.endswith(".m4a") else "audio/wav")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.end_headers(); self.wfile.write(data); return
         elif u.path == "/mixgenre":   # genero de catalogo (Deezer) para el Automix: segunda opinion junto al audio
             qa = parse_qs(u.query)
             return self._json(mix_genre(qa.get("title", [""])[0], qa.get("artist", [""])[0]))

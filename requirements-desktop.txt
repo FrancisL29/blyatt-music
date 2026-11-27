@@ -6,6 +6,8 @@ pyinstaller>=6.16
 # modo karaoke: separacion de voz, alineado y verificacion de letra (ONNX en CPU), QR y https local (micro del movil)
 numpy
 onnxruntime
+# Automix (paquete automix/): analisis del audio y render de las transiciones
+scipy
 segno
 # DJ de radio: voz de Salome (Edge TTS)
 edge-tts

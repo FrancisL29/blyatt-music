@@ -740,6 +740,34 @@
   /* seek pequeno y centrado: deja mas espacio a izquierda (info) y derecha (botones) */
   .center { display: flex; flex-direction: column; align-items: center; gap: 9px; width: 360px; justify-self: center; }
   .seekrow { display: flex; align-items: center; gap: 10px; width: 100%; position: relative; }
+  /* Automix: mientras mezcla, las dos caratulas en abanico (la que sale se aparta y se apaga; la que entra gana
+     protagonismo con la mezcla, --mp = 0..1) y al acabar la que entra se queda sola en su sitio */
+  .now { position: relative; }
+  .mixdeck { position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; z-index: 2; --mp: 0;
+    transition: opacity .35s ease; border-radius: 10px; }
+  .mixdeck.big { position: relative; grid-area: 1 / 1; width: min(100%, 48vh); aspect-ratio: 1; }
+  .mixdeck.on { opacity: 1; }
+  .now .mixdeck img, .mixdeck img { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; object-fit: cover;
+    border-radius: inherit; background: #1a1a20; box-shadow: 0 6px 18px rgb(0 0 0 / .45); will-change: transform, opacity;
+    backface-visibility: hidden; transition: transform .9s cubic-bezier(.22, 1, .36, 1), opacity .6s ease, filter .9s ease; }
+  .mixdeck .md-a { z-index: 1; }
+  .mixdeck .md-b { z-index: 2; opacity: 0; transform: translateX(32%) scale(.7) rotate(8deg); }
+  .mixdeck.fan img { transition: transform .45s linear, opacity .6s ease, filter .45s linear; }
+  .mixdeck.fan.enter img { transition: transform .9s cubic-bezier(.22, 1, .36, 1), opacity .7s ease, filter .9s ease; }
+  .mixdeck.fan .md-a { transform: translateX(calc(-13% - 9% * var(--mp))) scale(calc(.84 - .1 * var(--mp))) rotate(calc(-4deg - 3deg * var(--mp)));
+    filter: brightness(calc(1 - .4 * var(--mp))); }
+  .mixdeck.fan .md-b { opacity: 1; transform: translateX(calc(15% - 10% * var(--mp))) scale(calc(.76 + .12 * var(--mp))) rotate(calc(6deg - 4deg * var(--mp))); }
+  .mixdeck.settle img { transition: transform .85s cubic-bezier(.22, 1, .36, 1), opacity .55s ease, filter .6s ease; }
+  .mixdeck.settle .md-a { transform: translateX(-38%) scale(.62) rotate(-9deg); opacity: 0; }
+  .mixdeck.settle .md-b { transform: none; opacity: 1; filter: none; }
+  .mdk-on > #pcover, .mdk-on > #npCover { opacity: 0; }
+  #pcover, #npCover { transition: opacity .3s ease; }
+  @media (max-width: 820px) { .mixdeck { border-radius: 8px; } .mixdeck.big { border-radius: 10px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .mixdeck img, .mixdeck.fan img, .mixdeck.settle img { transition: opacity .5s ease !important; }
+    .mixdeck.fan .md-a, .mixdeck.fan .md-b, .mixdeck.settle .md-b, .mixdeck .md-b { transform: none !important; filter: none !important; }
+    .mixdeck.fan .md-b { opacity: calc(var(--mp)); }
+  }
   /* Automix: "Mixeando" bajo la barra mientras dura una mezcla, con unas barritas que bailan (como Apple Music) */
   /* la palabra translucida y un brillo que la recorre de izquierda a derecha (como el AutoMix de Apple Music) */
   .mixlbl { position: absolute; left: 50%; top: calc(100% + 2px); transform: translate(-50%, -3px); font-size: .68rem;
@@ -3198,6 +3226,17 @@ function fxReset(n) {
   set(f.hp.frequency, 10); set(f.lp.frequency, 22000); set(f.send.gain, 0); set(n.playbackRate, 1);
 }
 function _clearGapless() {
+  if (eng.gInfo && eng.gInfo.clip) {   // mezcla del servidor: fuera el clip y B; A sigue como si nada (si no empezo)
+    const g = eng.gInfo, t = AC.currentTime;
+    _kill(eng.gNode);
+    if (eng.node && eng.node._g && t < g.S) {
+      try { const ga = eng.node._g.gain; ga.cancelScheduledValues(0); ga.setValueAtTime(1, t); } catch (e) {}
+      try { eng.node.stop(eng.start + eng.dur - mixTotal(eng.tc) - rsegTotal()); } catch (e) {}
+    }
+    if (eng.mixWins) eng.mixWins = eng.mixWins.filter(w => w.a <= t && w.b > t);
+    eng.gNode = null; eng.gInfo = null;
+    return;
+  }
   _kill(eng.gNode);
   if (eng.gInfo && eng.gInfo.X && eng.node && eng.node._g) {   // el fundido de salida ya programado: se anula
     const g = eng.node._g.gain, w = eng.gInfo.when;
@@ -3245,6 +3284,18 @@ function _scheduleBoundary() {
 function _onBoundary() {
   if (eng.endTimer) { clearTimeout(eng.endTimer); eng.endTimer = null; }
   if (eng.playing && eng.node && AC.currentTime < _boundaryAt() - 0.25) { _scheduleBoundary(); return; }   // disparo prematuro
+  if (eng.gInfo && eng.gInfo.clip && eng.playing) {   // mezcla del servidor: B pasa a ser la que suena
+    const g = eng.gInfo;
+    if (eng.node) { eng.node.onended = null; _kill(eng.node); }   // A (ya callada: el clip la sustituyo)
+    eng.node = eng.gNode; eng.buf = g.buf; eng.dur = g.buf._eff || g.buf.duration; eng.start = g.startB; eng.offset = 0;
+    eng.tc = null; eng.rseg = g.inSeg || null; eng.rsegBase = g.inSeg || null;
+    eng.gNode = null; eng.gInfo = null;
+    try { eng.node.stop(eng.start + eng.dur - rsegTotal()); } catch (e) {}
+    _watchEnd(eng.node);
+    _scheduleBoundary();
+    if (eng.onAdvance) eng.onAdvance(g.song);
+    return;
+  }
   if (eng.gInfo && eng.playing) {            // la siguiente ya viene sonando (programada sample-accurate)
     const g = eng.gInfo;
     if (eng.node) {
@@ -3881,6 +3932,7 @@ function automixSchedule(buf, song, voc, vocA) {
   eng.gNode = inn;
   eng.gInfo = { buf, song, when, X: Math.max(.1, (tV || when + 1) - when), cut: true, mix: true, style, off: offUsed, o0: o0 == null ? when : o0, tV, inSeg };
   eng.mixWins = (eng.mixWins || []).filter(w => w.b > now).concat([{ a: segs ? Math.max(segs[0].t0, when - 4 * A.per) : Math.min(when, o0 == null ? when : o0), b: Math.max(tV || when, when + 1, tOut ? tV + (tOut - tV) * .6 : 0) }]);
+  { const w_ = eng.mixWins[eng.mixWins.length - 1]; eng.mixPair = { a: current, b: song, wa: w_.a, wb: w_.b }; }
   _scheduleBoundary();
   return true;
 }
@@ -4048,6 +4100,130 @@ function chorusTime(buf, lyr, off) {
   if (B.conf > 1.15) { const p0 = ((B.phase - lead) % B.per + B.per) % B.per; c = p0 + Math.floor((c - p0 + .25) / B.per) * B.per; }
   return c > 8 && c < dur * .65 ? c : null;
 }
+/* ====== Automix del servidor ======
+   El servidor (motor automix/: analisis de cada cancion, planificador y render en Python) elige la transicion y
+   renderiza SOLO el clip de la mezcla. Aqui suena A -> clip -> B: se pasa de un archivo a otro justo donde suenan
+   igual (se comprueba con una correlacion, por si el descodificador desplaza unos ms) con 20 ms de fundido. Si el
+   servidor no puede (sin scipy, error) o no llega a tiempo, se usa la mezcla del navegador de siempre */
+const SMIX = { off: false, clips: new Map() };
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const _durS = (s) => typeof s.duration === "number" ? s.duration : String(s.duration || "").split(":").reduce((a, x) => a * 60 + (+x || 0), 0);
+function smixUrl(a, b) {
+  const q = (p, s) => p + "=" + encodeURIComponent(s.id) + "&" + p + "title=" + encodeURIComponent(s.title || "") +
+    "&" + p + "artist=" + encodeURIComponent(s.artist || "") + "&" + p + "dur=" + (_durS(s) || "");
+  return "/automix/prep?" + q("a", a) + "&" + q("b", b);
+}
+// pide la transicion y espera a que el servidor la tenga (como mucho hasta el instante `deadline` del reloj de audio)
+async function smixPrep(a, b, deadline, still) {
+  const u = smixUrl(a, b);
+  for (;;) {
+    let r = null; try { r = await jget(u); } catch (e) {}
+    if (!still()) return null;
+    if (r && r.state === "off") { SMIX.off = true; return null; }
+    if (!r || r.state === "error") return null;
+    if (r.state === "ready") return r;
+    if (AC.currentTime > deadline) return null;
+    await _sleep(2500);
+    if (!still()) return null;
+  }
+}
+function smixClip(k) {
+  if (SMIX.clips.has(k)) return SMIX.clips.get(k);
+  const p = fetch("/automix/clip?k=" + k).then(r => { if (!r.ok) throw new Error("clip"); return r.arrayBuffer(); })
+    .then(ab => AC.decodeAudioData(ab));
+  SMIX.clips.set(k, p); p.catch(() => SMIX.clips.delete(k));
+  while (SMIX.clips.size > 2) SMIX.clips.delete(SMIX.clips.keys().next().value);
+  return p;
+}
+// mono diezmado (suma de D muestras) de [t0, t1) segundos
+function _monoD(buf, t0, t1, D) {
+  const sr = buf.sampleRate, a = Math.max(0, Math.round(t0 * sr)), b = Math.min(buf.length, Math.round(t1 * sr));
+  const c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
+  const n = Math.max(0, Math.floor((b - a) / D)), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let v = 0; const s = a + i * D; for (let d = 0; d < D; d++) v += c0[s + d] + c1[s + d]; out[i] = v; }
+  return out;
+}
+function _xcorr(c, r, l0, l1) {   // mejor desfase l (r[i+l] ~ c[i]) en [l0, l1] y su correlacion normalizada
+  let cn = 0; for (let i = 0; i < c.length; i++) cn += c[i] * c[i];
+  let best = -2, bl = l0;
+  for (let l = l0; l <= l1; l++) {
+    let s = 0, rn = 0;
+    for (let i = 0; i < c.length; i++) { const x = r[i + l]; s += c[i] * x; rn += x * x; }
+    const v = s / Math.sqrt(cn * rn + 1e-12);
+    if (v > best) { best = v; bl = l; }
+  }
+  return [bl, best];
+}
+// cuanto hay que correr ref para que suene como el clip: clip(cPos + x) ~ ref(rPos + lag + x). null si no casan
+function smixLag(clip, cPos, ref, rPos, win = .6, rng = .25) {
+  const D = 8, sr = clip.sampleRate;
+  const c = _monoD(clip, cPos, cPos + win, D), r = _monoD(ref, rPos - rng, rPos + win + rng, D), R = Math.round(rng * sr / D);
+  if (c.length < 200 || r.length < c.length + 2 * R) return null;
+  const [l1] = _xcorr(c, r, 0, 2 * R);
+  // afinado a la muestra alrededor del desfase grueso
+  const cf = _monoD(clip, cPos, cPos + .25, 1), base = (l1 - R) * D, rf = _monoD(ref, rPos + base / sr - D / sr, rPos + base / sr + .25 + 2 * D / sr, 1);
+  if (rf.length < cf.length + 2 * D) return null;
+  const [l2, corr] = _xcorr(cf, rf, 0, 2 * D);
+  return { lag: (base + l2 - D) / sr, corr };
+}
+// contenido extra que avanza una cancion por sus tramos de velocidad (como mixExtra, para unos tramos dados)
+function segExtra(segs, t) {
+  if (!segs) return 0;
+  let s = 0;
+  for (const g of segs) {
+    if (t <= g.t0) break;
+    const x = Math.min(t, g.t1) - g.t0, slope = isFinite(g.t1) ? (g.r1 - g.r0) / (g.t1 - g.t0) : 0;
+    s += (g.r0 - 1) * x + slope * x * x / 2;
+  }
+  return s;
+}
+// programa A -> clip -> B (devuelve false si ya no da tiempo o los bordes no casan)
+function smixSchedule(r, cb, bbuf, song) {
+  if (!eng.node || !eng.node._g || !eng.buf || eng.gInfo) return false;
+  const A = eng.buf, leadB = bbuf._lead || 0, leadA = A._lead || 0;
+  const la = smixLag(cb, .3, A, r.t0 + .3), lb = smixLag(cb, r.dur - 1.3, bbuf, r.bEnd - 1.3);
+  if (!la || !lb || la.corr < .6 || lb.corr < .6) { console.warn("[automix] el clip no casa con las canciones", la, lb); return false; }
+  const XF = .02, c0 = .35, qh = r.dur - .4;      // se entra al clip en su segundo c0 (A sola) y se sale en qh (B sola)
+  const E = segExtra(eng.rseg, 1e9);               // lo que adelanto A en su propia entrada (si vino de otra mezcla)
+  const S = eng.start + (r.t0 + la.lag + c0 - leadA) - E;   // instante en que A llega al punto c0 del clip
+  if (S < AC.currentTime + 1.2) return false;
+  const at = (p) => S + (p - c0), H = at(qh), bOff = r.bEnd - (r.dur - qh) + lb.lag;
+  const gA = _ng(A), gB = _ng(bbuf);
+  const cn = _src(cb), bn = _src(bbuf);
+  try {
+    cn._n.gain.setValueAtTime(gA, 0); cn._n.gain.setValueAtTime(gA, at(r.te)); cn._n.gain.linearRampToValueAtTime(gB, at(qh - .3));
+    cn._g.gain.setValueAtTime(0, 0); cn._g.gain.setValueAtTime(0, S); cn._g.gain.linearRampToValueAtTime(1, S + XF);
+    cn._g.gain.setValueAtTime(1, H); cn._g.gain.linearRampToValueAtTime(0, H + XF);
+    cn.start(S, c0); cn.stop(H + XF + .05);
+    bn._g.gain.setValueAtTime(0, 0); bn._g.gain.setValueAtTime(0, H); bn._g.gain.linearRampToValueAtTime(1, H + XF);
+    bn.start(H, bOff);
+    const ga = eng.node._g.gain; ga.cancelScheduledValues(S); ga.setValueAtTime(ga.value, S); ga.linearRampToValueAtTime(0, S + XF);
+    eng.node.stop(S + XF + .05);
+  } catch (e) { _kill(cn); _kill(bn); return false; }
+  bn._aux = [cn];
+  // reloj de B: va a la velocidad del clip (speed hasta te, vuelve a 1 en ramp) y en H coincide con su archivo
+  const s0 = r.speed || 1, Ts = at(r.ts), Te = at(r.te);
+  const inSeg = Math.abs(s0 - 1) > 1e-4 ? [{ t0: Ts, t1: Te, r0: s0, r1: s0 }, { t0: Te, t1: Te + r.ramp, r0: s0, r1: 1 }, { t0: Te + r.ramp, t1: Infinity, r0: 1, r1: 1 }] : null;
+  const startB = H + segExtra(inSeg, H) - (bOff - leadB);
+  eng.gNode = bn;
+  eng.gInfo = { buf: bbuf, song, when: Math.max(S + .05, at(r.sw)), X: 0, mix: true, clip: true, S, o0: S - .5, startB, inSeg,
+                style: "servidor · " + r.label, tV: at(r.win[1]), info: r };
+  eng.mixWins = (eng.mixWins || []).filter(w => w.b > AC.currentTime).concat([{ a: at(r.win[0]), b: at(r.win[1]) }]);
+  eng.mixPair = { a: current, b: song, wa: at(r.win[0]), wb: at(r.win[1]) };
+  _scheduleBoundary();
+  return true;
+}
+// intenta la mezcla del servidor para current -> song (true si quedo programada)
+async function smixTry(cur, song, buf) {
+  if (SMIX.off || CX.remote) return false;
+  const still = () => eng.playing && !eng.gInfo && _gaplessSong() === song && current === cur;
+  const endA = eng.start + eng.dur - rsegTotal();
+  const r = await smixPrep(cur, song, endA - 45, still);   // si no llega 45 s antes del final: la del navegador
+  if (!r || !still()) return false;
+  let cb; try { cb = await smixClip(r.key); } catch (e) { return false; }
+  if (!still()) return false;
+  return smixSchedule(r, cb, buf, song);
+}
 async function engScheduleNext(song) {       // programa la siguiente pista de forma gapless
   if (eng.gInfo && eng.gInfo.mix && AC.currentTime >= (eng.gInfo.o0 || eng.gInfo.when) - .3) return;   // mezcla en marcha
   _clearGapless();
@@ -4060,6 +4236,9 @@ async function engScheduleNext(song) {       // programa la siguiente pista de f
   const inAlbum = _albumRun && current && _albumRun.has(current.id) && _albumRun.has(song.id);
   if (AUTOMIX && !inAlbum && !IOS_WEB && repeat !== "one") {
     const cur = current, to = (p) => Promise.race([p, new Promise(r => setTimeout(() => r(null), 1800))]);
+    // primero la del servidor (motor completo); si no puede o no llega a tiempo, la del navegador
+    if (await smixTry(cur, song, buf)) return;
+    if (!eng.playing || eng.gInfo || _gaplessSong() !== song || current !== cur) return;
     // letra de las dos (donde canta cada una) y genero de catalogo (segunda opinion del analisis del audio)
     const [voc, vocA, gA, gB] = await Promise.all([mixVocals(song), mixVocals(cur), to(mixGenre(cur)), to(mixGenre(song))]);
     await new Promise(r => setTimeout(r, 0));   // el analisis (una vez por cancion) fuera del arranque
@@ -8391,6 +8570,59 @@ $("devSkip").addEventListener("click", devSkipMix);
 $("devFold").addEventListener("click", () => { const m = $("devmix"); m.classList.toggle("fold"); $("devFold").textContent = m.classList.contains("fold") ? "+" : "–"; });
 setInterval(devTick, 250);
 setTimeout(devCheck, 1500);
+/* las dos caratulas durante la mezcla (ver .mixdeck en el CSS) */
+const MDK = { on: false, pair: null, t: 0, t2: 0, els: [] };
+function mdkEls() {
+  if (MDK.els.length) return MDK.els;
+  for (const [img, big] of [[$("pcover"), false], [$("npCover"), true]]) {
+    const d = document.createElement("div");
+    d.className = "mixdeck" + (big ? " big" : ""); d.setAttribute("aria-hidden", "true");
+    d.innerHTML = '<img class="md-a" alt="" decoding="async"><img class="md-b" alt="" decoding="async">';
+    img.parentElement.appendChild(d);
+    MDK.els.push({ d, img, big, a: d.firstChild, b: d.lastChild });
+  }
+  return MDK.els;
+}
+function mdkPlace(e) {   // justo encima de la caratula real (la grande va en su misma celda de la rejilla)
+  const w = e.img.offsetWidth, h = e.img.offsetHeight;
+  if (!w || !h) return;
+  e.d.style.width = w + "px"; e.d.style.height = h + "px";
+  if (!e.big) { e.d.style.left = e.img.offsetLeft + "px"; e.d.style.top = e.img.offsetTop + "px"; }
+  else e.d.style.aspectRatio = "auto";
+}
+function mdkStart(pair) {
+  if (!pair || !pair.a || !pair.b) return;
+  clearTimeout(MDK.t); clearTimeout(MDK.t2);
+  MDK.pair = pair; MDK.on = true;
+  for (const e of mdkEls()) {
+    e.a.src = e.big ? hiCover(pair.a.cover) : pair.a.cover;
+    e.b.src = e.big ? hiCover(pair.b.cover) : pair.b.cover;
+    e.d.classList.remove("fan", "settle", "enter"); e.d.style.setProperty("--mp", "0");
+    mdkPlace(e);
+    e.d.classList.add("on"); e.img.parentElement.classList.add("mdk-on");
+  }
+  // un fotograma con la que sale tal cual (encima de la real: no se nota) y luego se abre el abanico
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!MDK.on) return;
+    MDK.els.forEach(e => e.d.classList.add("fan", "enter"));
+    MDK.t2 = setTimeout(() => MDK.els.forEach(e => e.d.classList.remove("enter")), 950);
+  }));
+}
+function mdkProgress(p) {
+  const v = Math.max(0, Math.min(1, p)).toFixed(3);
+  MDK.els.forEach(e => { e.d.style.setProperty("--mp", v); if (e.big && e.img.offsetWidth && Math.abs(e.d.offsetWidth - e.img.offsetWidth) > 1) mdkPlace(e); });
+}
+function mdkEnd(ok) {
+  if (!MDK.on) return;
+  MDK.on = false; clearTimeout(MDK.t2);
+  const hide = () => MDK.els.forEach(e => {
+    e.img.parentElement.classList.remove("mdk-on"); e.d.classList.remove("on");
+    setTimeout(() => { if (!MDK.on) e.d.classList.remove("fan", "settle", "enter"); }, 400);
+  });
+  if (!ok) return hide();   // mezcla anulada (salto, pausa...): fuera sin mas
+  MDK.els.forEach(e => { e.d.classList.remove("enter"); e.d.classList.add("settle"); });
+  MDK.t = setTimeout(hide, 880);   // la que entra ya esta en el sitio de la real: se cruzan sin salto
+}
 const _ui = { cur: "", dur: "", pct: -1, last: 0, mix: false };
 function uiTick(now) {
   if (!(PERF.on && now - _ui.last < 500)) {
@@ -8403,7 +8635,12 @@ function uiTick(now) {
       if (pct !== _ui.pct) { _ui.pct = pct; seek.value = pct * 10; setFill(seek, pct); }
     } else _ui.pct = -1;
     const ac = AC.currentTime, mx = !!(!CX.remote && eng.playing && (eng.mixWins || []).some(w => ac >= w.a && ac < w.b));
-    if (mx !== _ui.mix) { _ui.mix = mx; document.body.classList.toggle("mixing", mx); }
+    if (mx !== _ui.mix) {
+      _ui.mix = mx; document.body.classList.toggle("mixing", mx);
+      if (mx) mdkStart(eng.mixPair); else mdkEnd(!!(MDK.pair && current && current.id === MDK.pair.b.id));
+    }
+    const mp = eng.mixPair;
+    if (mx && MDK.on && mp && mp.wb > mp.wa) mdkProgress((ac - mp.wa) / (mp.wb - mp.wa));
   }
   requestAnimationFrame(uiTick);
 }

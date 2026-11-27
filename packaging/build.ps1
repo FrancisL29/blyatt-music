@@ -49,7 +49,7 @@ try {
         --add-data "$root\index.html;." --add-data "$root\kara.html;." --add-data "$root\assets;assets" `
         --add-data "$bin\ffmpeg.exe;bin" --add-data "$bin\node.exe;bin" `
         --collect-data ytmusicapi --collect-all yt_dlp_ejs --collect-binaries onnxruntime `
-        --hidden-import dj --collect-all edge_tts `
+        --hidden-import dj --collect-all edge_tts --collect-submodules automix `
         --exclude-module tkinter `
         "$root\main.py"
     if ($LASTEXITCODE) { throw "PyInstaller fallo" }

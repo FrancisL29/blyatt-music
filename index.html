@@ -3329,10 +3329,13 @@ function _onBoundary() {
     if (eng.onAdvance) eng.onAdvance(g.song);   // actualizar UI/cola (sin tocar el audio: ya avanzo solo)
   } else { eng.playing = false; if (eng.onEnded) eng.onEnded(); }
 }
-async function engLoad(id) {                 // carga y reproduce desde 0 (lanza si falla)
+async function engLoad(id, ok) {             // carga y reproduce desde 0 (lanza si falla)
   if (AC.state === "suspended") AC.resume();
   const buf = await getBuffer(id);
+  // saltos rapidos: una cancion saltada cuya descarga llega tarde NO suena (antes sonaba un momento cada una)
+  if (ok && !ok()) return false;
   _stop(); _startBuf(buf, 0); if (eng.onState) eng.onState();
+  return true;
 }
 /* ====== Automix: transiciones como un DJ (como el AutoMix de Apple Music o el de Spotify) ======
    De cada cancion se saca (una vez, del audio ya descodificado) su tempo y su rejilla de golpes (autocorrelacion de
@@ -4129,16 +4132,21 @@ function smixUrl(a, b) {
 }
 // pide la transicion y espera a que el servidor la tenga (como mucho hasta el instante `deadline` del reloj de audio)
 async function smixPrep(a, b, deadline, still) {
+  // saltos rapidos: no se pide nada hasta que la cancion lleva un momento sonando (solo se calcula la que se escucha)
+  for (let i = 0; i < 14; i++) { await _sleep(250); if (!still()) return null; }
   const u = smixUrl(a, b);
+  let key = null;
+  const drop = () => { if (key) fetch("/automix/drop?k=" + key).catch(() => {}); return null; };   // ya no interesa
   for (;;) {
     let r = null; try { r = await jget(u); } catch (e) {}
-    if (!still()) return null;
+    if (r && r.key) key = r.key;
+    if (!still()) return r && r.state === "ready" ? null : drop();
     if (r && r.state === "off") { SMIX.off = true; return null; }
     if (!r || r.state === "error") return null;
     if (r.state === "ready") return r;
-    if (AC.currentTime > deadline) return null;
+    if (AC.currentTime > deadline) return drop();
     await _sleep(2500);
-    if (!still()) return null;
+    if (!still()) return drop();
   }
 }
 function smixClip(k) {
@@ -7379,8 +7387,8 @@ async function _engStart(s, tok) {
   try {
     await resolveAtv(s);
     if (tok !== playToken) return;
-    await engLoad(s.id);            // decodifica (Web Audio) y reproduce desde 0
-    if (tok !== playToken) return;
+    const started = await engLoad(s.id, () => tok === playToken);   // decodifica (Web Audio) y reproduce desde 0
+    if (started === false || tok !== playToken) return;
     seek.classList.remove("loading");
     onPlaybackStarted(s);
   } catch (err) {

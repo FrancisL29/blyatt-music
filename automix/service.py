@@ -9,6 +9,7 @@
 El clip contiene SOLO la mezcla: empieza un poco antes de que entre B (A tal cual) y acaba con B ya a su tempo. El
 reproductor suena A -> clip -> B y salta de un archivo a otro donde suenan igual.
 """
+import concurrent.futures as cf
 import hashlib
 import json
 import os
@@ -29,9 +30,14 @@ API = None
 CACHE = None
 _locks, _llock = {}, threading.Lock()
 _audio = {}         # id -> audio descodificado (las ultimas canciones)
-_jobs = {}          # clave -> {"state": "working"|"error", "t": ..., "err": ...}
-_jlock = threading.Lock()
-_work = threading.Semaphore(1)     # una transicion a la vez (el servidor es un movil)
+_jobs = {}          # clave -> trabajo (ver prep)
+_jcv = threading.Condition()
+_worker = None
+STALE = 9.0         # s sin que nadie pregunte por una transicion: ya no interesa (el usuario salto) -> se descarta
+
+
+class Cancelled(Exception):
+    pass
 
 
 def configure(api, cache_dir):
@@ -118,6 +124,13 @@ def lyrics_lines(vid, title, artist, dur):
         off = float(API.lyrics_align(vid, title, artist, d.get("source", ""), dur).get("offset") or 0)
     except Exception:
         off = 0
+    return lines_of(d, off), d.get("source")
+
+
+def lines_of(d, off=0):
+    """letra del servidor -> [{t, e, text}] en segundos (con su desfase en ms)"""
+    if not d or d.get("type") not in ("Word", "Line"):
+        return []
     L = [l for l in d.get("lines") or [] if isinstance(l.get("time"), (int, float)) and re.sub(r"[♪♫♬~\s]", "", l.get("text") or "")]
     out = []
     for i, l in enumerate(L):
@@ -131,7 +144,7 @@ def lyrics_lines(vid, title, artist, dur):
         else:
             e = s + max(1.2, min(6, len((l.get("text") or "").split()) * .42))
         out.append({"t": round(s, 2), "e": round(max(s + .3, min(e, nx - .05)), 2), "text": l.get("text")})
-    return out, d.get("source")
+    return out
 
 
 _GLAB = {"verse": "estrofa", "pre-chorus": "pre-estribillo", "prechorus": "pre-estribillo", "chorus": "estribillo",
@@ -250,12 +263,12 @@ def chorus_times(lines):
     return out
 
 
-def rhythm_part(x, dz, lines, gsec, genres, vact, L):
-    """todo lo que depende del ritmo (tempo, golpes, bombo, tonalidad, secciones, energia)"""
+def rhythm_part(x, dz, lines, gsec, genres, vact, L, rk=None):
+    """todo lo que depende del ritmo (tempo, golpes, bombo, tonalidad, secciones, energia). rk = (ritmo, tono) ya
+    calculados (para hacerlos mientras llega la letra)"""
     mono = x.mean(0)
     dur_s = x.shape[1] / an.SR
-    r = an.rhythm(mono, (dz or {}).get("bpm"))
-    k = an.key(mono)
+    r, k = rk or (an.rhythm(mono, (dz or {}).get("bpm")), an.key(mono))
     lvl, ex = an.energy_level(L, r["onsets"], r["envLow"], r["env"], r["bpm"])
     ch = [g["t0"] for g in gsec if g["label"] == "estribillo"] or chorus_times(lines)
     secs, ebar, reps = an.sections(r, k, dur_s, vact, ch)
@@ -272,9 +285,11 @@ def rhythm_part(x, dz, lines, gsec, genres, vact, L):
     return d, r
 
 
-def analyze(vid, title, artist, dur, sep=None, x=None):
+def analyze(vid, title, artist, dur, sep=None, x=None, chk=None):
     """Analisis de una cancion (una vez: JSON en cache). sep(x) -> instrumental (2, n): voz separada, opcional (el
-    laboratorio); sin ella, donde canta sale de la letra sincronizada"""
+    laboratorio); sin ella, donde canta sale de la letra sincronizada. chk() lanza Cancelled si ya no interesa.
+    Lo de la red (letra y su alineacion, Genius, Deezer, generos) va en paralelo con el analisis del audio"""
+    chk = chk or (lambda: None)
     jp = os.path.join(CACHE, vid + ".json")
     with _lock("an:" + vid):
         d = _jload(jp) if os.path.isfile(jp) else None
@@ -291,12 +306,48 @@ def analyze(vid, title, artist, dur, sep=None, x=None):
             _jsave(jp, d)
             return d
         tm = {}
-        t = time.time()
-        x = load(vid) if x is None else x
-        tm["descarga+decodificar"] = round(time.time() - t, 2)
-        dz = deezer_info(title, artist)
-        L = an.lufs(x)
-        lines, lsrc = lyrics_lines(vid, title, artist, dur or x.shape[1] / an.SR)
+        T0 = time.time()
+        ex = cf.ThreadPoolExecutor(5)
+        fut = {"dz": ex.submit(deezer_info, title, artist), "gs": ex.submit(genius_sections, title, artist),
+               "gen": ex.submit(lambda: (API.mix_genre(title, artist) or {}).get("genres") or [])}
+
+        def net_lyrics(d_):
+            fut["ly"] = ex.submit(API.lyrics, title, artist, d_, vid)
+            fut["al"] = ex.submit(lambda: float(API.lyrics_align(vid, title, artist, "", d_).get("offset") or 0))
+        if dur:
+            net_lyrics(dur)
+
+        def got(k, wait, default):
+            try:
+                return fut[k].result(timeout=max(0.0, wait))
+            except Exception:
+                return default
+        try:
+            t = time.time()
+            x = load(vid) if x is None else x
+            tm["descarga+decodificar"] = round(time.time() - t, 2)
+            if not dur:
+                net_lyrics(x.shape[1] / an.SR)
+            chk()
+            t = time.time()
+            L = an.lufs(x)
+            dz = got("dz", 6, {})
+            mono = x.mean(0)
+            chk()
+            r = an.rhythm(mono, (dz or {}).get("bpm"))
+            chk()
+            k = an.key(mono)
+            tm["audio"] = round(time.time() - t, 2)
+            chk()
+            # la letra (y su desfase) puede tardar: se espera un poco mas que el audio; sin desfase si no llega
+            dly = got("ly", 8, {})
+            off = got("al", 2.5, 0.0)
+            lines, lsrc = lines_of(dly, off), (dly or {}).get("source")
+            gsec_raw = got("gs", 3, [])
+            genres = got("gen", 3, [])
+        finally:
+            ex.shutdown(wait=False)   # lo que no llego sigue en segundo plano (queda en la cache del servidor)
+        tm["red (espera)"] = round(time.time() - T0 - sum(v for v in tm.values()), 2)
         vocals, vact, sep_t = None, None, None
         if sep:
             t = time.time()
@@ -306,15 +357,10 @@ def analyze(vid, title, artist, dur, sep=None, x=None):
             np.save(os.path.join(CACHE, vid + "_inst.npy"), inst.astype(np.float16))
             vact, _ = an.vocal_activity(x, inst)
             vocals = an.spans(vact)
+        gsec = map_sections(gsec_raw, lines)
+        chk()
         t = time.time()
-        gsec = map_sections(genius_sections(title, artist), lines)
-        tm["Genius"] = round(time.time() - t, 2)
-        try:
-            genres = API.mix_genre(title, artist).get("genres") or []
-        except Exception:
-            genres = []
-        t = time.time()
-        rd, r = rhythm_part(x, dz, lines, gsec, genres, vact, L)
+        rd, r = rhythm_part(x, dz, lines, gsec, genres, vact, L, rk=(r, k))
         tm["ritmo/tono/secciones"] = round(time.time() - t, 2)
         e = r["env"]
         med = float(np.median(e))
@@ -369,31 +415,66 @@ def _meta_path(k):
     return os.path.join(CACHE, "x_%s.json" % k)
 
 
-def _build(k, a, b):
-    with _work:
-        t = time.time()
-        A = analyze(a["id"], a.get("title", ""), a.get("artist", ""), a.get("dur") or 0)
-        B = analyze(b["id"], b.get("title", ""), b.get("artist", ""), b.get("dur") or 0)
-        ta = time.time() - t
-        plans = planner.plan(A, B, stems=False)
-        p = plans[0]
-        xa, xb = load(a["id"]), load(b["id"])
-        t = time.time()
-        wav, marks, info = mix.render(A, B, {"A": {"mix": xa, "inst": None}, "B": {"mix": xb, "inst": None}}, p,
-                                      stems=False, pre=1.5, post=2.5, viz=False)
-        tr = time.time() - t
-        fp = _encode(wav, os.path.join(CACHE, "x_" + k))
-        meta = {"state": "ready", "key": k, "a": a["id"], "b": b["id"], "tpl": p["tpl"], "label": p["label"],
-                "why": p["why"][:3], "fmt": os.path.splitext(fp)[1][1:], "marks": marks,
-                "secs": {"analisis": round(ta, 1), "render": round(tr, 1)}}
-        meta.update({kk: info[kk] for kk in ("t0", "dur", "speed", "sw", "win", "ts", "te", "ramp", "bIn", "bEnd")})
-        _jsave(_meta_path(k), json.loads(json.dumps(meta, default=float)))
-        _prune()
-        return meta
+def _build(k, a, b, chk):
+    t = time.time()
+    with cf.ThreadPoolExecutor(2) as ex:   # las dos a la vez (otro nucleo; la red de cada una tambien)
+        fa = ex.submit(analyze, a["id"], a.get("title", ""), a.get("artist", ""), a.get("dur") or 0, None, None, chk)
+        fb = ex.submit(analyze, b["id"], b.get("title", ""), b.get("artist", ""), b.get("dur") or 0, None, None, chk)
+        A, B = fa.result(), fb.result()
+    ta = time.time() - t
+    chk()
+    plans = planner.plan(A, B, stems=False)
+    p = plans[0]
+    xa, xb = load(a["id"]), load(b["id"])
+    t = time.time()
+    wav, marks, info = mix.render(A, B, {"A": {"mix": xa, "inst": None}, "B": {"mix": xb, "inst": None}}, p,
+                                  stems=False, pre=1.5, post=2.5, viz=False)
+    tr = time.time() - t
+    fp = _encode(wav, os.path.join(CACHE, "x_" + k))
+    meta = {"state": "ready", "key": k, "a": a["id"], "b": b["id"], "tpl": p["tpl"], "label": p["label"],
+            "why": p["why"][:3], "fmt": os.path.splitext(fp)[1][1:], "marks": marks,
+            "secs": {"analisis": round(ta, 1), "render": round(tr, 1)}}
+    meta.update({kk: info[kk] for kk in ("t0", "dur", "speed", "sw", "win", "ts", "te", "ramp", "bIn", "bEnd")})
+    _jsave(_meta_path(k), json.loads(json.dumps(meta, default=float)))
+    _prune()
+    return meta
+
+
+def _work_loop():
+    """Un solo trabajador (el servidor es un movil): siempre la transicion pedida mas recientemente. Las que nadie
+    pide desde hace STALE s (el usuario salto) se descartan, tambien a medias (entre paso y paso)"""
+    while True:
+        with _jcv:
+            while True:
+                now = time.time()
+                for kk in [kk for kk, j in _jobs.items() if j["state"] == "pending" and (j["cancel"] or now - j["seen"] > STALE)]:
+                    _jobs.pop(kk)
+                pend = [(j["seen"], kk) for kk, j in _jobs.items() if j["state"] == "pending"]
+                if pend:
+                    k = max(pend)[1]
+                    j = _jobs[k]
+                    j["state"] = "working"
+                    break
+                _jcv.wait(5)
+
+        def chk(j=j):
+            if j["cancel"] or time.time() - j["seen"] > STALE:
+                raise Cancelled()
+        try:
+            _build(k, j["a"], j["b"], chk)
+            with _jcv:
+                _jobs.pop(k, None)
+        except Cancelled:
+            with _jcv:
+                _jobs.pop(k, None)
+        except Exception as e:
+            with _jcv:
+                j.update(state="error", t=time.time(), err=str(e)[:200])
 
 
 def prep(a, b):
-    """Estado de la transicion a -> b; si no esta ni en marcha, la pone en marcha (en segundo plano)"""
+    """Estado de la transicion a -> b (cada consulta la mantiene "interesante"); si no esta, la encola"""
+    global _worker
     k = key(a["id"], b["id"])
     mp = _meta_path(k)
     if os.path.isfile(mp):
@@ -401,22 +482,28 @@ def prep(a, b):
             return _jload(mp)
         except Exception:
             pass
-    with _jlock:
+    with _jcv:
         j = _jobs.get(k)
-        if j and (j["state"] == "working" or time.time() - j["t"] < 120):
-            return {"state": j["state"], "key": k, "error": j.get("err")}
-        _jobs[k] = {"state": "working", "t": time.time()}
+        now = time.time()
+        if j and j["state"] == "error" and now - j["t"] < 60:
+            return {"state": "error", "key": k, "error": j.get("err")}
+        if not j or j["state"] == "error":
+            j = _jobs[k] = {"state": "pending", "a": a, "b": b, "t": now, "seen": now, "cancel": False}
+        j["seen"], j["cancel"] = now, False
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_work_loop, daemon=True)
+            _worker.start()
+        _jcv.notify_all()
+        return {"state": "working", "key": k, "queued": j["state"] == "pending"}
 
-    def run():
-        try:
-            _build(k, a, b)
-            with _jlock:
-                _jobs.pop(k, None)
-        except Exception as e:
-            with _jlock:
-                _jobs[k] = {"state": "error", "t": time.time(), "err": str(e)[:200]}
-    threading.Thread(target=run, daemon=True).start()
-    return {"state": "working", "key": k}
+
+def drop(k):
+    """El reproductor ya no la quiere (salto de cancion): se descarta (si nadie mas pregunta por ella)"""
+    with _jcv:
+        j = _jobs.get(k)
+        if j and j["state"] in ("pending", "working"):
+            j["cancel"] = True
+        _jcv.notify_all()
 
 
 def clip_path(k):

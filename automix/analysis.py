@@ -49,17 +49,22 @@ def mid_flux(mono, lo=60, hi=3000):
     """Flujo espectral (subidas del espectro en log) solo entre 60 y 3000 Hz: el golpe del bombo y la caja. Sin los
     agudos (charles a contratiempo) ni el sub (en hard techno el rumble llena el hueco entre bombos y su vuelta se
     confundia con el golpe). Devuelve (flujo, segundos de cada valor). Por trozos: poca memoria (servidor)"""
-    N, Hh = 1024, FLUX_HOP
-    x = np.concatenate([np.zeros(Hh, np.float32), mono.astype(np.float32)])   # ventana "anterior" a la primera
+    # a 11025 Hz (hasta 3 kHz sobra): misma ventana (23 ms), mismo paso (2,9 ms) y mismas bandas que a 44,1 kHz,
+    # con FFT 4 veces mas pequenas (el telefono tardaba 9 s por cancion)
+    D = 4
+    sr = SR / D
+    N, Hh = 1024 // D, FLUX_HOP // D
+    xd = signal.resample_poly(mono.astype(np.float32), 1, D).astype(np.float32)
+    x = np.concatenate([np.zeros(Hh, np.float32), xd])   # ventana "anterior" a la primera
     out, CH = [], Hh * 6000             # ~17 s por trozo; las ventanas de un trozo empiezan en a, a+Hh, ...
     for a in range(0, len(x) - N, CH):
         seg = x[a: a + CH + N]
-        f, t, Z = signal.stft(seg, fs=SR, nperseg=N, noverlap=N - Hh, boundary=None, padded=False)
+        f, t, Z = signal.stft(seg, fs=sr, nperseg=N, noverlap=N - Hh, boundary=None, padded=False)
         sel = (f >= lo) & (f < hi)
         L = np.log1p(1000 * np.abs(Z[sel])).astype(np.float32)
         out.append(np.maximum(0, L[:, 1:] - L[:, :-1]).sum(0))   # la 1a ventana solo sirve de "anterior"
     fl = np.concatenate(out)
-    tt = (np.arange(len(fl)) * Hh + N / 2) / SR    # centro de cada ventana (en tiempo del audio original)
+    tt = (np.arange(len(fl)) * Hh + N / 2) / sr    # centro de cada ventana (en tiempo del audio original)
     return fl, tt
 
 
@@ -296,7 +301,7 @@ def key(mono):
     casilla de la rueda Camelot (relativa o quinta: siguen siendo compatibles para mezclar)"""
     x = signal.resample_poly(mono, 1, 4)          # 11025 Hz
     sr = SR / 4
-    f, t, Z = signal.stft(x, fs=sr, nperseg=8192, noverlap=6144, boundary=None)
+    f, t, Z = signal.stft(x.astype(np.float32), fs=sr, nperseg=8192, noverlap=6144, boundary=None)
     M = np.abs(Z)
     ok = (f >= 100) & (f <= 2500)
     pc = ((np.rint(12 * np.log2(f[ok] / 440.0)) + 9) % 12).astype(int)
@@ -344,9 +349,12 @@ def _biquad(kind, f0, q, gain_db, fs):
 def lufs(x):
     b1, a1 = _biquad("hs", 1681.97, .7072, 4.0, SR)
     b2, a2 = _biquad("hp", 38.135, .5003, 0, SR)
-    y = signal.lfilter(b2, a2, signal.lfilter(b1, a1, x, axis=1), axis=1)
+    sos = np.vstack([signal.tf2sos(b1, a1), signal.tf2sos(b2, a2)])
+    y = signal.sosfilt(sos, x.astype(np.float32), axis=1)
     blk, step = int(.4 * SR), int(.1 * SR)
-    ms = np.array([(y[:, i:i + blk] ** 2).mean(1).sum() for i in range(0, y.shape[1] - blk, step)])
+    cs = np.concatenate([[0.0], np.cumsum((y * y).sum(0), dtype=np.float64)])   # bloques de 400 ms cada 100 ms
+    st = np.arange(0, y.shape[1] - blk, step)
+    ms = (cs[st + blk] - cs[st]) / blk
     if not len(ms):
         return -70.0
     L = -0.691 + 10 * np.log10(ms + 1e-12)

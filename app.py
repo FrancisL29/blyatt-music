@@ -5158,6 +5158,12 @@ class H(BaseHTTPRequestHandler):
                 return self._json(amx.prep(*songs))
             except Exception as e:
                 return self._json({"state": "error", "error": str(e)[:200]})
+        elif u.path == "/automix/drop":   # el reproductor ya no la quiere (salto): fuera de la cola
+            amx = automix()
+            k = parse_qs(u.query).get("k", [""])[0]
+            if amx and re.fullmatch(r"[0-9a-f]{16}", k):
+                amx.drop(k)
+            return self._json({"ok": True})
         elif u.path == "/automix/clip":   # el audio de esa transicion (solo la mezcla)
             amx = automix()
             fp = amx.clip_path(parse_qs(u.query).get("k", [""])[0]) if amx else None
@@ -5506,6 +5512,10 @@ def serve(port=8000):
     host = os.environ.get("BLYATT_HOST", "127.0.0.1")
 
     def _warm():   # la 1a extraccion carga los extractores de yt-dlp (+~1s): que no la pague el usuario
+        try:
+            automix()   # el motor del Automix (numpy/scipy) cargado de antemano
+        except Exception:
+            pass
         try:
             _ydl_pool.put(YoutubeDL(dict(_YDL_OPTS)))
             _extract_with("jNQXAC9IVRw")

@@ -2407,10 +2407,13 @@ def _player_info():
         ifr = _yt_get("https://www.youtube.com/iframe_api").decode()
         pid = re.search(r"/s/player/([0-9a-fA-F]{8})/", ifr.replace("\\/", "/")).group(1)
         if pid != _PLAYER["pid"] or not _PLAYER["sts"]:
-            url = "https://www.youtube.com/s/player/%s/player_ias.vflset/en_US/base.js" % pid
+            # variante "tv" del player (como yt-dlp desde 2026.11.23): con la principal (base.js) los players nuevos
+            # (b485e332...) rompen el preprocesado de yt-dlp-ejs ("a.addOnDisposeCallback is not a function").
+            # El reto n es el mismo para todos los clientes; el STS va truncado a 5 cifras (igual que yt-dlp)
+            url = "https://www.youtube.com/s/player/%s/tv-player-ias.vflset/tv-player-ias.js" % pid
             js = _yt_get(url, timeout=30).decode()
             _PLAYER.update(pid=pid, url=url, js=js,
-                           sts=int(re.search(r"(?:signatureTimestamp|sts)\s*:\s*(\d{5})", js).group(1)))
+                           sts=int(re.search(r"(?:signatureTimestamp|sts)\s*:\s*(\d{5,})", js).group(1)[:5]))
         _PLAYER["t"] = time.time()
         return dict(_PLAYER)
 
@@ -2437,7 +2440,8 @@ class _JscWorker:
         path = os.path.join(CACHE_DIR, "jscw.js")
         with open(path, "w", encoding="utf8") as f:
             f.write(_JSCW_JS)
-        self.p = subprocess.Popen([node, "--permission", path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        # --allow-fs-read solo del propio script: algunas versiones de node (Windows, 22.x) no dejan leer ni el de entrada
+        self.p = subprocess.Popen([node, "--permission", "--allow-fs-read=" + path, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, encoding="utf8")
         self._call({"lib": ejs_solver.lib(), "core": ejs_solver.core()})
 
@@ -2445,7 +2449,7 @@ class _JscWorker:
         pre = self.pre.get(pi["pid"])
         if pre:
             return pre
-        fp = os.path.join(CACHE_DIR, "jsc_%s.js" % pi["pid"])   # sobrevive reinicios (~4MB, solo el vigente)
+        fp = os.path.join(CACHE_DIR, "jsc_tv_%s.js" % pi["pid"])   # sobrevive reinicios (~4MB, solo el vigente)
         if os.path.isfile(fp):
             with open(fp, encoding="utf8") as f:
                 pre = f.read()

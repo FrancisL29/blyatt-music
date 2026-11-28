@@ -16,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -2895,6 +2896,36 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
     return fp
 
 
+def audio_only(vid):
+    """Solo la pista de audio, sin el video que trae el itag 18 (~25 % del archivo de media; en los videoclips mas
+    de la mitad): para las descargas del modo offline, que no lo usan. Remux sin recodificar (~0.3 s en el movil).
+    None si ffmpeg falla (se sirve el archivo tal cual)."""
+    fd, out = tempfile.mkstemp(suffix=".m4a")
+    os.close(fd)
+    try:
+        with _id_lock("dl", vid):
+            fp = _audio_path(vid)
+            if os.path.isfile(fp) and not _mp4_ok(fp):
+                os.remove(fp)
+            if os.path.isfile(fp):
+                os.utime(fp)
+            else:
+                audio_fetch(vid)
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", fp, "-map", "0:a:0", "-c", "copy",
+                                "-movflags", "+faststart", out], capture_output=True, timeout=90)
+        if r.returncode == 0 and os.path.getsize(out) > 20000:
+            with open(out, "rb") as f:
+                return f.read()
+    except Exception:
+        pass
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+    return None
+
+
 _prewarm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 _prewarm_seen = {}
 
@@ -5265,6 +5296,20 @@ class H(BaseHTTPRequestHandler):
             vid = parse_qs(u.query).get("id", [""])[0]
             if not re.fullmatch(r"[\w-]{6,20}", vid):
                 self.send_response(400); self.end_headers(); return
+            if parse_qs(u.query).get("a", [""])[0] == "1":   # descarga offline: solo el audio
+                data = audio_only(vid)
+                if data:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/mp4")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("X-Audio-Only", "1")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    try:
+                        self.wfile.write(data)
+                    except Exception:
+                        pass
+                    return
             fp = _audio_path(vid)
             sent = [False]
 

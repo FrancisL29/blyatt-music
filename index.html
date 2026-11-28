@@ -777,6 +777,66 @@
                         rgb(255 255 255 / .38) 62%, rgb(255 255 255 / .38) 100%) 100% 0 / 300% 100% no-repeat;
             -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
             animation: mixShine 2.2s linear infinite; animation-play-state: paused; }
+  /* ---------- descargas / modo offline ---------- */
+  .dlic { color: #1ed760; font-size: .95em; margin-right: 5px; vertical-align: -1px; }
+  body.off-on .swq-row:not(.isdl) { opacity: .36; }
+  body.off-on .swq-row:not(.isdl) .play-hint { display: none; }
+  body.off-on #libList .lib-item:not(.isdl) { opacity: .4; }
+  .dl-cov { background: linear-gradient(140deg, #0f9f6e, #2e7dff); color: #fff; font-size: 1.05rem; }
+  .dlbtn { position: relative; }
+  .savebtn.dlbtn.on { color: #1ed760; border-color: rgb(30 215 96 / .45); }
+  .dlbtn.busy i { font-size: .7rem; }
+  .dlbtn.busy::before { content: ""; position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+    border-radius: 50%; background: conic-gradient(var(--accent) var(--dlp, 0%), rgb(255 255 255 / .18) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px)); }
+  .dlbtn.busy.paused::before { background: conic-gradient(var(--muted) var(--dlp, 0%), rgb(255 255 255 / .12) 0); }
+  #setDlWifiRow[hidden] { display: none; }
+  #dlHead[hidden], body:not([data-mv="descargas"]) #dlHead { display: none; }
+  .dl-bigcov { display: grid; place-items: center; border-radius: 12px; color: #fff; font-size: 5.6rem;
+               background: linear-gradient(135deg, #0f9f6e, #2e7dff); box-shadow: 0 16px 40px rgb(0 0 0 / .45); }
+  .dl-art { width: 100%; aspect-ratio: 1; border-radius: 10px; display: grid; place-items: center; font-size: 2.6rem; color: #fff;
+            position: relative; background: linear-gradient(135deg, #0f9f6e, #2e7dff); box-shadow: 0 8px 22px rgb(0 0 0 / .4); }
+  .dl-art.liked { background: linear-gradient(135deg, #4f46e5, #a855f7); }
+  .dl-sug .dl-art { opacity: .55; }
+  .dl-sug:hover .dl-art { opacity: 1; }
+  .dl-plus { position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+             font-size: .95rem; background: #1ed760; color: #062b14; }
+  .dl-off, .dl-q { display: flex; align-items: center; gap: 14px; padding: 13px 14px 13px 16px; margin: 0 0 16px; border-radius: 14px;
+                   border: 1px solid rgb(255 255 255 / .08); background: var(--grain), rgb(255 255 255 / .04); }
+  .dl-off[hidden], .dl-q[hidden], .dl-store[hidden], .dl-sec[hidden] { display: none; }
+  .dl-off > i, .dl-q > i { font-size: 1.45rem; color: var(--accent); flex: none; }
+  .dl-q.run > i { animation: gspin 1s linear infinite; }
+  .dl-off > div, .dl-qt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: .9rem; }
+  .dl-off span, .dl-qt span { font-size: .8rem; color: var(--muted); line-height: 1.35; }
+  .dl-qt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dl-qbar { height: 4px; border-radius: 99px; background: rgb(255 255 255 / .1); overflow: hidden; margin-top: 5px; }
+  .dl-qbar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .35s; }
+  .dl-store { margin: 0 0 22px; }
+  .dl-bar { display: flex; height: 8px; border-radius: 99px; overflow: hidden; background: rgb(255 255 255 / .1); }
+  .dl-bar span { height: 100%; transition: width .45s; }
+  .dl-b1 { background: #1ed760; } .dl-b2 { background: rgb(255 255 255 / .35); }
+  .dl-leg { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 9px; font-size: .78rem; color: var(--muted); }
+  .dl-leg b { color: var(--text); font-weight: 600; margin-left: 2px; }
+  .dl-leg i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dl-sec { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; margin: 6px 0 12px; }
+  .dl-cols { margin-bottom: 26px; }
+  .dl-cols .ccard .a .dlic { font-size: .9em; }
+  @media (max-width: 820px) {   /* movil: misma cabecera que Me gusta (portada grande centrada) */
+    body[data-mv="descargas"] .topbar, body[data-mv="descargas"] #heading { display: none !important; }
+    body[data-mv="descargas"] main { padding-top: var(--sat); }
+    #dlHead .dl-hero { flex-direction: column; align-items: flex-start; gap: 16px; padding-top: 26px; }
+    .dl-bigcov { width: 58vw; height: 58vw; align-self: center; font-size: 24vw; }
+    .dl-bigcov .covplay { opacity: 0; }
+    .dl-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
+    .dl-art { font-size: 2rem; }
+    .dl-plus { width: 24px; height: 24px; right: 6px; bottom: 6px; font-size: .8rem; }
+    body[data-mv="descargas"] #r { margin-right: -8px; }
+    body[data-mv="descargas"] #r > li { grid-template-columns: 42px minmax(0, 1fr) auto 18px; gap: 10px; padding: 6px 0; }
+    body[data-mv="descargas"] #r > li > .cplays, body[data-mv="descargas"] #r > li > .row-like { display: none; }
+    body[data-mv="descargas"] #r > li > .cdots { opacity: 1; justify-self: end; padding: 0; }
+    body[data-mv="descargas"] #r .cover-wrap, body[data-mv="descargas"] #r .cover-wrap img { width: 42px; height: 42px; }
+  }
   /* aviso de conexion con el servidor (solo en el servidor publico): cae, sin internet o acceso caducado */
   #srvbar { position: fixed; z-index: 99990; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 12px);
             transform: translate(-50%, -140%); display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px);
@@ -2143,6 +2203,10 @@
       <span class="lib-cov dj-cov"><i class="ph-fill ph-microphone-stage"></i></span>
       <span class="lib-meta"><span class="lt2">DJ Lara</span><span class="la2" id="djLibS" data-i18n>Tu radio personal</span></span>
     </button>
+    <button class="nav-item lib-item" data-view="descargas" id="dlLib">
+      <span class="lib-cov dl-cov"><i class="ph-fill ph-arrow-circle-down"></i></span>
+      <span class="lib-meta"><span class="lt2" data-i18n>Descargas</span><span class="la2" data-i18n>Escucha sin conexión</span></span>
+    </button>
     <div id="libList"></div>
   </div>
   <div class="lib-sep"></div>
@@ -2176,6 +2240,18 @@
   <div id="likedHero" class="col-hero" hidden>
     <div class="cov liked-bigcov"><i class="ph-fill ph-heart"></i><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div>
     <div><div class="ct" data-i18n>Playlist</div><h1 data-i18n>Me gusta</h1><div class="cmeta" id="likedCount"></div><div class="col-actions" id="likedActs"></div></div>
+  </div>
+  <div id="dlHead" hidden>
+    <div class="col-hero dl-hero">
+      <div class="cov dl-bigcov"><i class="ph-fill ph-arrow-circle-down"></i><button class="covplay" aria-label="Reproducir"><i class="ph-fill ph-play"></i></button></div>
+      <div><div class="ct" id="dlKind"></div><h1 data-i18n>Descargas</h1><div class="cmeta" id="dlCount"></div><div class="col-actions" id="dlActs"></div></div>
+    </div>
+    <div class="dl-off" id="dlOff" hidden><i class="ph ph-cloud-slash"></i><div><b id="dlOffT"></b><span id="dlOffD"></span></div><button class="sbtn" id="dlOffBtn" type="button"></button></div>
+    <div class="dl-q" id="dlQ" hidden><i class="ph ph-circle-notch"></i><div class="dl-qt"><b id="dlQT"></b><span id="dlQS"></span><div class="dl-qbar"><span id="dlQB"></span></div></div><button class="sbtn" id="dlQX" type="button"></button></div>
+    <div class="dl-store" id="dlStore" hidden><div class="dl-bar"><span id="dlB1" class="dl-b1"></span><span id="dlB2" class="dl-b2"></span></div><div class="dl-leg" id="dlLeg"></div></div>
+    <div class="dl-sec" id="dlColsH" data-i18n>Playlists y álbumes</div>
+    <div class="cardgrid dl-cols" id="dlCols"></div>
+    <div class="dl-sec" id="dlSongsH" data-i18n>Canciones</div>
   </div>
   <ul id="r"></ul>
   <div id="empty" class="empty"><i class="ph ph-magnifying-glass"></i><span data-i18n>Busca algo para empezar.</span></div>
@@ -2451,6 +2527,23 @@
         <div class="stx"><div class="stt" data-i18n>Normalizar volumen</div>
           <div class="sds" data-i18n>Todas las canciones suenan igual de fuerte.</div></div>
         <label class="sw"><input type="checkbox" id="setNorm" aria-label="Normalizar volumen" data-i18n-al><span></span></label>
+      </div>
+    </div>
+    <div class="sgrp" id="setOffGrp">
+      <div class="sh" data-i18n>Descargas</div>
+      <div class="srow"><i class="ph ph-airplane-tilt"></i>
+        <div class="stx"><div class="stt" data-i18n>Modo offline</div>
+          <div class="sds" data-i18n>Solo suenan tus descargas y Wave no usa internet. Se activa solo cuando no hay conexión.</div></div>
+        <label class="sw"><input type="checkbox" id="setOffline" aria-label="Modo offline" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow" id="setDlWifiRow"><i class="ph ph-wifi-high"></i>
+        <div class="stx"><div class="stt" data-i18n>Descargar solo con Wi‑Fi</div>
+          <div class="sds" data-i18n>Con datos móviles, las descargas esperan.</div></div>
+        <label class="sw"><input type="checkbox" id="setDlWifi" aria-label="Descargar solo con Wi‑Fi" data-i18n-al><span></span></label>
+      </div>
+      <div class="srow"><i class="ph ph-arrow-circle-down"></i>
+        <div class="stx"><div class="stt" id="setDlT"></div><div class="sds" id="setDlU"></div></div>
+        <button class="sbtn" id="setDlGo" type="button" data-i18n>Gestionar</button>
       </div>
     </div>
     <div class="sgrp" id="setDj">
@@ -2757,6 +2850,67 @@ const EN = {
   "Verificar": "Verify", "Sin conexión con el servidor de Wave · reintentando…": "Can't reach the Wave server · retrying…",
   "Sin conexión a internet": "No internet connection", "Tu acceso a Wave caducó": "Your access to Wave expired",
   "Conectado de nuevo": "Connected again",
+  "Descargas": "Downloads",
+  "Escucha sin conexión": "Listen offline",
+  "Modo offline": "Offline mode",
+  "En este dispositivo": "On this device",
+  "Playlists y álbumes": "Playlists and albums",
+  "Modo offline activado": "Offline mode is on",
+  "Wave no está disponible ahora mismo": "Wave isn't available right now",
+  "Solo suenan tus descargas y Wave no usa internet.": "Only your downloads play and Wave doesn't use the internet.",
+  "Mientras tanto, escucha tus descargas. Verifica tu acceso para volver.": "Meanwhile, listen to your downloads. Verify your access to get back.",
+  "Mientras tanto, escucha tus descargas. Te reconectamos en cuanto vuelva.": "Meanwhile, listen to your downloads. We'll reconnect you as soon as it's back.",
+  "Desactivar": "Turn off",
+  "Reintentar": "Retry",
+  "En pausa: modo offline": "Paused: offline mode",
+  "En pausa: sin conexión": "Paused: no connection",
+  "Esperando Wi‑Fi": "Waiting for Wi‑Fi",
+  "En pausa: no queda espacio": "Paused: out of space",
+  "Descargando": "Downloading",
+  "canción no se pudo descargar": "song couldn't be downloaded",
+  "canciones no se pudieron descargar": "songs couldn't be downloaded",
+  "pendientes": "pending",
+  "Otros datos de Wave": "Other Wave data",
+  "Descargar Me gusta": "Download Liked Songs",
+  "Descargar": "Download",
+  "Descargando…": "Downloading…",
+  "Descargada · toca para quitarla": "Downloaded · tap to remove",
+  "Quitar descarga": "Remove download",
+  "Cancelar descarga": "Cancel download",
+  "Quitada de tus descargas": "Removed from your downloads",
+  "Se descargará cuando vuelva la conexión": "It'll download when you're back online",
+  "Descargada": "Downloaded",
+  "Quitar de tus descargas": "Remove from downloads",
+  "Quitar": "Remove",
+  "Quitado de tus descargas": "Removed from your downloads",
+  "Ya está descargado": "Already downloaded",
+  "No se pudo descargar": "Couldn't download",
+  "No hay canciones que descargar": "No songs to download",
+  "Este navegador no permite descargas": "This browser doesn't support downloads",
+  "No queda espacio en este dispositivo": "This device is out of space",
+  "No queda espacio para guardar la lista de descargas": "No space left to save the downloads list",
+  "Eliminar todas las descargas": "Delete all downloads",
+  "Descargas eliminadas": "Downloads deleted",
+  "Activar modo offline": "Turn on offline mode",
+  "Desactivar modo offline": "Turn off offline mode",
+  "Modo offline activado: solo suenan tus descargas": "Offline mode on: only your downloads play",
+  "Modo offline desactivado": "Offline mode off",
+  "Sin conexión: solo suenan tus descargas": "Offline: only your downloads play",
+  "No disponible sin conexión. Solo puedes abrir lo que descargaste.": "Not available offline. You can only open what you downloaded.",
+  "No tienes descargas. Cuando vuelva la conexión, descarga música para escucharla sin internet.": "You have no downloads. When you're back online, download music to listen without internet.",
+  "Aún no has descargado nada. Usa el botón de descarga de una canción, álbum o playlist para escucharla sin conexión.": "You haven't downloaded anything yet. Use the download button on a song, album or playlist to listen offline.",
+  "Sin conexión: no hay descargas que coincidan.": "Offline: no downloads match.",
+  "Servidor no disponible · escuchando tus descargas": "Server unavailable · playing your downloads",
+  "Sin internet · escuchando tus descargas": "No internet · playing your downloads",
+  "Solo suenan tus descargas y Wave no usa internet. Se activa solo cuando no hay conexión.": "Only your downloads play and Wave doesn't use the internet. Turns on by itself when there's no connection.",
+  "Descargar solo con Wi‑Fi": "Download only on Wi‑Fi",
+  "Con datos móviles, las descargas esperan.": "On mobile data, downloads wait.",
+  "Gestionar": "Manage",
+  "canción descargada": "song downloaded",
+  "canciones descargadas": "songs downloaded",
+  "Sin descargas": "No downloads",
+  "Disponible en este dispositivo:": "Available on this device:",
+  "Descarga canciones, álbumes y playlists para escucharlos sin conexión.": "Download songs, albums and playlists to listen offline.",
   "Solo administradores: burbuja flotante con los datos de cada transición.": "Admins only: floating bubble with the data of each transition.",
   "Ligera": "Light", "Agresiva": "Aggressive", "No": "Off",
   "Desactivado: se usa el fundido de arriba.": "Off: the crossfade above is used.",
@@ -3007,7 +3161,11 @@ function imgRetry(img) {
   }, [0, 1500, 5000][n]);
 }
 document.addEventListener("error", (e) => {
-  if (e.target instanceof HTMLImageElement && e.target.getAttribute("src")) imgRetry(e.target);
+  const im = e.target;
+  if (!(im instanceof HTMLImageElement) || !im.getAttribute("src")) return;
+  // portada de una cancion descargada (sin conexion): la copia guardada en el dispositivo
+  if (dlCount()) offCover(im.getAttribute("src")).then(b => { if (b) im.src = b; else imgRetry(im); });
+  else imgRetry(im);
 }, true);
 function imgRescue(root, fresh) {   // rotas (aunque el fallo no avisara) o atascadas cargando: otra ronda
   const now = Date.now();
@@ -3126,6 +3284,8 @@ function _acTouch(id) {
   if (drop.length) caches.open(AUDIO_CACHE).then(c => drop.forEach(x => c.delete("/stream?id=" + x))).catch(() => {});
 }
 async function _acGet(id) {
+  const off = await _offGet(id);   // descargada: siempre la copia del dispositivo
+  if (off) return off;
   if (!AUDIO_CACHE) return null;
   try {
     const hit = await (await caches.open(AUDIO_CACHE)).match("/stream?id=" + id);
@@ -3172,6 +3332,7 @@ async function fetchStream(id) {
 // el server baja a SU disco las proximas de la cola (link + bytes) sin gastar datos del tunel
 const _prewarmed = new Set();
 function prewarm(songs) {
+  if (offActive()) return;
   const ids = songs.filter(x => x && x.id && !_prewarmed.has(x.id)).map(x => x.id).slice(0, 4);
   if (!ids.length) return;
   ids.forEach(id => _prewarmed.add(id));
@@ -3192,6 +3353,241 @@ function getBuffer(id) {
   while (bufOrder.length > 3) { const old = bufOrder.shift(); if (old !== id) bufCache.delete(old); }   // PCM decodificado pesa: cache pequena
   p.catch(() => bufCache.delete(id));
   return p;
+}
+/* ---------- descargas (modo offline) ----------
+   Lo descargado vive en el DISPOSITIVO: Cache Storage "wave-offline-v1" (audio, portada y letra de cada cancion) y su
+   ficha en localStorage ("wave.dl": canciones, colecciones descargadas y la cola pendiente). Suena sin internet y con el
+   servidor caido. A diferencia de la cache de arriba (LRU, se recicla sola), aqui solo se borra lo que pide el usuario.
+   Cada cancion lleva `refs` (quien la quiere: "solo", "liked" o el id de un album/playlist): quitar una coleccion solo
+   borra las canciones que nadie mas necesita */
+const OFF_CACHE = window.caches ? "wave-offline-v1" : null;
+const OFFL = { meta: null, cur: new Map(), forced: false, auto: false, was: null, redir: false, blobs: new Map(),
+               wifiOnly: false, total: 0, done: 0, err: "", est: null };
+try { OFFL.forced = localStorage.getItem("wave.offline") === "1"; OFFL.wifiOnly = localStorage.getItem("wave.dlwifi") === "1"; } catch (e) {}
+function offMeta() {
+  if (!OFFL.meta) {
+    let m = null; try { m = JSON.parse(localStorage.getItem("wave.dl") || "null"); } catch (e) {}
+    if (!m || typeof m !== "object" || !m.songs) m = { songs: {}, cols: {}, q: [] };
+    m.cols = m.cols || {}; m.q = Array.isArray(m.q) ? m.q : [];
+    m.q.forEach(x => { delete x._wait; });
+    OFFL.meta = m;
+  }
+  return OFFL.meta;
+}
+function offSave() {
+  try { localStorage.setItem("wave.dl", JSON.stringify(OFFL.meta)); }
+  catch (e) { toast("No queda espacio para guardar la lista de descargas"); }
+}
+const isDl = id => !!(id && offMeta().songs[id]);
+const offActive = () => OFFL.forced || OFFL.auto;
+const dlCount = () => Object.keys(offMeta().songs).length;
+const dlBytes = () => Object.values(offMeta().songs).reduce((a, s) => a + (s.size || 0), 0);
+const _dlKey = id => "/stream?id=" + id, _lyrKey = id => "/offlyr?id=" + id;
+const _fmtB = (b) => {
+  const mb = (b || 0) / 1048576, d = lang === "en" ? "." : ",";
+  return mb >= 1024 ? (mb / 1024).toFixed(1).replace(".", d) + " GB" : mb >= 10 ? Math.round(mb) + " MB" : mb.toFixed(1).replace(".", d) + " MB";
+};
+// la misma portada en otro tamano (lista, barra, vista completa) cuenta como la misma
+function _covKey(u) {
+  u = String(u || "");
+  if (!u || u.startsWith("data:") || u.startsWith("blob:")) return "";
+  if (u.startsWith("/img?u=")) { try { u = decodeURIComponent(u.slice(7).split("&r=")[0]); } catch (e) {} }
+  const v = u.match(/ytimg\.com\/vi(?:_webp)?\/([\w-]{6,})\//);
+  if (v) return "/offcov?v=" + v[1];
+  return "/offcov?u=" + encodeURIComponent(u.replace(/[?&]r=\d+$/, "").replace(/=[ws]\d+[^/]*$/, ""));
+}
+async function _offGet(id) {   // bytes de una cancion descargada (o null)
+  if (!OFF_CACHE || !isDl(id)) return null;
+  try { const hit = await (await caches.open(OFF_CACHE)).match(_dlKey(id)); return hit ? await hit.arrayBuffer() : null; }
+  catch (e) { return null; }
+}
+function offCover(u) {   // blob: de la portada descargada (o null)
+  const k = _covKey(u);
+  if (!k || !OFF_CACHE || !dlCount()) return Promise.resolve(null);
+  if (!OFFL.blobs.has(k)) OFFL.blobs.set(k, caches.open(OFF_CACHE).then(c => c.match(k)).then(r => r ? r.blob() : null)
+    .then(b => b ? URL.createObjectURL(b) : null).catch(() => null));
+  return OFFL.blobs.get(k);
+}
+async function dlLyrics(id) {   // letra guardada con la descarga (ya colocada: _shift = desfase aplicado)
+  if (!OFF_CACHE || !isDl(id)) return null;
+  try {
+    const r = await (await caches.open(OFF_CACHE)).match(_lyrKey(id));
+    if (!r) return null;
+    const d = await r.json();
+    if (d && d._shift && !_alignCache.has(id)) _alignCache.set(id, Promise.resolve(d._shift));
+    return d;
+  } catch (e) { return null; }
+}
+function _dlEntry(s) {
+  const e = { id: s.id, title: s.title || "", artist: s.artist || "", cover: s.cover || "" };
+  if (s.artists && s.artists.length) e.artists = s.artists.map(a => ({ name: a.name, id: a.id }));
+  ["duration", "explicit", "album", "type"].forEach(k => { if (s[k]) e[k] = s[k]; });
+  if (s.wide || s.type === "video") e.wide = true;
+  return e;
+}
+const _cellular = () => { const c = navigator.connection; return !!(c && c.type === "cellular"); };
+function dlWhyPaused() {   // por que la cola de descargas esta quieta ("" = puede seguir)
+  if (OFFL.forced) return "forced";
+  if (OFFL.auto || navigator.onLine === false) return "net";
+  if (OFFL.wifiOnly && _cellular()) return "wifi";
+  if (OFFL.err === "space") return "space";
+  return "";
+}
+// encola lo que falte (sin repetir); ref: "solo" o el id de la coleccion que lo pide
+function dlSongs(list, ref) {
+  if (!OFF_CACHE) { toast("Este navegador no permite descargas"); return 0; }
+  const m = offMeta(); let n = 0;
+  if (!m.q.some(x => !(x.fail >= 3))) { OFFL.total = 0; OFFL.done = 0; }   // tanda nueva: el contador empieza de cero
+  (list || []).forEach(s => {
+    if (!s || !s.id) return;
+    const have = m.songs[s.id] || m.q.find(x => x.id === s.id);
+    if (have) { have.refs = have.refs || []; if (!have.refs.includes(ref)) have.refs.push(ref); return; }
+    m.q.push(Object.assign(_dlEntry(s), { refs: [ref] })); n++;
+  });
+  if (n) OFFL.total += n;
+  if (OFFL.err === "space") OFFL.err = "";
+  offSave(); dlPump(); offRefresh();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}   // que el sistema no las borre
+  return n;
+}
+function dlPump() {
+  if (!OFF_CACHE) return;
+  const m = offMeta();
+  while (OFFL.cur.size < 2 && !dlWhyPaused()) {
+    const it = m.q.find(x => !OFFL.cur.has(x.id) && !x._wait && !(x.fail >= 3));
+    if (!it) break;
+    const job = { it, ctl: new AbortController() };
+    OFFL.cur.set(it.id, job);
+    _dlOne(job).catch((e) => {
+      if (job.ctl.signal.aborted) return;
+      it.fail = (it.fail || 0) + 1; offSave();
+      if (OFFL.err === "space") return;
+      if (it.fail < 3) { it._wait = true; setTimeout(() => { it._wait = false; dlPump(); }, 4000 * it.fail); }
+    }).finally(() => { OFFL.cur.delete(it.id); if (!it._wait) dlPump(); offRefresh(); });
+  }
+  if (!m.q.length) { OFFL.total = 0; OFFL.done = 0; }
+}
+async function _dlOne(job) {
+  const s = job.it, sig = job.ctl.signal;
+  try {
+    const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+    if (est && est.quota && est.quota - est.usage < 60 * 1048576) { OFFL.err = "space"; throw new Error("space"); }
+  } catch (e) { if (OFFL.err === "space") { toast("No queda espacio en este dispositivo"); throw e; } }
+  const c = await caches.open(OFF_CACHE);
+  // audio: si ya estaba en la cache de lo escuchado no vuelve a cruzar la red
+  const audioP = (async () => {
+    if (AUDIO_CACHE) { try { const h = await (await caches.open(AUDIO_CACHE)).match("/stream?id=" + s.id); if (h) return await h.arrayBuffer(); } catch (e) {} }
+    const r = await fetch("/stream?id=" + encodeURIComponent(s.id), { signal: sig });
+    if (!r.ok) throw new Error("stream " + r.status);
+    return await r.arrayBuffer();
+  })();
+  // portada y letra: opcionales (sin ellas la cancion suena igual)
+  const cov = _covKey(s.cover);
+  const covP = (async () => {
+    if (!cov || await c.match(cov)) return;
+    const r = await fetch("/img?u=" + encodeURIComponent(hiCover(s.cover)), { signal: sig });
+    if (r.ok && /^image\//.test(r.headers.get("content-type") || "")) await c.put(cov, r);
+  })().catch(() => {});
+  const lyrP = (async () => {
+    const d = await Promise.race([fetchLyrics(s), new Promise((_, no) => setTimeout(() => no(new Error("t")), 12000))]);
+    if (!d || !(d.lines || []).length) return;
+    if (_alignCache.has(s.id)) {   // desfase ya conocido (la cancion sono con la letra abierta): se guarda ya colocada
+      const off = await Promise.race([_alignCache.get(s.id), new Promise(r => setTimeout(() => r(0), 80))]);
+      if (off) shiftLyrics(d, off);
+    }
+    await c.put(_lyrKey(s.id), new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json" } }));
+  })().catch(() => {});
+  const ab = await audioP;
+  if (ab.byteLength < 20000) throw new Error("corto");
+  await Promise.all([covP, lyrP]);
+  if (sig.aborted) throw new Error("cancelada");
+  await c.put(_dlKey(s.id), new Response(ab, { headers: { "Content-Type": "audio/mp4", "X-Size": String(ab.byteLength) } }));
+  const m = offMeta(), qi = m.q.findIndex(x => x.id === s.id);
+  if (qi < 0 || sig.aborted) { c.delete(_dlKey(s.id)); c.delete(_lyrKey(s.id)); return; }   // se quito mientras bajaba
+  const e = m.q.splice(qi, 1)[0];
+  delete e.fail; delete e._wait;
+  m.songs[s.id] = Object.assign(e, { size: ab.byteLength, at: Date.now() });
+  offSave(); OFFL.done++;
+  if (cov) OFFL.blobs.delete(cov);
+  c.put("/__dl", new Response("1"));   // el service worker abre la app (no la pantalla de caido) si hay descargas
+  dlMark(s.id);
+}
+// quitar: con ref solo se suelta esa referencia (la cancion se borra si ya nadie la quiere); sin ref, fuera del todo
+async function dlRemove(ids, ref) {
+  const m = offMeta(), gone = [];
+  (ids || []).forEach(id => {
+    const s = m.songs[id] || m.q.find(x => x.id === id);
+    if (!s) return;
+    if (ref) { s.refs = (s.refs || []).filter(r => r !== ref); if (s.refs.length) return; }
+    delete m.songs[id]; m.q = m.q.filter(x => x.id !== id);
+    const j = OFFL.cur.get(id); if (j) j.ctl.abort();
+    gone.push(s);
+  });
+  if (!gone.length) { offSave(); offRefresh(); return; }
+  offSave();
+  if (OFF_CACHE) {
+    try {
+      const c = await caches.open(OFF_CACHE);
+      const keep = new Set(Object.values(m.songs).map(s => _covKey(s.cover)));
+      await Promise.all(gone.map(s => Promise.all([c.delete(_dlKey(s.id)), c.delete(_lyrKey(s.id)),
+        (() => { const k = _covKey(s.cover); if (!k || keep.has(k)) return null; OFFL.blobs.delete(k); return c.delete(k); })()])));
+      if (!dlCount()) await c.delete("/__dl");
+    } catch (e) {}
+  }
+  gone.forEach(s => dlMark(s.id));
+  if (offActive()) offPrune();
+  offRefresh();
+}
+function dlCol(entry, songs) {   // entry: {id, kind, title, subtitle, cover, creator}
+  const m = offMeta(), prev = m.cols[entry.id];
+  m.cols[entry.id] = { id: entry.id, kind: entry.kind || "playlists", title: entry.title || "", subtitle: entry.subtitle || "",
+                       cover: entry.cover || "", creator: entry.creator || "", ids: songs.map(s => s.id), at: prev ? prev.at : Date.now() };
+  const n = dlSongs(songs, entry.id);
+  toast(n ? t("Descargando") + " " + n + " " + t(n === 1 ? "canción" : "canciones") : t("Ya está descargado"));
+}
+async function dlColFetch(entry) {   // desde un menu (la coleccion no esta abierta): se piden sus pistas
+  if (entry.id === "liked") { dlCol({ id: "liked", kind: "liked", title: t("Me gusta") }, getLiked()); return; }
+  try {
+    const d = await (await fetch("/collection?id=" + encodeURIComponent(entry.id))).json();
+    if (d.error || !d.tracks || !d.tracks.length) throw new Error();
+    const songs = d.tracks.map(x => ({ id: x.id, title: x.title, artist: x.artist || d.creator, cover: x.cover || d.cover, type: x.type,
+      duration: x.duration, explicit: x.explicit, artists: x.artists, album: d.kind === "album" ? null : x.album }));
+    dlCol(Object.assign({}, entry, { title: entry.title || d.title, cover: entry.cover || d.cover, creator: entry.creator || d.creator }), songs);
+  } catch (e) { toast("No se pudo descargar"); }
+}
+// al abrir una coleccion descargada con conexion: lo nuevo se descarga y lo que salio de ella se suelta. Lo que el
+// usuario quito a mano de una coleccion descargada no vuelve (sigue en ids)
+function dlColSync(id, songs) {
+  const m = offMeta(), c = m.cols[id];
+  if (!c || !songs) return;
+  const known = new Set(c.ids), now = new Set(songs.map(s => s.id));
+  const gone = c.ids.filter(x => !now.has(x)), fresh = songs.filter(s => !known.has(s.id));
+  if (!gone.length && !fresh.length) return;
+  c.ids = songs.map(s => s.id);
+  if (gone.length) dlRemove(gone, id);
+  if (fresh.length) dlSongs(fresh, id); else offSave();
+}
+async function dlColRemove(id) {
+  const m = offMeta(), c = m.cols[id];
+  if (!c) return;
+  delete m.cols[id];
+  await dlRemove(c.ids, id);
+  toast("Quitado de tus descargas");
+}
+function dlColState(id) {   // null = no descargada; {done, total, busy}
+  const m = offMeta(), c = m.cols[id];
+  if (!c) return null;
+  const q = new Set(m.q.map(x => x.id));
+  let done = 0, busy = false;
+  c.ids.forEach(x => { if (m.songs[x]) done++; else if (q.has(x)) busy = true; });
+  return { done, total: c.ids.length, busy };
+}
+const dlSongState = id => offMeta().songs[id] ? "done" : offMeta().q.some(x => x.id === id) ? "busy" : null;
+function dlLikedHook(s, on) {   // "Me gusta" descargada: lo que marques se descarga, lo que quites se suelta
+  const c = offMeta().cols.liked;
+  if (!c) return;
+  if (on) { if (!c.ids.includes(s.id)) c.ids.unshift(s.id); dlSongs([s], "liked"); }
+  else { c.ids = c.ids.filter(x => x !== s.id); dlRemove([s.id], "liked"); }
 }
 const eng = {                 // estado del motor
   node: null, buf: null, dur: 0, start: 0, offset: 0, playing: false,
@@ -4267,7 +4663,7 @@ function smixSchedule(r, cb, bbuf, song) {
 }
 // intenta la mezcla del servidor para current -> song (true si quedo programada)
 async function smixTry(cur, song, buf) {
-  if (SMIX.off || CX.remote) return false;
+  if (SMIX.off || CX.remote || offActive()) return false;
   const still = () => eng.playing && !eng.gInfo && _gaplessSong() === song && current === cur;
   const endA = eng.start + eng.dur - rsegTotal();
   const pk = cur.id + ">" + song.id;
@@ -4535,6 +4931,7 @@ function toggleLike(s) {
     if (s.wide) e.wide = true;   // video: al reproducirlo desde Me gusta la portada sigue en 16:9
     list.unshift(e); _freshLikes.set(s.id, Date.now()); toast("Añadido a Liked"); }
   localStorage.setItem("lightning.liked", JSON.stringify(list));
+  dlLikedHook(nowLiked ? list[0] : s, nowLiked);
   refreshLikeUI();
   if (view === "liked") render(getLiked(), "liked");
   // con sesion de Google: espeja el like en la cuenta de YT Music (fire-and-forget)
@@ -4656,6 +5053,7 @@ function renderLibrary() {
     b.querySelector(".la2").textContent = e.kind === "artists" ? t("Artista")
       : e.kind === "albums" ? t("Álbum") + (owner ? " • " + owner : "")
       : t("Playlist") + (owner ? " • " + owner : "");
+    if (offMeta().cols[e.id]) { b.classList.add("isdl"); b.querySelector(".la2").insertAdjacentHTML("afterbegin", '<i class="ph-fill ph-arrow-circle-down dlic"></i>'); }
     b.onclick = () => e.kind === "artists" ? openArtist(e.id, true, { title: e.title, cover: e.cover })
       : openCollection(e.id, true, { kind: e.kind, title: e.title, subtitle: e.subtitle, cover: e.cover });
     b.oncontextmenu = (ev) => { ev.preventDefault(); openCardMenu(e, ev.clientX, ev.clientY); };
@@ -4837,9 +5235,13 @@ function vlist(container, count, build, scroller) {
 function render(list, v) {
   if (list && list.sections) { renderSections(list.sections); return; }   // busqueda "Todo": secciones priorizadas
   const r = $("r"), empty = $("empty");
+  if (v === "liked") dlColSync("liked", list);   // Me gusta descargada: lo que cambio en la cuenta tambien
   r.innerHTML = ""; r.classList.remove("grid"); empty.style.display = list.length ? "none" : "block";
   if (!list.length) {
-    empty.innerHTML = v === "liked" ? '<i class="ph ph-heart"></i>Marca canciones con el corazón para guardarlas aquí.'
+    empty.innerHTML = v === "descargas" ? '<i class="ph ph-arrow-circle-down"></i>' + esc(t(offActive()
+        ? "No tienes descargas. Cuando vuelva la conexión, descarga música para escucharla sin internet."
+        : "Aún no has descargado nada. Usa el botón de descarga de una canción, álbum o playlist para escucharla sin conexión."))
+      : v === "liked" ? '<i class="ph ph-heart"></i>Marca canciones con el corazón para guardarlas aquí.'
       : v === "recientes" ? '<i class="ph ph-clock-counter-clockwise"></i>Aún no has reproducido nada.'
       : '<i class="ph ph-magnifying-glass"></i>Busca algo para empezar.';
     return;
@@ -5068,6 +5470,7 @@ function songLi(s, list, i, solo) {
   const dots = li.querySelector(".cdots");
   dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, plist, pidx, r.right, r.bottom, li); };
   li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, plist, pidx, e.clientX, e.clientY, li); };
+  dlRowMark(li, s);
   return li;
 }
 /* ---------- vista de artista ---------- */
@@ -5332,10 +5735,20 @@ function openCollection(browseId, push = true, seed = null) {
   clearArtistBg(); $("backBtn").classList.add("show");
   const cv = $("collectionView"); cv.style.display = "block";
   collectionSeed(seed || {});   // siempre muestra esqueleto (hero + filas) animado mientras carga
+  const oc = offMeta().cols[browseId];
+  if (offActive()) {   // sin conexion: la copia descargada (si la hay)
+    if (oc) renderCollection(dlColData(oc));
+    else cv.innerHTML = '<div class="lempty">' + esc(t("No disponible sin conexión. Solo puedes abrir lo que descargaste.")) + "</div>";
+    return;
+  }
   fetch("/collection?id=" + encodeURIComponent(browseId)).then(r => r.json()).then(d => {
     if (d.error) throw new Error(d.error);
     renderCollection(d);
-  }).catch(() => { cv.innerHTML = '<div class="lempty">No se pudo cargar.</div>'; });
+  }).catch(() => {
+    const c2 = offMeta().cols[browseId];
+    if (c2 && _colId === browseId) renderCollection(dlColData(c2));
+    else cv.innerHTML = '<div class="lempty">No se pudo cargar.</div>';
+  });
 }
 function collectionSeed(seed) {   // pinta hero (portada/titulo/subtitulo) + filas esqueleto al instante
   const cv = $("collectionView"); cv.innerHTML = "";
@@ -5385,6 +5798,7 @@ function colTrackRow(t, songs, i, hasPic) {
   const dots = li.querySelector(".cdots");
   dots.onclick = (e) => { e.stopPropagation(); const r = dots.getBoundingClientRect(); openTrackMenu(s, songs, i, r.right, r.bottom, li); };
   li.oncontextmenu = (e) => { e.preventDefault(); openTrackMenu(s, songs, i, e.clientX, e.clientY, li); };
+  dlRowMark(li, s);
   return li;
 }
 function closeMenu() {
@@ -5445,6 +5859,7 @@ function openTrackMenu(s, songs, i, x, y, li, extra) {
     ["ph-queue", "Añadir a la cola", () => addToQueue(s)],
     ["ph-export", "Compartir", () => shareItem("song", s.id, s.title, s.artist)],
     ["ph-playlist", "Añadir a playlist", () => openPlPicker(s, x, y, li)],
+    dlSongOpt(s),
     [liked ? "ph-fill ph-heart" : "ph-heart", liked ? "Quitar de Me gusta" : "Añadir a Me gusta", () => toggleLike(s)],
   ];
   // en vista playlist con sesion: quitar pista de la playlist real (solo propias/colaborativas)
@@ -5470,6 +5885,11 @@ function openCardMenu(it, x, y, el) {
       saved ? "Quitar de la biblioteca" : "Añadir a la biblioteca", () => toggleLibrary(entry)]);
   if (entry.kind !== "artists")
     opts.push(["ph-queue", "Agregar a la fila de reproducción", () => addCollectionToQueue(entry.id)]);
+  if (entry.kind !== "artists") {
+    const dst = dlColState(entry.id);
+    opts.push(dst ? ["ph-fill ph-arrow-circle-down", "Quitar descarga", async () => { if (await dlAskRemove(entry.title)) dlColRemove(entry.id); }]
+      : ["ph-arrow-circle-down", "Descargar", () => dlColFetch(Object.assign({}, entry, { cover: (libE && libE.ccover) || entry.cover }))]);
+  }
   if (entry.kind === "albums" && /^MPRE/.test(entry.id)) {
     if (!_versN.has(entry.id)) fetchVersions(entry.id);   // la ventana ya la tendra cargada
     if (_versN.get(entry.id) !== 0)
@@ -5558,6 +5978,8 @@ function renderCollection(d) {
     openCardMenu({ browseId: _colId, kind: d.kind === "album" ? "albums" : "playlists",
       title: d.title, subtitle: d.subtitle || d.creator || "", cover: d.cover, editable: _colEditable }, r.left, r.bottom + 6, more);
   };
+  act.appendChild(dlBtn(() => ({ id: _colId, kind: d.kind === "album" ? "albums" : "playlists", title: d.title,
+    subtitle: countSub || d.subtitle || d.creator || "", cover: heroCover, creator: d.creator || "" }), () => songs));
   act.appendChild(more);
   act.appendChild(shufBtn());
   hero.lastElementChild.appendChild(act);
@@ -5566,6 +5988,7 @@ function renderCollection(d) {
   const hasPic = d.kind === "playlist";
   const fallbackArtists = d.creator && d.creatorId ? [{ name: d.creator, id: d.creatorId }] : null;
   const songs = d.tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist || d.creator, cover: t.cover || d.cover, type: t.type, duration: t.duration, explicit: t.explicit, artists: (t.artists && t.artists.length) ? t.artists : fallbackArtists, album: d.kind === "album" ? null : t.album }));
+  if (!d._off && _colId && offMeta().cols[_colId]) dlColSync(_colId, songs);   // descargada: se pone al dia
   if (!d.tracks.length && d.kind === "playlist") {
     const p = document.createElement("div"); p.className = "lempty";
     p.textContent = t("Esta playlist está vacía. Haz click derecho en cualquier canción y elige \"Añadir a playlist\".");
@@ -5579,12 +6002,14 @@ function renderCollection(d) {
   const _syncCovplay = () => { covplayBtn.querySelector("i").className = "ph-fill " + (_inCol() && !audio.paused ? "ph-pause" : "ph-play"); };
   covplayBtn._sync = _syncCovplay; _syncCovplay();
   covplayBtn.onclick = () => {
-    if (!songs.length) return;
+    const pl = offActive() ? songs.filter(x => isDl(x.id)) : songs;
+    if (!pl.length) return;
     if (_inCol()) { togglePlay(); return; }
-    playFromList(songs, shuffle ? Math.floor(Math.random() * songs.length) : 0);
+    playFromList(pl, shuffle ? Math.floor(Math.random() * pl.length) : 0);
   };
 }
 function setView(v, push = true) {
+  if (v === "home" && offActive()) { v = "descargas"; OFFL.redir = true; }   // sin conexion, Inicio = tus descargas
   _main.scrollTop = 0;   // una vista nueva se abre desde el principio (si no, heredaba el scroll de la anterior)
   if (push) pushHist({ t: "view", v });
   view = v;
@@ -5598,10 +6023,12 @@ function setView(v, push = true) {
   $("empty").style.display = isHome ? "none" : "";
   const label = v === "liked" ? "Me gusta" : v === "recientes" ? "Reproducidos recientemente" : "";
   $("likedHero").hidden = v !== "liked";   // movil: cabecera tipo playlist (en escritorio el CSS la oculta)
+  $("dlHead").hidden = v !== "descargas";
   if (v === "liked") paintLikedCount();
   $("heading").textContent = t(label);
   $("heading").style.display = label ? "block" : "none";   // sin titulo redundante en Buscar/Inicio
   if (isHome) { renderHome(); refreshRecentGrid(); }
+  else if (v === "descargas") { dlPaint(true); dlEstimate().then(() => { if (view === "descargas") dlPaint(); }); }
   else render(v === "liked" ? getLiked() : v === "recientes" ? getRecents() : lastResults, v);
   // "Me gusta" se re-sincroniza con la cuenta cada vez que se abre (pinta lo local al instante,
   // el sync re-renderiza si hay cambios)
@@ -5616,7 +6043,7 @@ function paintLikedCount() {
 $("likedActs").appendChild(shufBtn());
 // tocar la portada de Me gusta: reproduce la lista (aleatorio respeta shuffle), como en una playlist
 $("likedHero").querySelector(".covplay").onclick = () => {
-  const l = getLiked(); if (!l.length) return;
+  const l = offActive() ? getLiked().filter(x => isDl(x.id)) : getLiked(); if (!l.length) return;
   playFromList(l, shuffle ? Math.floor(Math.random() * l.length) : 0);
 };
 function syncMnav(v) {
@@ -5624,7 +6051,8 @@ function syncMnav(v) {
   // movil: el campo de busqueda enfocado (autofocus al abrir) cuenta como "escribiendo" y la barra nunca
   // se escondia al hacer scroll; fuera de Buscar se suelta el foco
   if (v !== "buscar" && document.activeElement === $("q") && matchMedia("(max-width: 820px)").matches) $("q").blur();
-  document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
+  document.querySelectorAll("#mnav button").forEach(b => b.classList.toggle("active", b.dataset.mv === v
+    || (v === "descargas" && b.dataset.mv === "home" && offActive())));
   const mu = $("mUser");
   if (mu) mu.classList.toggle("hid", !["home", "buscar", "lib"].includes(v));   // avatar solo en las 3 pantallas de la nav
   const ib = $("iosBack");
@@ -5647,6 +6075,12 @@ function openMobileLibrary(push = true) {
   c.onclick = () => setView("liked");
   grid.prepend(c);
   if (!DJ_OFF) c.after(djLibCard());   // DJ Lara, justo despues de Me gusta
+  const dc = document.createElement("div"); dc.className = "ccard";   // Descargas, justo despues de Me gusta
+  dc.innerHTML = '<div class="dl-art"><i class="ph-fill ph-arrow-circle-down"></i></div><div class="t"></div><div class="a"></div>';
+  dc.querySelector(".t").textContent = t("Descargas");
+  dc.querySelector(".a").textContent = dlCount() + " " + t("canciones");
+  dc.onclick = () => setView("descargas");
+  c.after(dc);
   const sb = document.createElement("button"); sb.className = "mlibsort";
   sb.innerHTML = '<i class="ph ph-sliders-horizontal"></i><span></span>';
   sb.querySelector("span").textContent = libSortName();
@@ -5930,7 +6364,7 @@ const IS_APP = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.is
 function syncGate(checking) {
   if (!IS_APP && !IOS_WEB) return;
   let guest = false; try { guest = IOS_WEB && localStorage.getItem("lightning.guest") === "1"; } catch (e) {}
-  const need = !guest && (checking || !_authSt.logged_in);
+  const need = !guest && !offActive() && (checking || !_authSt.logged_in);   // sin conexion se entra a las descargas
   $("gate").hidden = !need; document.body.classList.toggle("gate-on", need);
   $("gateBtn").disabled = !!checking;
   if (IOS_WEB) {   // Safari no puede capturar la cookie de Google: se vincula con un codigo de otro dispositivo
@@ -6422,10 +6856,22 @@ function paintSettings() {
     $("setCacheU").textContent = _devCache == null ? "…" : _devCache + " " + t(_devCache === 1 ? "canción" : "canciones");
   }
   $("setVer").textContent = D ? "Wave " + (APPINFO.version === "dev" ? "dev" : "v" + APPINFO.version) : "";
+  dlPaintSettings();
+}
+function dlPaintSettings() {   // solo sus filas: se repinta con cada descarga sin tocar lo que se este escribiendo
+  $("setOffGrp").hidden = !OFF_CACHE;
+  _setChk("setOffline", OFFL.forced);
+  $("setDlWifiRow").hidden = !(navigator.connection && "type" in navigator.connection);
+  _setChk("setDlWifi", OFFL.wifiOnly);
+  const dn = dlCount(), est = OFFL.est;
+  $("setDlT").textContent = dn ? dn + " " + t(dn === 1 ? "canción descargada" : "canciones descargadas") + " · " + _fmtB(dlBytes()) : t("Sin descargas");
+  $("setDlU").textContent = est && est.quota ? t("Disponible en este dispositivo:") + " " + _fmtB(Math.max(0, est.quota - (est.usage || 0)))
+    : t("Descarga canciones, álbumes y playlists para escucharlos sin conexión.");
 }
 async function openSettings() {
   if (APPINFO.desktop) { try { Object.assign(APPINFO, await jget("/app/info")); } catch (e) {} }
   paintSettings(); $("setmodal").hidden = false;
+  dlEstimate().then(() => { if (!$("setmodal").hidden) dlPaintSettings(); });
   if (!APPINFO.desktop && AUDIO_CACHE) {
     try { _devCache = (await (await caches.open(AUDIO_CACHE)).keys()).length; } catch (e) { _devCache = 0; }
     paintSettings();
@@ -7265,6 +7711,10 @@ function recordCtx(song) {
   try { localStorage.setItem("lightning.recentCtx", JSON.stringify(l.slice(0, 16))); } catch (err) {}
 }
 function playFromList(list, i) {
+  if (offActive() && !CX.remote) {   // sin conexion: solo lo descargado (la cola se arma solo con eso)
+    if (!isDl(list[i] && list[i].id)) { toast("Sin conexión: solo suenan tus descargas"); return; }
+    const pick = list[i]; list = list.filter(x => isDl(x.id)); i = list.indexOf(pick);
+  }
   recordCtx(list[i]);
   _albumRun = view === "collection" && _colKind === "album" ? new Set(list.map(s => s.id)) : null;
   queue = list.slice(); qIndex = i;
@@ -7410,6 +7860,11 @@ function playSong(s, immediate) {
     paintNowPlaying(s); if (npOpen) paintNp(s);
     return;
   }
+  if (offActive() && !isDl(s.id)) {   // sin conexion: salta a la siguiente descargada de la cola
+    const k = queue.findIndex((x, j) => j > qIndex && isDl(x.id));
+    if (k < 0) { toast("Sin conexión: solo suenan tus descargas"); return; }
+    qIndex = k; s = queue[k]; _cxSeek = null;
+  }
   const tok = ++playToken;
   paintNowPlaying(s);                // pinta cover/titulo/artista al instante (sensacion de carga rapida)
   seek.classList.add("loading");
@@ -7456,7 +7911,7 @@ function onPlaybackStarted(s) {
 /* cola infinita: cuando quedan <=5 pistas por delante, anade 20 recomendaciones (/radio) marcadas _rec */
 let _recBusy = false;
 async function maybeExtendQueue() {
-  if (DJ && DJ.on) return;   // con el DJ, la cola la arma el (bloques)
+  if ((DJ && DJ.on) || offActive()) return;   // con el DJ, la cola la arma el (bloques); sin conexion no hay recomendaciones
   if (repeat !== "off" || _recBusy || !current || !queue.length) return;   // con repeat la cola es un bucle: no extender
   if (queue.length - 1 - qIndex > 5) return;
   _recBusy = true;
@@ -7690,6 +8145,7 @@ function qRow(s, idx, kind) {
   d.querySelector("img").src = s.cover;
   d.querySelector(".t").textContent = s.title;
   d.querySelector(".a").innerHTML = expBadge(s) + esc(s.artist || "");
+  dlRowMark(d, s);
   const listOf = () => kind === "history" ? getHistory() : queue;
   if (s.wide) d.querySelector("img").classList.add("wide");
   d.onclick = () => {
@@ -8439,11 +8895,15 @@ function fetchLyrics(s, isCur) {
   if (_lyrCache.has(qs)) return _lyrCache.get(qs);
   const p = (async () => {
     // escritorio con Dispositivos: la letra la da el servidor (la misma que ve el movil, misma cache); si falla, la local
-    if (!IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
+    if (!offActive() && !IS_APP && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && CX.enabled && !CX.needAccess) {
       try { const r = await jget("/connect/lyrics?" + qs); if (r && Array.isArray(r.lines) && r.lines.length) { r._q = qs; r._cx = true; return r; } } catch (e) {}
     }
-    const d = await jget("/lyrics?" + qs);
-    if (d.error) throw new Error(d.error);
+    let d;
+    try {
+      if (offActive()) throw new Error("offline");
+      d = await jget("/lyrics?" + qs);
+      if (d.error) throw new Error(d.error);
+    } catch (e) { d = await dlLyrics(s.id); if (!d) throw e; }   // sin conexion: la que se guardo con la descarga
     d._q = qs;
     return d;
   })();
@@ -8644,8 +9104,11 @@ function srvShow(st) {
   const b = $("srvbar"), prev = SRV.st;
   if (st === prev) return;
   SRV.st = st;
+  offAuto(st !== "ok");   // servidor caido, sin internet o acceso caducado: modo offline
+  const dl = dlCount() > 0;
   const ic = { down: "ph-cloud-slash", offline: "ph-wifi-slash", auth: "ph-lock-key", ok: "ph-check-circle" }[st];
-  const tx = { down: "Sin conexión con el servidor de Wave · reintentando…", offline: "Sin conexión a internet",
+  const tx = { down: dl ? "Servidor no disponible · escuchando tus descargas" : "Sin conexión con el servidor de Wave · reintentando…",
+               offline: dl ? "Sin internet · escuchando tus descargas" : "Sin conexión a internet",
                auth: "Tu acceso a Wave caducó", ok: "Conectado de nuevo" }[st];
   b.className = st;
   b.querySelector(".sb-ic").className = "sb-ic ph " + ic;
@@ -8653,24 +9116,30 @@ function srvShow(st) {
   if (st === "ok") {   // se reconecto: lo dice un momento y se va
     if (prev === "down" || prev === "offline") { b.classList.add("show"); clearTimeout(SRV.h); SRV.h = setTimeout(() => b.classList.remove("show"), 2200); }
     else b.classList.remove("show");
-  } else b.classList.add("show");
+  } else {   // con descargas no hace falta tenerlo encima todo el rato: el estado queda en Descargas
+    b.classList.add("show"); clearTimeout(SRV.h);
+    if (dl && st !== "auth") SRV.h = setTimeout(() => b.classList.remove("show"), 4500);
+  }
 }
-async function srvPing() {
+async function srvPing(boot) {
   clearTimeout(SRV.t);
   if (!SRV.on) return;
   let st = "ok";
+  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 9000);   // servidor colgado: Cloudflare tarda hasta 100 s
   try {
-    const r = await fetch("/salud?t=" + Date.now(), { cache: "no-store", redirect: "manual" });
+    const r = await fetch("/salud?t=" + Date.now(), { cache: "no-store", redirect: "manual", signal: ac.signal });
     if (r.type === "opaqueredirect" || r.status === 401 || r.status === 403) st = "auth";   // Cloudflare pide verificar
     else if (!r.ok) st = "down";
   } catch (e) { st = navigator.onLine === false ? "offline" : "down"; }
+  clearTimeout(to);
+  if (boot === true && st !== "ok") SRV.fails = 1;   // al abrir no se espera al segundo fallo: directo al modo offline
   SRV.fails = st === "down" || st === "offline" ? SRV.fails + 1 : 0;
   srvShow(st === "auth" ? "auth" : SRV.fails >= 2 ? st : (SRV.st === "auth" ? "ok" : (SRV.fails ? SRV.st : "ok")));
   SRV.t = setTimeout(srvPing, SRV.fails || SRV.st !== "ok" ? 5000 : 30000);
 }
 $("srvbar").querySelector("button").addEventListener("click", () => location.reload());   // -> login de Access
 if (SRV.on) {
-  setTimeout(srvPing, 6000);
+  setTimeout(() => srvPing(true), 400);
   addEventListener("online", () => srvPing());
   addEventListener("offline", () => { SRV.fails = 2; srvShow("offline"); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) srvPing(); });
@@ -9311,6 +9780,7 @@ function moreMenu(btn, e) {
   };
   const opts = [
     ["ph-list-plus", "Añadir a playlist", () => { openPlPicker(s, r.left, r.top, null); up($("ctxmenu")); }],
+    dlSongOpt(s),
     ["ph-shuffle", shuffle ? "Aleatorio: activado" : "Aleatorio: desactivado", () => { setShuffle(!shuffle); syncNp(); }],
     [repeat === "one" ? "ph-repeat-once" : "ph-repeat", rep, () => { $("repeat").click(); syncNp(); }],
     ["ph-moon", sleepActive() ? "Temporizador (activo)" : "Temporizador", openSleepSheet],
@@ -9555,6 +10025,14 @@ async function runSearch() {
   const q = $("q").value.trim();
   if (!q) return;
   if (view !== "buscar") setView("buscar");
+  if (offActive()) {   // sin conexion: se busca en las descargas
+    const nz = x => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const words = nz(q).split(/\s+/).filter(Boolean);
+    const res = dlSongList().filter(x => { const h = nz(x.title + " " + x.artist + " " + ((x.album && x.album.name) || "")); return words.every(w => h.includes(w)); });
+    lastResults = res; render(res, "buscar");
+    if (!res.length) $("empty").innerHTML = '<i class="ph ph-cloud-slash"></i>' + esc(t("Sin conexión: no hay descargas que coincidan."));
+    return;
+  }
   skeletons(7);
   try {
     const res = await fetch("/search?q=" + encodeURIComponent(q) + "&filter=" + searchFilter);
@@ -9577,6 +10055,277 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   if ($("q").value.trim()) runSearch();
 });
 
+/* ---------- modo offline: interfaz ----------
+   Se activa solo (servidor caido, sin internet o acceso caducado: lo detecta SRV / los eventos online-offline) o a
+   mano en Configuracion. Mientras dura: Inicio pasa a ser Descargas, solo suena lo descargado (la cola se limpia de lo
+   demas, sin recomendaciones ni mezcla del servidor), la busqueda busca en las descargas y lo que no esta descargado
+   se ve atenuado. Al volver la conexion todo vuelve a la normalidad y siguen las descargas pendientes */
+function offAuto(on) {
+  on = !!on;
+  if (OFFL.auto === on) return;
+  OFFL.auto = on;
+  offApply();
+}
+function setOffline(on) {
+  OFFL.forced = !!on;
+  try { localStorage.setItem("wave.offline", on ? "1" : ""); } catch (e) {}
+  toast(on ? "Modo offline activado: solo suenan tus descargas" : "Modo offline desactivado");
+  offApply();
+}
+function offPrune() {   // la cola se queda con lo descargado (y lo que suena ahora, que ya esta en memoria)
+  if (CX.remote || !queue.length) return;
+  const cur = queue[qIndex];
+  const nq = queue.filter((x, k) => k === qIndex || isDl(x.id));
+  if (nq.length === queue.length) return;
+  queue = nq; qIndex = Math.max(0, nq.indexOf(cur));
+  if (queueOrig) queueOrig = queueOrig.filter(x => x === cur || isDl(x.id));
+  queueChanged();
+}
+function offApply() {
+  const on = offActive();
+  document.body.classList.toggle("off-on", on);
+  if (on !== OFFL.was) {
+    const first = OFFL.was === null;
+    OFFL.was = on;
+    if (on) {
+      offPrune();
+      if (view === "home") { OFFL.redir = true; setView("descargas", false); }
+      else if (view === "descargas") setView("descargas", false);
+      if (!first) syncGate(false);
+    } else if (!first) {
+      if (OFFL.redir && view === "descargas") { setView("home", false); renderHome(true); refreshRecentGrid(); }
+      else if (view === "descargas") setView("descargas", false);
+      OFFL.redir = false;
+      if (!_authSt.logged_in) refreshAuth();
+      imgRescue(null, true);
+    }
+  }
+  dlPump(); offRefresh();
+}
+let _offRf = 0;
+function offRefresh() {   // repinta lo que muestra el estado de las descargas (agrupado por frame)
+  if (_offRf) return;
+  _offRf = requestAnimationFrame(() => {
+    _offRf = 0;
+    document.querySelectorAll(".dlbtn").forEach(b => b._sync && b._sync());
+    const n = dlCount(), dl = $("dlLib");
+    if (dl) dl.querySelector(".la2").textContent = n ? n + " " + t(n === 1 ? "canción" : "canciones") : t("Escucha sin conexión");
+    if (view === "descargas") dlPaint();
+    if (!$("setmodal").hidden) dlPaintSettings();
+  });
+}
+function dlMark(id) {   // filas visibles de esa cancion: icono de descargada (y atenuado en modo offline)
+  const on = isDl(id);
+  document.querySelectorAll('.swq-row[data-id="' + CSS.escape(id) + '"], .qitem').forEach(li => {
+    const s = li._song; if (!s || s.id !== id) return;
+    li.classList.toggle("isdl", on);
+    const a = li.querySelector(".meta .a, .meta .ca"), ic = a && a.querySelector(".dlic");
+    if (on && a && !ic) a.insertAdjacentHTML("afterbegin", DL_IC);
+    else if (!on && ic) ic.remove();
+  });
+}
+const DL_IC = '<i class="ph-fill ph-arrow-circle-down dlic" aria-label="Descargada"></i>';
+function dlRowMark(li, s) {   // al construir una fila de cancion
+  if (!isDl(s.id)) return;
+  li.classList.add("isdl");
+  const a = li.querySelector(".meta .a, .meta .ca");
+  if (a) a.insertAdjacentHTML("afterbegin", DL_IC);
+}
+async function dlAskRemove(title) {
+  return await askModal({ title: "Quitar de tus descargas", icon: "ph-arrow-circle-down", okLabel: "Quitar",
+    message: (lang === "en" ? '"' + title + '" will no longer play without a connection. You can download it again anytime.'
+      : 'Ya no podrás escuchar "' + title + '" sin conexión. Puedes volver a descargarla cuando quieras.') });
+}
+// boton de descarga de una coleccion (album, playlist, Me gusta): anillo de progreso mientras baja
+function dlBtn(entryFn, songsFn) {
+  const b = document.createElement("button"); b.className = "savebtn morebtn dlbtn";
+  const sync = () => {
+    const e = entryFn(), st = e && dlColState(e.id), busy = !!(st && st.busy), done = !!(st && !st.busy);
+    b.classList.toggle("on", done); b.classList.toggle("busy", busy);
+    b.classList.toggle("paused", busy && !!dlWhyPaused());
+    b.style.setProperty("--dlp", st && st.total ? Math.round(st.done / st.total * 100) + "%" : "0%");
+    const ic = done ? "ph-fill ph-arrow-circle-down" : busy ? "ph-bold ph-arrow-down" : "ph-arrow-circle-down";
+    if (b._ic !== ic) { b._ic = ic; b.innerHTML = '<i class="ph ' + ic + '"></i>'; }
+    const lbl = t(done ? "Descargada · toca para quitarla" : busy ? "Descargando…" : "Descargar");
+    b.title = lbl; b.setAttribute("aria-label", lbl);
+  };
+  b._sync = sync; sync();
+  b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const e = entryFn(); if (!e) return;
+    if (dlColState(e.id)) { if (await dlAskRemove(e.title)) dlColRemove(e.id); return; }
+    const songs = songsFn() || [];
+    if (!songs.length) { toast("No hay canciones que descargar"); return; }
+    dlCol(e, songs);
+  };
+  return b;
+}
+function dlSongOpt(s) {   // opcion de menu de una cancion
+  const st = dlSongState(s.id);
+  return st === "done" ? ["ph-fill ph-arrow-circle-down", "Quitar descarga", () => { dlRemove([s.id]); toast("Quitada de tus descargas"); }]
+    : st === "busy" ? ["ph-x-circle", "Cancelar descarga", () => dlRemove([s.id])]
+    : ["ph-arrow-circle-down", "Descargar", () => { dlSongs([s], "solo"); toast(dlWhyPaused() ? "Se descargará cuando vuelva la conexión" : "Descargando…"); }];
+}
+const dlSongList = () => Object.values(offMeta().songs).sort((a, b) => (b.at || 0) - (a.at || 0))
+  .map(s => Object.assign(_dlEntry(s), { plays: _fmtB(s.size) }));
+function dlColData(c) {   // coleccion descargada -> mismo formato que /collection (para pintarla sin conexion)
+  const m = offMeta();
+  const tracks = c.ids.map(id => m.songs[id] || m.q.find(x => x.id === id)).filter(Boolean)
+    .map(s => ({ id: s.id, title: s.title, artist: s.artist, cover: s.cover, duration: s.duration, explicit: s.explicit,
+                 artists: s.artists, album: s.album, type: s.type }));
+  return { kind: c.kind === "albums" ? "album" : "playlist", title: c.title, subtitle: c.subtitle, cover: c.cover,
+           creator: c.creator, tracks, count: tracks.length, meta: t("Descargada"), _off: true };
+}
+async function dlEstimate() {
+  try { if (navigator.storage && navigator.storage.estimate) OFFL.est = await navigator.storage.estimate(); } catch (e) {}
+  return OFFL.est;
+}
+let _dlListSig = "";
+function dlPaint(force) {   // vista Descargas (cabecera, estado, almacenamiento, colecciones; las canciones van en #r)
+  const m = offMeta(), songs = Object.values(m.songs), bytes = dlBytes(), on = offActive();
+  $("dlCount").textContent = songs.length + " " + t(songs.length === 1 ? "canción" : "canciones") + (bytes ? " • " + _fmtB(bytes) : "");
+  $("dlKind").textContent = t(on ? "Modo offline" : "En este dispositivo");
+  // estado de la conexion
+  const box = $("dlOff");
+  box.hidden = !on;
+  if (on) {
+    const why = OFFL.forced ? "forced" : SRV.st === "auth" ? "auth" : (navigator.onLine === false || SRV.st === "offline") ? "net" : "down";
+    box.querySelector("i").className = "ph " + { forced: "ph-airplane-tilt", auth: "ph-lock-key", net: "ph-wifi-slash", down: "ph-cloud-slash" }[why];
+    $("dlOffT").textContent = t({ forced: "Modo offline activado", auth: "Tu acceso a Wave caducó", net: "Sin conexión a internet",
+                                  down: "Wave no está disponible ahora mismo" }[why]);
+    $("dlOffD").textContent = t(why === "forced" ? "Solo suenan tus descargas y Wave no usa internet."
+      : why === "auth" ? "Mientras tanto, escucha tus descargas. Verifica tu acceso para volver."
+      : "Mientras tanto, escucha tus descargas. Te reconectamos en cuanto vuelva.");
+    const bt = $("dlOffBtn");
+    bt.textContent = t(why === "forced" ? "Desactivar" : why === "auth" ? "Verificar" : "Reintentar");
+    bt.onclick = why === "forced" ? () => setOffline(false) : why === "auth" ? () => location.reload()
+      : () => { bt.disabled = true; (SRV.on ? srvPing() : Promise.resolve(offAuto(navigator.onLine === false))).finally(() => { bt.disabled = false; }); };
+  }
+  // cola de descargas
+  const q = $("dlQ"), pend = m.q.filter(x => !(x.fail >= 3)), failed = m.q.filter(x => x.fail >= 3), why = dlWhyPaused();
+  q.hidden = !m.q.length;
+  if (m.q.length) {
+    const run = pend.length && !why;
+    q.classList.toggle("run", !!run);
+    q.querySelector("i").className = "ph " + (run ? "ph-circle-notch" : pend.length ? "ph-pause-circle" : "ph-warning-circle");
+    const tot = Math.max(OFFL.total, OFFL.done + pend.length);
+    $("dlQT").textContent = pend.length
+      ? (why ? t({ forced: "En pausa: modo offline", net: "En pausa: sin conexión", wifi: "Esperando Wi‑Fi", space: "En pausa: no queda espacio" }[why])
+             : t("Descargando") + " " + Math.min(tot, OFFL.done + 1) + " " + t("de") + " " + tot)
+      : failed.length + " " + t(failed.length === 1 ? "canción no se pudo descargar" : "canciones no se pudieron descargar");
+    const names = [...OFFL.cur.values()].map(j => j.it.title).filter(Boolean);
+    $("dlQS").textContent = names.length ? names.join(" · ") : pend.length ? pend.length + " " + t("pendientes") : "";
+    $("dlQB").style.width = tot ? Math.round(OFFL.done / tot * 100) + "%" : "0%";
+    const x = $("dlQX");
+    x.textContent = t(pend.length ? "Cancelar" : "Reintentar");
+    x.onclick = () => {
+      if (pend.length) { dlRemove(m.q.map(z => z.id)); return; }
+      failed.forEach(z => { delete z.fail; }); OFFL.total = failed.length; OFFL.done = 0; OFFL.err = ""; offSave(); dlPump(); offRefresh();
+    };
+  }
+  // almacenamiento del dispositivo
+  const est = OFFL.est, leg = $("dlLeg");
+  const other = est && est.usage ? Math.max(0, est.usage - bytes) : 0, free = est && est.quota ? Math.max(0, est.quota - (est.usage || 0)) : 0;
+  const all = bytes + other + free;
+  $("dlStore").hidden = !est || !est.quota;
+  if (all) {
+    $("dlB1").style.width = (bytes / all * 100).toFixed(2) + "%";
+    $("dlB2").style.width = (other / all * 100).toFixed(2) + "%";
+    leg.innerHTML = '<span><i style="background:#1ed760"></i>' + esc(t("Descargas")) + " <b>" + _fmtB(bytes) + "</b></span>"
+      + '<span><i style="background:rgb(255 255 255 / .35)"></i>' + esc(t("Otros datos de Wave")) + " <b>" + _fmtB(other) + "</b></span>"
+      + '<span><i style="background:rgb(255 255 255 / .1)"></i>' + esc(t("Disponible")) + " <b>" + _fmtB(free) + "</b></span>";
+  }
+  // colecciones descargadas (Me gusta primero) + sugerencia de descargar Me gusta
+  const cols = Object.values(m.cols).sort((a, b) => (a.id === "liked" ? -1 : b.id === "liked" ? 1 : (b.at || 0) - (a.at || 0)));
+  const g = $("dlCols"); g.innerHTML = "";
+  cols.forEach(c => g.appendChild(dlColCard(c)));
+  if (!m.cols.liked && getLiked().length && !on) {
+    const s = document.createElement("div"); s.className = "ccard dl-sug";
+    s.innerHTML = '<div class="dl-art liked"><i class="ph-fill ph-heart"></i><span class="dl-plus"><i class="ph-bold ph-arrow-down"></i></span></div><div class="t"></div><div class="a"></div>';
+    s.querySelector(".t").textContent = t("Descargar Me gusta");
+    s.querySelector(".a").textContent = getLiked().length + " " + t("canciones");
+    s.onclick = () => dlColFetch({ id: "liked" });
+    g.appendChild(s);
+  }
+  $("dlColsH").hidden = !g.children.length;
+  $("dlSongsH").hidden = !songs.length;
+  // canciones: solo se vuelven a pintar si cambio el conjunto (el scroll de una lista larga no salta)
+  const sig = songs.length + ":" + songs.reduce((a, s) => Math.max(a, s.at || 0), 0);
+  if (force || sig !== _dlListSig) { _dlListSig = sig; const st = _main.scrollTop; render(dlSongList(), "descargas"); _main.scrollTop = st; }
+}
+function dlColCard(c) {
+  const st = dlColState(c.id), m = offMeta();
+  const d = document.createElement("div"); d.className = "ccard" + (c.kind === "artists" ? " artist" : "");
+  d.innerHTML = c.id === "liked" ? '<div class="dl-art liked"><i class="ph-fill ph-heart"></i></div><div class="t"></div><div class="a"></div>'
+    : '<img alt=""><div class="t"></div><div class="a"></div>';
+  if (c.id !== "liked") d.querySelector("img").src = c.cover || PL_EMPTY_COVER;
+  d.querySelector(".t").textContent = c.id === "liked" ? t("Me gusta") : c.title;
+  const have = c.ids.filter(x => m.songs[x]).length;
+  d.querySelector(".a").innerHTML = DL_IC + esc(st && st.busy ? have + " / " + c.ids.length : have + " " + t(have === 1 ? "canción" : "canciones"));
+  d.onclick = () => c.id === "liked" ? setView("liked") : openCollection(c.id, true, { kind: c.kind, title: c.title, subtitle: c.subtitle, cover: c.cover });
+  d.oncontextmenu = (e) => {
+    e.preventDefault();
+    showMenu([["ph-play", "Reproducir", () => { const l = c.ids.filter(isDl).map(id => _dlEntry(m.songs[id])); if (l.length) playFromList(l, shuffle ? Math.floor(Math.random() * l.length) : 0); }],
+      ["ph-fill ph-arrow-circle-down", "Quitar descarga", async () => { if (await dlAskRemove(c.id === "liked" ? t("Me gusta") : c.title)) dlColRemove(c.id); }]], e.clientX, e.clientY, d);
+  };
+  return d;
+}
+async function dlClearAll() {
+  const n = dlCount();
+  if (!n && !offMeta().q.length) return;
+  const ok = await askModal({ title: "Eliminar todas las descargas", icon: "ph-trash", danger: true, okLabel: "Eliminar",
+    message: (lang === "en" ? n + " songs (" + _fmtB(dlBytes()) + ") will be deleted from this device. You can download them again later."
+      : "Se borrarán " + n + " canciones (" + _fmtB(dlBytes()) + ") de este dispositivo. Podrás volver a descargarlas.") });
+  if (!ok) return;
+  const m = offMeta();
+  OFFL.cur.forEach(j => j.ctl.abort());
+  m.songs = {}; m.cols = {}; m.q = []; OFFL.total = OFFL.done = 0; offSave();
+  try { await caches.delete(OFF_CACHE); } catch (e) {}
+  OFFL.blobs.clear();
+  document.querySelectorAll(".swq-row.isdl, .qitem.isdl").forEach(li => { li.classList.remove("isdl"); const i = li.querySelector(".dlic"); if (i) i.remove(); });
+  if (offActive()) offPrune();
+  dlEstimate().then(offRefresh);
+  toast("Descargas eliminadas");
+}
+function dlMoreMenu(btn) {
+  const r = btn.getBoundingClientRect(), opts = [];
+  opts.push([OFFL.forced ? "ph-fill ph-airplane-tilt" : "ph-airplane-tilt", OFFL.forced ? "Desactivar modo offline" : "Activar modo offline", () => setOffline(!OFFL.forced)]);
+  if (dlCount() || offMeta().q.length) opts.push(["ph-trash", "Eliminar todas las descargas", dlClearAll]);
+  showMenu(opts, r.left, r.bottom + 6, btn);
+}
+(() => {   // controles fijos de la vista Descargas y de la barra lateral
+  const acts = $("dlActs");
+  const more = document.createElement("button"); more.className = "savebtn morebtn"; more.setAttribute("aria-label", "Opciones");
+  more.innerHTML = '<i class="ph ph-dots-three-outline"></i>';
+  more.onclick = (e) => { e.stopPropagation(); dlMoreMenu(more); };
+  acts.appendChild(more); acts.appendChild(shufBtn());
+  $("dlHead").querySelector(".covplay").onclick = () => {
+    const l = dlSongList(); if (!l.length) return;
+    playFromList(l, shuffle ? Math.floor(Math.random() * l.length) : 0);
+  };
+  $("likedActs").prepend(dlBtn(() => ({ id: "liked", kind: "liked", title: t("Me gusta") }), () => getLiked()));
+  // PC: la cabecera de Me gusta no se ve; descargarla desde el menu de su entrada en la barra lateral
+  document.querySelector('.lib-item[data-view="liked"]').oncontextmenu = (e) => {
+    e.preventDefault();
+    const st = dlColState("liked");
+    showMenu([st ? ["ph-fill ph-arrow-circle-down", "Quitar descarga", async () => { if (await dlAskRemove(t("Me gusta"))) dlColRemove("liked"); }]
+                 : ["ph-arrow-circle-down", "Descargar", () => dlColFetch({ id: "liked" })]], e.clientX, e.clientY);
+  };
+  $("setOffline").onchange = (e) => setOffline(e.target.checked);
+  $("setDlWifi").onchange = (e) => { OFFL.wifiOnly = e.target.checked; try { localStorage.setItem("wave.dlwifi", OFFL.wifiOnly ? "1" : ""); } catch (er) {} dlPump(); offRefresh(); };
+  $("setDlGo").onclick = () => { $("setmodal").hidden = true; setView("descargas"); };
+  if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener("change", () => { dlPump(); offRefresh(); });
+  if (!SRV.on) {   // escritorio / red local: el server esta al lado; lo que falta es internet
+    addEventListener("offline", () => offAuto(true));
+    addEventListener("online", () => offAuto(false));
+  }
+  addEventListener("online", () => { offMeta().q.forEach(x => { if (x.fail >= 3) delete x.fail; }); dlPump(); offRefresh(); });
+})();
+function offInit() {   // al arrancar (tras restaurar la cola y pintar Inicio)
+  if (!SRV.on && navigator.onLine === false) OFFL.auto = true;
+  offApply();
+  dlEstimate().then(offRefresh);
+}
 renderLibrary();
 // al iniciar, el player muestra la ultima cancion escuchada (pausada; togglePlay hace el arranque en frio)
 (() => {
@@ -9603,6 +10352,7 @@ renderLibrary();
 try { if (localStorage.getItem("lightning.perf") === "1") setPerf(true, true); } catch (e) {}
 applyI18n();   // traduce el HTML estatico segun el idioma guardado
 setView("home", false);   // Inicio = ventana principal (al final: tras definir todo)
+offInit();
 // escritorio: la busqueda lista para escribir al abrir (antes `autofocus` en el HTML). En movil NO: sacaba
 // el teclado y el campo enfocado cuenta como "escribiendo", asi la barra nunca se escondia al hacer scroll
 if (!matchMedia("(max-width: 820px)").matches) $("q").focus();

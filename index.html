@@ -2900,7 +2900,9 @@ const EN = {
   "Descarga en pausa": "Download paused", "Descarga en pausa · toca para reanudar": "Download paused · tap to resume",
   "Descargando… · toca para cancelar": "Downloading… · tap to cancel",
   "Descarga cancelada · puedes reanudarla cuando quieras": "Download cancelled · you can resume it anytime",
-  "Liberar espacio": "Free up space", "Descargando música": "Downloading music", "Liberando espacio": "Freeing up space", "Detener": "Stop", "Ahorrado": "Saved",
+  "Liberar espacio": "Free up space", "Descargas en pausa": "Downloads paused",
+  "En pausa: YouTube limitó las descargas": "Paused: YouTube is limiting downloads", "YouTube limitó las descargas": "YouTube is limiting downloads",
+  "sigue sola a las": "resumes automatically at", "Descargando música": "Downloading music", "Liberando espacio": "Freeing up space", "Detener": "Stop", "Ahorrado": "Saved",
   "Quitando el video que no se usa": "Removing the unused video track", "Espacio liberado": "Space freed",
   "Tus descargas ya ocupan lo mínimo": "Your downloads already use the minimum", "Necesitas conexión para esto": "You need a connection for this",
   "Quitada de tus descargas": "Removed from your downloads",
@@ -3455,6 +3457,7 @@ const _cellular = () => { const c = navigator.connection; return !!(c && c.type 
 function dlWhyPaused() {   // por que la cola de descargas esta quieta ("" = puede seguir)
   if (OFFL.forced) return "forced";
   if (OFFL.auto || navigator.onLine === false) return "net";
+  if (OFFL.ytUntil > Date.now()) return "yt";
   if (OFFL.wifiOnly && _cellular()) return "wifi";
   if (OFFL.err === "space") return "space";
   return "";
@@ -3476,20 +3479,48 @@ function dlSongs(list, ref) {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}   // que el sistema no las borre
   return n;
 }
+// peticion con tiempo limite (una colgada no puede bloquear la cola para siempre) que tambien se cancela con la descarga.
+// read(r) lee el cuerpo dentro del plazo
+async function _tfetch(url, ms, sig, read) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), ms), ab = () => c.abort();
+  if (sig) sig.addEventListener("abort", ab);
+  try { return await read(await fetch(url, { signal: c.signal })); }
+  finally { clearTimeout(tm); if (sig) sig.removeEventListener("abort", ab); }
+}
+// YouTube pide "confirmar que no eres un bot" al servidor (demasiadas descargas seguidas): la cola se para sola y
+// sigue mas tarde (5, 10, 20, 40 y luego cada 60 min) sin contarlo como fallo de las canciones
+function dlYtPause(sec) {
+  const now = Date.now();
+  if (OFFL.ytUntil > now) return;
+  OFFL.ytN = (OFFL.ytN || 0) + 1;
+  const ms = Math.min(60, Math.max((sec || 0) / 60, 5 * 2 ** (OFFL.ytN - 1))) * 60000;
+  OFFL.ytUntil = now + ms;
+  clearTimeout(OFFL.ytT);
+  OFFL.ytT = setTimeout(() => { OFFL.ytUntil = 0; dlPump(); if (OFFL.slimWant && !OFFL.slim) dlSlim(true); offRefresh(); }, ms + 500);
+  offRefresh();
+}
+const _ytAt = () => new Date(OFFL.ytUntil).toLocaleTimeString(lang === "en" ? "en-US" : "es", { hour: "numeric", minute: "2-digit" });
 function dlPump() {
   if (!OFF_CACHE) return;
   const m = offMeta();
-  while (OFFL.cur.size < 2 && !dlWhyPaused()) {
+  while (OFFL.cur.size + (OFFL.hold || 0) < 2 && !dlWhyPaused()) {
     const it = m.q.find(x => !OFFL.cur.has(x.id) && !x._wait && !(x.fail >= 3));
     if (!it) break;
     const job = { it, ctl: new AbortController() };
     OFFL.cur.set(it.id, job);
     _dlOne(job).catch((e) => {
       if (job.ctl.signal.aborted) return;
+      if (e && e.yt) { dlYtPause(e.yt); return; }   // no es culpa de la cancion: no cuenta como fallo
       it.fail = (it.fail || 0) + 1; offSave();
       if (OFFL.err === "space") return;
       if (it.fail < 3) { it._wait = true; setTimeout(() => { it._wait = false; dlPump(); }, 4000 * it.fail); }
-    }).finally(() => { OFFL.cur.delete(it.id); if (!it._wait) dlPump(); offRefresh(); });
+    }).finally(() => {
+      OFFL.cur.delete(it.id);
+      // bajada de YouTube (no estaba en el servidor): el hueco descansa unos segundos para no parecer un bot
+      if (job.yt) { OFFL.hold = (OFFL.hold || 0) + 1; setTimeout(() => { OFFL.hold--; dlPump(); }, 4000); }
+      else if (!it._wait) dlPump();
+      offRefresh();
+    });
   }
   if (!m.q.length) { OFFL.total = 0; OFFL.done = 0; }
 }
@@ -3506,10 +3537,13 @@ async function _dlOne(job) {
   let ao = false;
   const audioP = (async () => {
     try {
-      const r = await fetch("/stream?id=" + encodeURIComponent(s.id) + "&a=1", { signal: sig });
-      if (!r.ok) throw new Error("stream " + r.status);
-      ao = r.headers.get("X-Audio-Only") === "1";
-      return await r.arrayBuffer();
+      return await _tfetch("/stream?id=" + encodeURIComponent(s.id) + "&a=1", 150000, sig, async (r) => {
+        if (r.status === 429 && r.headers.get("X-Blocked") === "bot") { const e = new Error("yt"); e.yt = +r.headers.get("Retry-After") || 900; throw e; }
+        if (!r.ok) throw new Error("stream " + r.status);
+        ao = r.headers.get("X-Audio-Only") === "1";
+        job.yt = r.headers.get("X-Cached") === "0";
+        return await r.arrayBuffer();
+      });
     } catch (e) {
       if (sig.aborted || !AUDIO_CACHE) throw e;
       const h = await (await caches.open(AUDIO_CACHE)).match("/stream?id=" + s.id).catch(() => null);
@@ -3521,8 +3555,10 @@ async function _dlOne(job) {
   const cov = _covKey(s.cover);
   const covP = (async () => {
     if (!cov || await c.match(cov)) return;
-    const r = await fetch("/img?u=" + encodeURIComponent(hiCover(s.cover)), { signal: sig });
-    if (r.ok && /^image\//.test(r.headers.get("content-type") || "")) await c.put(cov, r);
+    await _tfetch("/img?u=" + encodeURIComponent(hiCover(s.cover)), 20000, sig, async (r) => {
+      const ct = r.headers.get("content-type") || "";
+      if (r.ok && /^image\//.test(ct)) await c.put(cov, new Response(await r.blob(), { headers: { "Content-Type": ct } }));
+    });
   })().catch(() => {});
   const lyrP = (async () => {
     const d = await Promise.race([fetchLyrics(s), new Promise((_, no) => setTimeout(() => no(new Error("t")), 12000))]);
@@ -3543,6 +3579,7 @@ async function _dlOne(job) {
   const e = m.q.splice(qi, 1)[0];
   delete e.fail; delete e._wait;
   m.songs[s.id] = Object.assign(e, { size: ab.byteLength, at: Date.now() }, ao ? { ao: 1 } : {});
+  if (job.yt) OFFL.ytN = 0;   // YouTube vuelve a responder: la proxima pausa empieza otra vez corta
   offSave(); OFFL.done++;
   if (cov) OFFL.blobs.delete(cov);
   c.put("/__dl", new Response("1"));   // el service worker abre la app (no la pantalla de caido) si hay descargas
@@ -3695,9 +3732,11 @@ async function dlSlim(resume) {
     if (job.stop || dlWhyPaused()) break;
     if (offMeta().songs[id] && !offMeta().songs[id].ao) {
       try {
-        const r = await fetch("/stream?id=" + encodeURIComponent(id) + "&a=1");
+        const [r, ab0] = await _tfetch("/stream?id=" + encodeURIComponent(id) + "&a=1", 150000, null,
+          async (r) => [r, r.ok && r.headers.get("X-Audio-Only") === "1" ? await r.arrayBuffer() : null]);
+        if (r.status === 429 && r.headers.get("X-Blocked") === "bot") { dlYtPause(+r.headers.get("Retry-After") || 900); break; }
         if (r.ok && r.headers.get("X-Audio-Only") !== "1") { job.stop = true; break; }   // servidor sin esta funcion: no tiene sentido seguir
-        const ab = r.ok ? await r.arrayBuffer() : null, cur = offMeta().songs[id];
+        const ab = ab0, cur = offMeta().songs[id];
         if (ab && cur && ab.byteLength > 20000) {
           if (ab.byteLength < (cur.size || Infinity)) {
             await c.put(_dlKey(id), new Response(ab, { headers: { "Content-Type": "audio/mp4", "X-Size": String(ab.byteLength) } }));
@@ -10260,9 +10299,9 @@ let _offRf = 0;
 let _dlnSig = "";
 function dlNative() {
   try {
-    const m = offMeta(), pend = m.q.filter(x => !(x.fail >= 3)).length, slim = OFFL.slim;
-    const dl = !!(pend && !dlWhyPaused()), active = dl || !!slim;
-    keepAwake(active && view === "descargas", "dl");
+    const m = offMeta(), pend = m.q.filter(x => !(x.fail >= 3)).length, slim = OFFL.slim, why = dlWhyPaused();
+    const dl = !!(pend && !why), ytw = !!(why === "yt" && (pend || OFFL.slimWant)), active = dl || !!slim || ytw;
+    keepAwake((dl || !!slim) && view === "descargas", "dl");
     const P = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Downloads;
     if (!P || !P.progress) return;
     let st = { active };
@@ -10270,6 +10309,9 @@ function dlNative() {
       const tot = Math.max(OFFL.total, OFFL.done + pend), cur = [...OFFL.cur.values()].map(j => j.it.title).filter(Boolean)[0];
       st = { active, title: t("Descargando música"), text: Math.min(tot, OFFL.done + 1) + " " + t("de") + " " + tot + (cur ? " · " + cur : ""),
              done: OFFL.done, total: tot };
+    } else if (ytw) {
+      st = { active, title: t("Descargas en pausa"), text: t("YouTube limitó las descargas") + " · " + t("sigue sola a las") + " " + _ytAt(),
+             done: OFFL.done, total: 0 };
     } else if (slim) {
       st = { active, title: t("Liberando espacio"), done: slim.done, total: slim.total,
              text: Math.min(slim.total, slim.done + 1) + " " + t("de") + " " + slim.total + (slim.saved ? " · " + t("Ahorrado") + " " + _fmtB(slim.saved) : "") };
@@ -10410,7 +10452,8 @@ function dlPaint(force) {   // vista Descargas (cabecera, estado, almacenamiento
     q.querySelector("i").className = "ph " + (run ? "ph-circle-notch" : pend.length ? "ph-pause-circle" : "ph-warning-circle");
     const tot = Math.max(OFFL.total, OFFL.done + pend.length);
     $("dlQT").textContent = pend.length
-      ? (why ? t({ forced: "En pausa: modo offline", net: "En pausa: sin conexión", wifi: "Esperando Wi‑Fi", space: "En pausa: no queda espacio" }[why])
+      ? (why === "yt" ? t("En pausa: YouTube limitó las descargas") + " · " + t("sigue sola a las") + " " + _ytAt()
+         : why ? t({ forced: "En pausa: modo offline", net: "En pausa: sin conexión", wifi: "Esperando Wi‑Fi", space: "En pausa: no queda espacio" }[why])
              : t("Descargando") + " " + Math.min(tot, OFFL.done + 1) + " " + t("de") + " " + tot)
       : failed.length + " " + t(failed.length === 1 ? "canción no se pudo descargar" : "canciones no se pudieron descargar");
     const names = [...OFFL.cur.values()].map(j => j.it.title).filter(Boolean);
@@ -10522,14 +10565,14 @@ function dlMoreMenu(btn) {
     addEventListener("online", () => offAuto(false));
   }
   // al volver la red o la app (pantalla encendida otra vez, de vuelta desde otra app): lo que se corto sigue solo
-  const dlWake = () => {
-    offMeta().q.forEach(x => { if (x.fail >= 3) delete x.fail; });
+  const dlWake = (e) => {
+    if (e && e.type === "online") offMeta().q.forEach(x => { if (x.fail >= 3) delete x.fail; });
     dlPump();
     if (OFFL.slimWant && !OFFL.slim) dlSlim(true);
     offRefresh();
   };
   addEventListener("online", dlWake);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) dlWake(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) dlWake(null); });
   // pantalla encendida solo con la vista Descargas abierta
   new MutationObserver(dlNative).observe(document.body, { attributes: true, attributeFilter: ["data-mv"] });
 })();

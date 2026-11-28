@@ -2339,6 +2339,17 @@ def _session_cookiefiles():
 _RESTRICTED = ("age", "sign in", "error code: 152", "inappropriate", "confirm your")
 
 
+# YouTube pide "confirmar que no eres un bot" a esta IP (demasiadas extracciones seguidas, p. ej. descargando una
+# biblioteca entera). No es una restriccion del tema: no se marca como gated. Mientras dura, las descargas offline no
+# tocan YouTube (429) para que la IP se enfrie; la reproduccion sigue intentandolo con sus alternativas
+_BOT = {"until": 0.0}
+_BOT_COOL = 900
+
+
+class _BotBlocked(RuntimeError):
+    pass
+
+
 class _Restricted(RuntimeError):
     """Explicita / restriccion de edad: el cliente android no la da; audio_fetch va por la sesion."""
 
@@ -2352,6 +2363,9 @@ def _extract(video_id):
     except Exception as e:
         if not any(s in str(e).lower() for s in _RESTRICTED):
             return _extract_with(video_id, clients=["web", "android"])   # raro: android fallo sin age-gate
+        if "not a bot" in str(e).lower():
+            _BOT["until"] = time.time() + _BOT_COOL
+            raise _Restricted(str(e))
         _CACHE["gated:" + video_id] = (time.time(), 1)
         raise _Restricted(str(e))
 
@@ -2899,7 +2913,8 @@ def audio_fetch(vid, on_start=None, on_chunk=None):
 def audio_only(vid):
     """Solo la pista de audio, sin el video que trae el itag 18 (~25 % del archivo de media; en los videoclips mas
     de la mitad): para las descargas del modo offline, que no lo usan. Remux sin recodificar (~0.3 s en el movil).
-    None si ffmpeg falla (se sirve el archivo tal cual)."""
+    None si ffmpeg falla (se sirve el archivo tal cual). _BotBlocked si YouTube esta limitando a esta IP: una descarga
+    no espera los rodeos lentos de la reproduccion (minutos) ni insiste."""
     fd, out = tempfile.mkstemp(suffix=".m4a")
     os.close(fd)
     try:
@@ -2910,12 +2925,21 @@ def audio_only(vid):
             if os.path.isfile(fp):
                 os.utime(fp)
             else:
+                if time.time() < _BOT["until"]:
+                    raise _BotBlocked()
+                try:
+                    audio_url(vid)   # deja el link listo para audio_fetch; aqui se ve si YouTube nos frena
+                except _Restricted:
+                    if time.time() < _BOT["until"]:
+                        raise _BotBlocked()
                 audio_fetch(vid)
             r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", fp, "-map", "0:a:0", "-c", "copy",
                                 "-movflags", "+faststart", out], capture_output=True, timeout=90)
         if r.returncode == 0 and os.path.getsize(out) > 20000:
             with open(out, "rb") as f:
                 return f.read()
+    except _BotBlocked:
+        raise
     except Exception:
         pass
     finally:
@@ -5297,12 +5321,25 @@ class H(BaseHTTPRequestHandler):
             if not re.fullmatch(r"[\w-]{6,20}", vid):
                 self.send_response(400); self.end_headers(); return
             if parse_qs(u.query).get("a", [""])[0] == "1":   # descarga offline: solo el audio
-                data = audio_only(vid)
+                cached = os.path.isfile(_audio_path(vid))
+                try:
+                    data = audio_only(vid)
+                except _BotBlocked:
+                    self.send_response(429)
+                    self.send_header("Retry-After", str(max(60, int(_BOT["until"] - time.time()))))
+                    self.send_header("X-Blocked", "bot")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if not data and not os.path.isfile(_audio_path(vid)):   # no se pudo bajar: sin reintentar aqui
+                    self.send_response(502); self.send_header("Content-Length", "0"); self.end_headers()
+                    return
                 if data:
                     self.send_response(200)
                     self.send_header("Content-Type", "audio/mp4")
                     self.send_header("Content-Length", str(len(data)))
                     self.send_header("X-Audio-Only", "1")
+                    self.send_header("X-Cached", "1" if cached else "0")
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
                     try:

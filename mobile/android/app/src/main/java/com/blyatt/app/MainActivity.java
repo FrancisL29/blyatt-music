@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GoogleLoginPlugin.class);
         registerPlugin(MediaControlsPlugin.class);
         registerPlugin(ShareSheetPlugin.class);
+        registerPlugin(DownloadsPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Pantalla completa: la app se dibuja bajo la barra de estado y la de navegacion (transparentes, iconos

@@ -2900,7 +2900,7 @@ const EN = {
   "Descarga en pausa": "Download paused", "Descarga en pausa · toca para reanudar": "Download paused · tap to resume",
   "Descargando… · toca para cancelar": "Downloading… · tap to cancel",
   "Descarga cancelada · puedes reanudarla cuando quieras": "Download cancelled · you can resume it anytime",
-  "Liberar espacio": "Free up space", "Liberando espacio": "Freeing up space", "Detener": "Stop", "Ahorrado": "Saved",
+  "Liberar espacio": "Free up space", "Descargando música": "Downloading music", "Liberando espacio": "Freeing up space", "Detener": "Stop", "Ahorrado": "Saved",
   "Quitando el video que no se usa": "Removing the unused video track", "Espacio liberado": "Space freed",
   "Tus descargas ya ocupan lo mínimo": "Your downloads already use the minimum", "Necesitas conexión para esto": "You need a connection for this",
   "Quitada de tus descargas": "Removed from your downloads",
@@ -3682,12 +3682,13 @@ function dlColOpts(entry, songsFn) {
   return [rm];
 }
 // descargas de antes de quitar el video (sin "ao"): se cambian por solo el audio, una a una
-async function dlSlim() {
-  if (OFFL.slim) { OFFL.slim.stop = true; return; }
-  if (dlWhyPaused()) { toast("Necesitas conexión para esto"); return; }
+async function dlSlim(resume) {
+  if (OFFL.slim) { OFFL.slim.stop = true; OFFL.slimWant = false; return; }
+  if (dlWhyPaused()) { if (!resume) toast("Necesitas conexión para esto"); return; }
   const ids = Object.keys(offMeta().songs).filter(id => !offMeta().songs[id].ao);
-  if (!ids.length) { toast("Tus descargas ya ocupan lo mínimo"); return; }
-  const job = OFFL.slim = { done: 0, total: ids.length, saved: 0, stop: false };
+  if (!ids.length) { OFFL.slimWant = false; if (!resume) toast("Tus descargas ya ocupan lo mínimo"); return; }
+  const job = OFFL.slim = { done: 0, total: ids.length, saved: 0, stop: false, fail: 0 };
+  OFFL.slimWant = true;
   offRefresh();
   const c = await caches.open(OFF_CACHE);
   for (const id of ids) {
@@ -3695,7 +3696,7 @@ async function dlSlim() {
     if (offMeta().songs[id] && !offMeta().songs[id].ao) {
       try {
         const r = await fetch("/stream?id=" + encodeURIComponent(id) + "&a=1");
-        if (r.ok && r.headers.get("X-Audio-Only") !== "1") break;   // servidor sin esta funcion: no tiene sentido seguir
+        if (r.ok && r.headers.get("X-Audio-Only") !== "1") { job.stop = true; break; }   // servidor sin esta funcion: no tiene sentido seguir
         const ab = r.ok ? await r.arrayBuffer() : null, cur = offMeta().songs[id];
         if (ab && cur && ab.byteLength > 20000) {
           if (ab.byteLength < (cur.size || Infinity)) {
@@ -3705,12 +3706,14 @@ async function dlSlim() {
           }
           cur.ao = 1; offSave();
         }
-      } catch (e) {}
+      } catch (e) { job.fail++; }
     }
     job.done++; offRefresh();
   }
   OFFL.slim = null;
-  toast(t("Espacio liberado") + ": " + _fmtB(job.saved));
+  const cut = !job.stop && (job.fail || dlWhyPaused());   // cortado (sin red, app congelada...): sigue solo al volver
+  if (!cut) OFFL.slimWant = false;
+  if (job.saved || !cut) toast(t("Espacio liberado") + ": " + _fmtB(job.saved));
   dlEstimate().then(offRefresh);
 }
 const dlSongState = id => offMeta().songs[id] ? "done" : offMeta().q.some(x => x.id === id) ? "busy" : null;
@@ -9777,15 +9780,24 @@ function npLyrExit(instant) {
 npv.addEventListener("click", (e) => {
   if (npv.classList.contains("hdr") && e.target.closest(".np-art, .np-meta")) { e.stopPropagation(); npLyrExit(); }
 });
-/* pantalla encendida mientras se ve la letra (el sistema la apagaba a mitad de cancion). Screen Wake Lock: se suelta
-   al cerrar la letra; el sistema lo suelta solo al salir de la app y se vuelve a pedir al volver */
-let _wake = null;
-async function keepAwake(on) {
+/* pantalla encendida mientras se ve la letra (el sistema la apagaba a mitad de cancion) o mientras se descarga con la
+   vista Descargas abierta. Cada motivo pide la suya (why) y se apaga cuando no queda ninguno. App Android: el plugin
+   Downloads (la WebView no trae navigator.wakeLock). Navegador: Screen Wake Lock, que el sistema suelta al salir de la
+   app y se vuelve a pedir al volver */
+const _awake = new Set();
+let _wake = null, _wakeNat = null;
+async function keepAwake(on, why = "lyr") {
+  if (on) _awake.add(why); else _awake.delete(why);
+  const want = _awake.size > 0, nat = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Downloads;
+  if (nat && nat.keepScreen) {
+    if (want !== _wakeNat) { _wakeNat = want; nat.keepScreen({ on: want }).catch(() => {}); }
+    return;
+  }
   try {
-    if (on && !_wake && navigator.wakeLock && document.visibilityState === "visible") {
+    if (want && !_wake && navigator.wakeLock && document.visibilityState === "visible") {
       _wake = await navigator.wakeLock.request("screen");
       _wake.addEventListener("release", () => { _wake = null; });
-    } else if (!on && _wake) { const w = _wake; _wake = null; await w.release(); }
+    } else if (!want && _wake) { const w = _wake; _wake = null; await w.release(); }
   } catch (e) { _wake = null; }
 }
 const lyrVisible = () => $("lyricsPanel").classList.contains("show") && _mqMobile.matches;
@@ -10243,7 +10255,32 @@ function offApply() {
   dlPump(); offRefresh();
 }
 let _offRf = 0;
+// app Android: mientras se descarga (o se libera espacio), servicio en primer plano con el progreso en una notificacion
+// (sigue con la pantalla apagada o fuera de la app) y, con la vista Descargas abierta, la pantalla encendida
+let _dlnSig = "";
+function dlNative() {
+  try {
+    const m = offMeta(), pend = m.q.filter(x => !(x.fail >= 3)).length, slim = OFFL.slim;
+    const dl = !!(pend && !dlWhyPaused()), active = dl || !!slim;
+    keepAwake(active && view === "descargas", "dl");
+    const P = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Downloads;
+    if (!P || !P.progress) return;
+    let st = { active };
+    if (dl) {
+      const tot = Math.max(OFFL.total, OFFL.done + pend), cur = [...OFFL.cur.values()].map(j => j.it.title).filter(Boolean)[0];
+      st = { active, title: t("Descargando música"), text: Math.min(tot, OFFL.done + 1) + " " + t("de") + " " + tot + (cur ? " · " + cur : ""),
+             done: OFFL.done, total: tot };
+    } else if (slim) {
+      st = { active, title: t("Liberando espacio"), done: slim.done, total: slim.total,
+             text: Math.min(slim.total, slim.done + 1) + " " + t("de") + " " + slim.total + (slim.saved ? " · " + t("Ahorrado") + " " + _fmtB(slim.saved) : "") };
+    }
+    const sig = JSON.stringify(st);
+    if (sig === _dlnSig) return;
+    _dlnSig = sig; P.progress(st).catch(() => {});
+  } catch (e) {}
+}
 function offRefresh() {   // repinta lo que muestra el estado de las descargas (agrupado por frame)
+  dlNative();   // fuera del frame: con la app en segundo plano no hay frames y la notificacion debe seguir al dia
   if (_offRf) return;
   _offRf = requestAnimationFrame(() => {
     _offRf = 0;
@@ -10484,7 +10521,17 @@ function dlMoreMenu(btn) {
     addEventListener("offline", () => offAuto(true));
     addEventListener("online", () => offAuto(false));
   }
-  addEventListener("online", () => { offMeta().q.forEach(x => { if (x.fail >= 3) delete x.fail; }); dlPump(); offRefresh(); });
+  // al volver la red o la app (pantalla encendida otra vez, de vuelta desde otra app): lo que se corto sigue solo
+  const dlWake = () => {
+    offMeta().q.forEach(x => { if (x.fail >= 3) delete x.fail; });
+    dlPump();
+    if (OFFL.slimWant && !OFFL.slim) dlSlim(true);
+    offRefresh();
+  };
+  addEventListener("online", dlWake);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) dlWake(); });
+  // pantalla encendida solo con la vista Descargas abierta
+  new MutationObserver(dlNative).observe(document.body, { attributes: true, attributeFilter: ["data-mv"] });
 })();
 function offInit() {   // al arrancar (tras restaurar la cola y pintar Inicio)
   if (!SRV.on && navigator.onLine === false) OFFL.auto = true;
